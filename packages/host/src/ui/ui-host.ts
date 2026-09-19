@@ -206,13 +206,14 @@ class PluginUiImpl implements PluginUi {
  * Returns a detach function that stops observing and removes the button.
  */
 function attachNavButton(button: HTMLButtonElement): () => void {
-  const sidebar = requireElement(SELECTORS.sidebar);
-  sidebar.appendChild(button);
+  // #navEl is the nav list; appending to the sidebar shell would land outside the scroll area.
+  const nav = requireElement(SELECTORS.navList);
+  nav.appendChild(button);
 
   const observer = new MutationObserver(() => {
-    if (!sidebar.contains(button)) sidebar.appendChild(button);
+    if (!nav.contains(button)) nav.appendChild(button);
   });
-  observer.observe(sidebar, { childList: true, subtree: true });
+  observer.observe(nav, { childList: true });
 
   return (): void => {
     observer.disconnect();

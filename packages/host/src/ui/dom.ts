@@ -8,6 +8,10 @@
 
 export const SELECTORS = {
   sidebar: '#sidebarEl',
+  /** The scrollable nav list inside the sidebar. `navRender()` clears this element. */
+  navList: '#navEl',
+  /** Container for the top menu bar's `.tb-menu-item` entries. */
+  taskbarMenus: '#tbMenuItems',
   navButtons: '#sidebarEl .nav-btn[onclick]',
   tabs: '.tab',
   content: '.content',

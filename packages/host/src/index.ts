@@ -19,8 +19,10 @@ import { LogSink } from './log/log-sink.js';
 import { PluginManager } from './plugin-manager.js';
 import { Registry } from './registry/registry.js';
 import { IdbStore } from './storage/idb-store.js';
+import { AboutPanel } from './ui/about-panel.js';
 import { LogPanel } from './ui/log-panel.js';
 import { ManagerPanel } from './ui/manager-panel.js';
+import { PluginNav, type NavEntry } from './ui/plugin-nav.js';
 import { UiHost } from './ui/ui-host.js';
 import { Updater } from './update/updater.js';
 
@@ -63,6 +65,7 @@ interface Core {
   readonly toast: (options: ToastOptions) => void;
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
+  readonly isLinux: () => boolean;
 }
 
 async function buildCore(): Promise<Core> {
@@ -118,12 +121,18 @@ async function buildCore(): Promise<Core> {
     toast,
     routes,
     contextMenu,
+    isLinux: () => isLinux,
   };
 }
 
-/** Mounts the Plugins tab: repository manager above, live log viewer below. */
-function mountUi(core: Core, bag: DisposableBag): void {
-  const panel = new ManagerPanel({
+/**
+ * Mounts the "Plugins" group in both the sidebar and the top menu bar.
+ *
+ * The three entries are declared once; {@link PluginNav} renders them into two different DOM
+ * shapes and shares activation, lazy rendering and tab ownership between them.
+ */
+function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
+  const managerPanel = new ManagerPanel({
     manager: core.manager,
     onError: (message) => {
       core.logger.error(message);
@@ -134,17 +143,53 @@ function mountUi(core: Core, bag: DisposableBag): void {
   const logPanel = new LogPanel(core.sink);
   bag.add(() => { logPanel.dispose(); });
 
-  const hostUi = core.ui.forHost(bag);
-  hostUi.addNavTab({
-    label: 'Plugins',
-    icon: 'extension',
-    render: (container) => {
-      panel.render(container);
-      const logs = hostUi.createCard('Plugin logs', 'article');
-      logPanel.render(logs);
-      container.appendChild(logs);
+  const aboutPanel = new AboutPanel({
+    manager: core.manager,
+    updater,
+    sink: core.sink,
+    logger: core.logger,
+    isLinux: core.isLinux,
+    openUrl: (url) => { core.bridge.send('openUrl', { url }); },
+  });
+
+  const entries: readonly NavEntry[] = [
+    {
+      id: 'manage',
+      label: 'Manage Plugins',
+      icon: 'extension',
+      render: (container) => { managerPanel.render(container); },
+    },
+    {
+      id: 'logs',
+      label: 'Logs',
+      icon: 'article',
+      render: (container) => {
+        const card = core.ui.forHost(bag).createCard('Plugin logs', 'article');
+        logPanel.render(card);
+        container.appendChild(card);
+      },
+    },
+    {
+      id: 'system',
+      label: 'Plugin System',
+      icon: 'settings_applications',
+      render: (container) => { aboutPanel.render(container); },
+    },
+  ];
+
+  const nav = new PluginNav({
+    entries,
+    groupId: 'vrcnextPluginsNavGroup',
+    groupLabel: 'Plugins',
+    groupIcon: 'extension',
+    onError: (error, entry) => {
+      core.logger.error(
+        `Could not render "${entry.label}": ${error instanceof Error ? error.message : String(error)}`,
+      );
     },
   });
+  nav.mount();
+  bag.add(nav);
 }
 
 export async function boot(): Promise<HostHandle> {
@@ -153,7 +198,6 @@ export async function boot(): Promise<HostHandle> {
 
   const core = await buildCore();
   const bag = new DisposableBag();
-  mountUi(core, bag);
 
   const failures = await core.manager.activateEnabled();
   for (const failure of failures) core.logger.error(failure.message);
@@ -168,6 +212,7 @@ export async function boot(): Promise<HostHandle> {
     notify: (message, ok) => { core.toast({ message, ok }); },
   });
   updater.start(shutdownController.signal);
+  mountNav(core, updater, bag);
 
   const handle: HostHandle = {
     apiVersion: API_VERSION,

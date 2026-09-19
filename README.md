@@ -58,6 +58,20 @@ Three limits are real and documented rather than papered over:
 
 See [Limitations](https://vrcnext-plugins.github.io/limitations) for the full platform matrix.
 
+## The Plugins menu
+
+Once installed, VRCNext gains a **Plugins** group — a divider plus a puzzle-piece entry — in the
+sidebar, mirrored as a **Plugins** menu in the top bar. Both drive the same three tabs:
+
+| Entry | What it is |
+| :--- | :--- |
+| **Manage Plugins** | Add repositories by URL, install, enable/disable, refresh, remove. |
+| **Logs** | Live plugin + host log with level and plugin filters, copy, clear and download. |
+| **Plugin System** | Status, manual update check, platform support matrix, and about. |
+
+Both surfaces are built from one `NavEntry[]`; only the markup builders differ, since VRCNext's
+sidebar and taskbar use unrelated DOM.
+
 ## Install
 
 ```bash
@@ -97,6 +111,7 @@ theme manually under **Settings → Design → Themes**.
         ├── PluginLoader     → evaluates bundles as real ES modules (blob URLs)
         ├── RouteTable       → wraps fetch for /plugins/<id>/…
         ├── ContextMenuHub   → appends into VRCNext's rendered menu
+        ├── PluginNav        → "Plugins" group in the sidebar *and* the top menu bar
         ├── UiHost           → nav tabs, dashboard and settings cards
         ├── LogSink          → console + ring buffer + IndexedDB + downloadable .log
         └── Updater          → plugin auto-update; host update detection
