@@ -88,7 +88,8 @@ export default definePlugin({
     installRoutes(ctx, state);
     installContextMenu(ctx, state);
     installNotifications(ctx, state);
-    installNative(ctx, state);
+    // Fire-and-forget: the companion probe must not hold up the rest of activation.
+    void installNative(ctx, state);
     installUi(ctx, state);
 
     ctx.logger.info(`Kitchen Sink v${ctx.version} ready.`);
@@ -293,15 +294,17 @@ function installNotifications(ctx: Ctx, state: State): void {
  * the two-step: ask what targets exist, then address them by name. Hard-coding `'wayvr'` would
  * work today and break the moment someone runs a different overlay.
  */
-function installNative(ctx: Ctx, state: State): void {
-  if (!ctx.native.available) {
+async function installNative(ctx: Ctx, state: State): Promise<void> {
+  // `await ctx.native.ready`, not `if (ctx.native.available)`. The host's probe is still in flight
+  // when plugins activate, so reading the snapshot here is a race: on a fast answer it is true, on
+  // a slow one false, and the plugin silently loses its VR notifications.
+  if (!(await ctx.native.ready)) {
     state.log(`[native] no companion at ${ctx.native.endpoint}; VR targets unavailable.`);
     return;
   }
 
-  void ctx.native.targets().then((targets) => {
-    state.log(`[native] targets: ${targets.map((t) => t.name).join(', ') || 'none'}`);
-  });
+  const targets = await ctx.native.targets();
+  state.log(`[native] targets: ${targets.map((t) => t.name).join(', ') || 'none'}`);
 
   ctx.gameLog.onType('OnPlayerJoined', (entry) => {
     const who = entry.detail || entry.message;
@@ -337,10 +340,12 @@ function installNative(ctx: Ctx, state: State): void {
   });
 
   // The forward-compatible path: call a service this example predates.
-  void ctx.native.describe().then((description) => {
-    if (description === undefined) return;
-    state.log(`[native] companion ${description.version}, services: ${Object.keys(description.services).join(', ')}`);
-  });
+  const description = await ctx.native.describe();
+  if (description !== undefined) {
+    state.log(
+      `[native] companion ${description.version}, services: ${Object.keys(description.services).join(', ')}`,
+    );
+  }
 }
 
 /** 11. UI: a dashboard card, a sidebar tab and a settings card. */

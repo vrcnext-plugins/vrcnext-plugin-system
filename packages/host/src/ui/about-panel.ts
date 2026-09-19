@@ -5,9 +5,10 @@
  * should not have to discover the platform gates by watching a plugin silently do nothing.
  */
 
-import type { Logger, NativeApi } from '@vrcnext/plugin-api';
+import type { Logger } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from '../api-version.js';
+import type { NativeClient } from '../capabilities/native.js';
 import type { LogSink } from '../log/log-sink.js';
 import type { PluginManager } from '../plugin-manager.js';
 import type { Updater } from '../update/updater.js';
@@ -21,7 +22,7 @@ export interface AboutPanelDeps {
   readonly updater: Updater;
   readonly sink: LogSink;
   readonly logger: Logger;
-  readonly native: NativeApi;
+  readonly native: NativeClient;
   readonly isLinux: () => boolean;
   readonly openUrl: (url: string) => void;
 }
@@ -196,9 +197,44 @@ export class AboutPanel {
     row.append(refresh, status);
     card.append(row, targets);
 
-    AboutPanel.#rows(card, [['Endpoint', native.endpoint]]);
+    card.appendChild(this.#buildEndpointRow(update));
     update();
     return card;
+  }
+
+  /**
+   * Lets the user point the host at a relocated daemon.
+   *
+   * The bridge's listen address is a flag, so pinning the host to one endpoint would strand anyone
+   * who changed it — with no recourse short of editing the installed bundle.
+   */
+  #buildEndpointRow(onChange: () => void): HTMLElement {
+    const { native } = this.#deps;
+    const row = element('div', CLASSES.toggleRow);
+    row.appendChild(element('div', undefined, 'Endpoint'));
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = native.endpoint;
+    input.spellcheck = false;
+    input.style.cssText = 'min-width:260px;text-align:right;';
+
+    const apply = (): void => {
+      if (input.value === native.endpoint) return;
+      input.disabled = true;
+      void native.setEndpoint(input.value).finally(() => {
+        input.disabled = false;
+        input.value = native.endpoint;
+        onChange();
+      });
+    };
+    input.addEventListener('change', apply);
+    input.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (event.key === 'Enter') apply();
+    });
+
+    row.appendChild(input);
+    return row;
   }
 
   static #buildAbout(openUrl: (url: string) => void): HTMLElement {

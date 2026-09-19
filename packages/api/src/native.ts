@@ -131,6 +131,19 @@ export interface NativeApi {
    */
   readonly available: boolean;
 
+  /**
+   * The boot-time probe, as a promise.
+   *
+   * Prefer this over {@link NativeApi.available} inside `activate`. `available` is a synchronous
+   * snapshot, and the host's probe may still be in flight when a plugin starts — branching on it
+   * there is a race that resolves differently depending on how fast the daemon answers.
+   *
+   * ```ts
+   * if (!(await ctx.native.ready)) return;
+   * ```
+   */
+  readonly ready: Promise<boolean>;
+
   /** Where the host is looking for the companion. */
   readonly endpoint: string;
 

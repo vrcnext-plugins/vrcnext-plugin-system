@@ -110,7 +110,8 @@ async function buildCore(): Promise<Core> {
   // Probed rather than awaited: the companion is optional, and boot must not wait on a daemon
   // most users do not run.
   const native = new NativeClient(createLogger(sink, 'native'));
-  void native.probe();
+  // Touch `ready` so the probe starts now; plugins await the same promise rather than racing it.
+  void native.ready;
 
   const loader = new PluginLoader({
     router,
