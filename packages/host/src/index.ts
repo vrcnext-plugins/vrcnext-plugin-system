@@ -83,9 +83,15 @@ async function buildCore(): Promise<Core> {
   const registry = new Registry(storage);
   await registry.load();
 
-  // VRCNext reports the platform once, right after the page sends `ready`. Until then assume
-  // Windows so a desktop notification is attempted rather than silently dropped.
-  let isLinux = false;
+  // VRCNext sends `setPlatform` once, in response to the page's `ready` — which happens well
+  // before a custom theme's script runs, so listening alone always misses it. It also records the
+  // answer on the document, and that is still there when we boot. Seed from the DOM, then keep the
+  // listener for the case where this host somehow loads first.
+  let isLinux =
+    (globalThis as { _isLinuxUi?: unknown })._isLinuxUi === true ||
+    document.documentElement.classList.contains('linux-ui');
+  logger.debug(`Platform at boot: ${isLinux ? 'Linux' : 'Windows'}.`);
+
   router.on('setPlatform', (payload) => {
     if (typeof payload === 'object' && payload !== null) {
       isLinux = (payload as { isLinux?: unknown }).isLinux === true;

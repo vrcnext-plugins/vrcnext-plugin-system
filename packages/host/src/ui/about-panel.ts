@@ -153,7 +153,7 @@ export class AboutPanel {
    * nothing should find the answer here rather than in a log file.
    */
   #buildCompanion(): HTMLElement {
-    const card = AboutPanel.#card('Native companion', 'cable');
+    const card = AboutPanel.#card('Native companion', 'hub');
     const { native } = this.#deps;
 
     card.appendChild(
