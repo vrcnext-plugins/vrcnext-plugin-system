@@ -9,11 +9,12 @@
  * would be more code than the panel itself.
  */
 
-import type { PluginId, RepoId } from '@vrcnext/plugin-api';
+import type { PluginManifest, RepoId } from '@vrcnext/plugin-api';
 
 import type { PluginManager } from '../plugin-manager.js';
 import { element } from './dom.js';
 import {
+  badge,
   button,
   card,
   controlRow,
@@ -36,6 +37,7 @@ export class ManagerPanel {
   readonly #deps: ManagerPanelDeps;
   #root: HTMLElement | undefined;
   #pending = '';
+  #filter = '';
 
   constructor(deps: ManagerPanelDeps) {
     this.#deps = deps;
@@ -63,7 +65,23 @@ export class ManagerPanel {
       root.appendChild(empty);
       return;
     }
-    root.appendChild(grid(repos.map((repo) => this.#buildRepoCard(repo.id)), 360));
+
+    root.appendChild(this.#buildSearchCard());
+
+    const repoCards: HTMLElement[] = [];
+    for (const repo of repos) {
+      const built = this.#buildRepoCard(repo.id);
+      if (built !== undefined) repoCards.push(built);
+    }
+
+    if (repoCards.length === 0 && this.#filter.length > 0) {
+      const empty = card('Search Results', 'search');
+      empty.appendChild(emptyState(`No plugins match "${this.#filter}".`));
+      root.appendChild(empty);
+      return;
+    }
+
+    root.appendChild(grid(repoCards, 360));
   }
 
   #buildAddCard(): HTMLElement {
@@ -114,16 +132,66 @@ export class ManagerPanel {
     return panel;
   }
 
-  #buildRepoCard(repoId: RepoId): HTMLElement {
+  #buildSearchCard(): HTMLElement {
+    const totalPlugins = this.#deps.manager.plugins.length;
+    const enabledPlugins = this.#deps.manager.plugins.filter((p) => p.enabled).length;
+
+    const panel = card('Discover & Filter', 'search');
+    const input = textField({
+      value: this.#filter,
+      placeholder: 'Filter plugins by name, description, tag, or keyword...',
+      onCommit: (next) => {
+        this.#filter = next.trim().toLowerCase();
+        this.refresh();
+      },
+    });
+    input.style.flex = '1';
+
+    const clearBtn = button({
+      label: 'Clear',
+      icon: 'close',
+      disabled: this.#filter.length === 0,
+      onClick: () => {
+        this.#filter = '';
+        this.refresh();
+      },
+    });
+
+    const searchRow = controlRow(input, clearBtn);
+    searchRow.style.marginBottom = '8px';
+    panel.appendChild(searchRow);
+
+    const statSummary = `Installed: ${String(totalPlugins)} · Active: ${String(enabledPlugins)}`;
+    panel.appendChild(description(statSummary));
+    return panel;
+  }
+
+  #buildRepoCard(repoId: RepoId): HTMLElement | undefined {
     const repo = this.#deps.manager.repos.find((candidate) => candidate.id === repoId);
-    if (repo === undefined) return card();
+    if (repo === undefined) return undefined;
+
+    const plugins = this.#filter.length === 0
+      ? repo.plugins
+      : repo.plugins.filter((p) => {
+          const q = this.#filter;
+          return (
+            p.name.toLowerCase().includes(q) ||
+            p.description.toLowerCase().includes(q) ||
+            (p.tags?.some((t) => t.toLowerCase().includes(q)) ?? false) ||
+            (p.searchTerms?.some((s) => s.toLowerCase().includes(q)) ?? false)
+          );
+        });
+
+    if (this.#filter.length > 0 && plugins.length === 0) {
+      return undefined;
+    }
 
     const panel = card(repo.name, 'folder_open');
 
-    if (repo.plugins.length === 0) {
+    if (plugins.length === 0) {
       panel.appendChild(emptyState('This repository lists no plugins.'));
     }
-    for (const manifest of repo.plugins) {
+    for (const manifest of plugins) {
       panel.appendChild(this.#buildPluginRow(repoId, manifest));
     }
 
@@ -146,21 +214,28 @@ export class ManagerPanel {
 
   #buildPluginRow(
     repoId: RepoId,
-    manifest: {
-      readonly id: PluginId;
-      readonly name: string;
-      readonly version: string;
-      readonly description: string;
-      readonly author?: string;
-    },
+    manifest: PluginManifest,
   ): HTMLElement {
     const installed = this.#deps.manager.findInstalled(repoId, manifest.id);
     const byline = manifest.author === undefined ? '' : ` · ${manifest.author}`;
-    const detail = `v${manifest.version}${byline} — ${manifest.description}`;
+    let detail = `v${manifest.version}${byline} — ${manifest.description}`;
+    if (manifest.dependencies !== undefined && manifest.dependencies.length > 0) {
+      detail += ` · Requires: ${manifest.dependencies.join(', ')}`;
+    }
+
+    const titleStack = element('div');
+    titleStack.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;';
+    titleStack.appendChild(element('span', undefined, manifest.name));
+
+    if (manifest.tags !== undefined) {
+      for (const tag of manifest.tags) {
+        titleStack.appendChild(badge('neutral', tag));
+      }
+    }
 
     if (installed === undefined) {
       return row(
-        manifest.name,
+        titleStack,
         button({
           label: 'Install',
           icon: 'download',
@@ -179,7 +254,7 @@ export class ManagerPanel {
         void this.#run(this.#deps.manager.setEnabled(installed.key, next));
       }),
     );
-    return row(manifest.name, controls, detail);
+    return row(titleStack, controls, detail);
   }
 
   async #run(work: Promise<unknown>): Promise<void> {

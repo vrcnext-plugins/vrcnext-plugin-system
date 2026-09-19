@@ -202,11 +202,16 @@ export function sectionLabel(text: string): HTMLElement {
  * `.sf-toggle-row` draws its own separator between consecutive siblings, so a run of these inside
  * one card reads as a proper list without any extra markup.
  */
-export function row(label: string, control?: Node, detail?: string): HTMLElement {
+export function row(label: string | Node, control?: Node, detail?: string): HTMLElement {
   const root = element('div', 'sf-toggle-row');
 
+  const renderLabel = (): Node => {
+    if (typeof label === 'string') return element('span', undefined, label);
+    return label;
+  };
+
   if (detail === undefined) {
-    root.appendChild(element('span', undefined, label));
+    root.appendChild(renderLabel());
   } else {
     // VRCNext's two-line variant: the label with a muted explanation stacked under it.
     //
@@ -215,7 +220,7 @@ export function row(label: string, control?: Node, detail?: string): HTMLElement
     // bottom margin is the only thing that has to go, since this one sits inside a row.
     const stack = element('div');
     stack.style.minWidth = '0';
-    stack.appendChild(element('div', undefined, label));
+    stack.appendChild(renderLabel());
 
     const note = element('div', 'set-desc', detail);
     note.style.margin = '2px 0 0';
