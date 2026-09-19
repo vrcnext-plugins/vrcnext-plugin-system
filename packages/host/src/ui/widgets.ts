@@ -21,7 +21,106 @@
  * | {@link sectionLabel} | `.sf-section-label` |
  */
 
+import type { UiBadgeTone, UiChild } from '@vrcnext/plugin-api';
+
 import { element, iconSpan } from './dom.js';
+
+/**
+ * The only CSS this project writes.
+ *
+ * Everything else reuses a VRCNext class. These have no VRCNext equivalent: the app builds a
+ * bespoke grid per feature (`.dash-rank-grid`, `.av-perf-grid`, …) rather than exposing a general
+ * one, and has no stat tile at all. They are named `vrcnx-` so they cannot collide, and are built
+ * from the same variables as the rest of the app so they track the active theme.
+ */
+const KIT_CSS = `
+.vrcnx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--vrcnx-grid-min, 280px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.vrcnx-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; min-width: 0; }
+.vrcnx-stat-value {
+  font-size: calc(20px + var(--fs-off, 0px));
+  font-weight: 700;
+  color: var(--tx0);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.vrcnx-stat-label {
+  font-size: calc(10px + var(--fs-off, 0px));
+  font-weight: 600;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+`;
+
+const STYLE_ID = 'vrcnext-plugins-kit-style';
+
+/** Injected once, on first use. Idempotent across host reboots. */
+export function ensureKitStyles(): void {
+  if (document.getElementById(STYLE_ID) !== null) return;
+  const style = element('style');
+  style.id = STYLE_ID;
+  style.textContent = KIT_CSS;
+  document.head.appendChild(style);
+}
+
+/** Flatten a child list, dropping `false`/`null`/`undefined` so conditionals need no ceremony. */
+export function appendChildren(parent: Node, children: readonly UiChild[]): void {
+  for (const child of children) {
+    if (child === false || child === null || child === undefined) continue;
+    parent.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+}
+
+/** Replace a node's children. The intended way to refresh a panel in place. */
+export function setChildren(parent: Node, children: readonly UiChild[]): void {
+  while (parent.firstChild !== null) parent.removeChild(parent.firstChild);
+  appendChildren(parent, children);
+}
+
+/**
+ * A responsive grid of cards.
+ *
+ * The default choice when a panel has more than one card: full-width cards stacked vertically
+ * waste most of a wide window.
+ */
+export function grid(children: readonly UiChild[], min = 280): HTMLElement {
+  ensureKitStyles();
+  const root = element('div', 'vrcnx-grid');
+  root.style.setProperty('--vrcnx-grid-min', `${String(min)}px`);
+  appendChildren(root, children);
+  return root;
+}
+
+/** Two cards side by side, using VRCNext's own pair container. */
+export function pair(first: UiChild, second: UiChild): HTMLElement {
+  const root = element('div', 'vrcn-panel-card-pair');
+  appendChildren(root, [first, second]);
+  return root;
+}
+
+/** A small coloured pill, from VRCNext's badge set. */
+export function badge(tone: UiBadgeTone, text: string): HTMLElement {
+  // `neutral` is spelled `hidden` in VRCNext's stylesheet; that name is meaningless outside its
+  // instance-privacy context, so the kit exposes the colour rather than the jargon.
+  return element('span', `vrcn-badge ${tone === 'neutral' ? 'hidden' : tone}`, text);
+}
+
+/** A big number with a caption. */
+export function stat(label: string, text: string, tone?: UiBadgeTone): HTMLElement {
+  ensureKitStyles();
+  const root = element('div', 'vrcnx-stat');
+  const number = element('div', 'vrcnx-stat-value', text);
+  if (tone === 'ok' || tone === 'warn' || tone === 'err') {
+    number.style.color = `var(--${tone})`;
+  }
+  root.append(number, element('div', 'vrcnx-stat-label', label));
+  return root;
+}
 
 /**
  * The column a tab's content lives in.
@@ -30,19 +129,23 @@ import { element, iconSpan } from './dom.js';
  * the 16px gap between cards and the scroll container. Appending cards straight into a tab — which
  * is what these panels used to do — produces flush, edge-to-edge cards with no breathing room.
  */
-export function panelLayout(): HTMLElement {
-  return element('div', 'settings-content');
+export function panelLayout(children?: readonly UiChild[]): HTMLElement {
+  const root = element('div', 'settings-content');
+  if (children !== undefined) appendChildren(root, children);
+  return root;
 }
 
 /** A titled card. Pass no title for a bare card, as VRCNext does for status strips. */
-export function card(title?: string, icon?: string): HTMLElement {
+export function card(title?: string, icon?: string, children?: readonly UiChild[]): HTMLElement {
   const root = element('div', 'vrcn-panel-card');
-  if (title === undefined) return root;
 
-  const header = element('div', 'vrcn-panel-card-header');
-  if (icon !== undefined) header.appendChild(iconSpan(icon));
-  header.appendChild(element('span', undefined, title));
-  root.appendChild(header);
+  if (title !== undefined) {
+    const header = element('div', 'vrcn-panel-card-header');
+    if (icon !== undefined) header.appendChild(iconSpan(icon));
+    header.appendChild(element('span', undefined, title));
+    root.appendChild(header);
+  }
+  if (children !== undefined) appendChildren(root, children);
   return root;
 }
 
@@ -142,8 +245,13 @@ export function button(options: {
   readonly label: string;
   readonly icon?: string;
   readonly onClick: () => void;
+  readonly active?: boolean;
+  readonly disabled?: boolean;
+  readonly round?: boolean;
 }): HTMLButtonElement {
-  const node = element('button', 'vrcn-button');
+  const base = options.round === true ? 'vrcn-button-round' : 'vrcn-button';
+  const node = element('button', options.active === true ? `${base} active` : base);
+  if (options.disabled === true) node.disabled = true;
   if (options.icon !== undefined) {
     const icon = iconSpan(options.icon);
     // Matches the inline sizing VRCNext applies to icons inside its buttons.

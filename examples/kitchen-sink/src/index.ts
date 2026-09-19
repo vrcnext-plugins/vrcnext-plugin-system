@@ -222,7 +222,7 @@ function installContextMenu(ctx: Ctx, state: State): void {
       { kind: 'divider' },
       {
         kind: 'item',
-        icon: 'science',
+        icon: 'auto_awesome',
         label: 'Kitchen Sink: log this element',
         onSelect: () => { state.log(`[ctx] ${target.element.tagName.toLowerCase()}`); },
       },
@@ -234,7 +234,7 @@ function installContextMenu(ctx: Ctx, state: State): void {
           settings.verbosity.options.map(
             (option): ContextMenuEntry => ({
               kind: 'item',
-              icon: 'radio_button_checked',
+              icon: 'adjust',
               label: option.label,
               checked: ctx.settings.get('verbosity') === option.value,
               onSelect: () => { void ctx.settings.set('verbosity', option.value); },
@@ -352,7 +352,7 @@ async function installNative(ctx: Ctx, state: State): Promise<void> {
 function installUi(ctx: Ctx, state: State): void {
   ctx.ui.addDashboardCard({
     title: 'Kitchen Sink',
-    icon: 'science',
+    icon: 'auto_awesome',
     order: 10,
     render: (card) => {
       const grid = document.createElement('div');
@@ -372,33 +372,11 @@ function installUi(ctx: Ctx, state: State): void {
     },
   });
 
-  ctx.ui.addNavTab({
-    label: 'Kitchen Sink',
-    icon: 'science',
-    render: (tab) => {
-      const card = ctx.ui.createCard('Live activity', 'monitoring');
-      state.panel = createLogPanel(card);
-      tab.appendChild(card);
-
-      const routes = ctx.ui.createCard('In-page routes', 'route');
-      const output = document.createElement('div');
-      output.className = 'ks-log';
-      const call = document.createElement('button');
-      call.textContent = 'GET stats';
-      call.addEventListener('click', () => {
-        void ctx.router
-          .fetch('stats')
-          .then(async (response) => { output.textContent = await response.text(); })
-          .catch((error: unknown) => { output.textContent = String(error); });
-      });
-      routes.append(call, output);
-      tab.appendChild(routes);
-    },
-  });
+  installNavTab(ctx, state);
 
   ctx.ui.addSettingsCard({
     title: 'Kitchen Sink',
-    icon: 'science',
+    icon: 'auto_awesome',
     render: (card) => {
       card.appendChild(
         ctx.ui.createToggleRow(
@@ -426,6 +404,89 @@ function installUi(ctx: Ctx, state: State): void {
           });
       });
       card.appendChild(reset);
+    },
+  });
+}
+
+/**
+ * The plugin's tab, declaratively, from `ctx.ui.kit`.
+ *
+ * No class names, no `createElement`, no stylesheet — and the result is VRCNext's own markup, so
+ * it inherits the theme, the font-size offset and every future restyle of the app.
+ */
+function installNavTab(ctx: Ctx, state: State): void {
+  ctx.ui.addNavTab({
+    label: 'Kitchen Sink',
+    icon: 'auto_awesome',
+    render: (tab) => {
+      const k = ctx.ui.kit;
+      const activity = k.card({ title: 'Live activity', icon: 'radar' });
+      state.panel = createLogPanel(activity);
+
+      const output = k.emptyState('No request yet.');
+
+      tab.append(
+        k.layout(
+          // A grid rather than full-width cards: two short cards side by side beats two wide ones.
+          k.grid([
+            k.card({
+              title: 'Counters',
+              icon: 'bolt',
+              children: [
+                k.stat({ label: 'Game log events', value: String(state.gameLogCount) }),
+                k.stat({ label: 'OSC parameters', value: String(state.oscParamCount) }),
+              ],
+            }),
+            k.card({
+              title: 'Capabilities',
+              icon: 'tune',
+              children: [
+                k.row({
+                  label: 'OSC',
+                  value: ctx.osc.available ? k.badge('ok', 'Ready') : k.badge('warn', 'Windows only'),
+                  detail: 'Sent through VRCNext’s own sockets.',
+                }),
+                k.row({
+                  label: 'Native companion',
+                  value: ctx.native.available
+                    ? k.badge('ok', 'Connected')
+                    : k.badge('neutral', 'Not running'),
+                  detail: ctx.native.endpoint,
+                }),
+                k.toggleRow({
+                  label: 'Follow the game log',
+                  detail: 'Mirrors VRChat log lines into the panel below.',
+                  value: ctx.settings.get('watchGameLog'),
+                  onChange: (next) => { void ctx.settings.set('watchGameLog', next); },
+                }),
+              ],
+            }),
+            k.card({
+              title: 'In-page routes',
+              icon: 'account_tree',
+              children: [
+                k.description('Plugin routes are reachable from this page only, never from curl.'),
+                k.buttonRow(
+                  k.button({
+                    label: 'GET stats',
+                    icon: 'download',
+                    onClick: () => {
+                      void ctx.router
+                        .fetch('stats')
+                        .then(async (response) => {
+                          output.textContent = await response.text();
+                        })
+                        .catch((error: unknown) => { output.textContent = String(error); });
+                    },
+                  }),
+                ),
+                output,
+              ],
+            }),
+          ]),
+          activity,
+        ),
+      );
     },
   });
 }

@@ -11,10 +11,18 @@
 
 import type { Disposable } from './disposable.js';
 import type { ToastOptions } from './notifications.js';
+import type { UiKit } from './ui-kit.js';
 
 export type { ToastOptions };
 
-/** A Material Symbols ligature name, e.g. `extension`, `notifications`, `travel_explore`. */
+/**
+ * A Material Symbols ligature name, e.g. `extension`, `notifications`, `travel_explore`.
+ *
+ * **Use a glyph VRCNext already uses somewhere.** It ships a ~568 KB *subset* of the face, not the
+ * whole thing, so a perfectly valid Material Symbols name that VRCNext happens not to use has no
+ * glyph and renders as its own literal text — `cable` shows up as the word "CABLE". There is no
+ * runtime signal for this, so when in doubt pick an icon you have seen in the app.
+ */
 export type IconName = string;
 
 export interface PanelHandle extends Disposable {
@@ -75,6 +83,13 @@ export interface UiApi {
    * Creates an element using VRCNext's classes. Prefer this over `document.createElement` so
    * markup stays consistent with the host when its stylesheet changes.
    */
+  /**
+   * Declarative builders for VRCNext-native UI.
+   *
+   * The easiest way to build a panel that matches the app. See {@link UiKit}.
+   */
+  readonly kit: UiKit;
+
   /**
    * The scrolling, gapped column VRCNext gives its own settings tabs.
    *

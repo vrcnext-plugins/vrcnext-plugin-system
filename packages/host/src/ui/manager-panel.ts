@@ -19,6 +19,7 @@ import {
   controlRow,
   description,
   emptyState,
+  grid,
   panelLayout,
   row,
   textField,
@@ -62,7 +63,7 @@ export class ManagerPanel {
       root.appendChild(empty);
       return;
     }
-    for (const repo of repos) root.appendChild(this.#buildRepoCard(repo.id));
+    root.appendChild(grid(repos.map((repo) => this.#buildRepoCard(repo.id)), 360));
   }
 
   #buildAddCard(): HTMLElement {

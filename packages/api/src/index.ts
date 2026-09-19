@@ -54,6 +54,20 @@ export type {
   NativeTarget,
   NativeUrgency,
 } from './native.js';
+export type {
+  UiBadgeTone,
+  UiButtonOptions,
+  UiCardOptions,
+  UiChild,
+  UiDropdownOptions,
+  UiGridOptions,
+  UiKit,
+  UiRowOptions,
+  UiStatOptions,
+  UiStatusCardOptions,
+  UiTextFieldOptions,
+  UiToggleRowOptions,
+} from './ui-kit.js';
 export { OSC_VALUE_KINDS } from './osc.js';
 export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKind } from './osc.js';
 

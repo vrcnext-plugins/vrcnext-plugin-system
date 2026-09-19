@@ -43,7 +43,7 @@ export default definePlugin({
 
     ctx.ui.addSettingsCard({
       title: 'Hello World',
-      icon: 'waving_hand',
+      icon: 'back_hand',
       render: (card) => {
         card.appendChild(
           ctx.ui.createToggleRow(

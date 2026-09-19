@@ -27,7 +27,10 @@ import {
   tabContainer,
   tabIndexOf,
 } from './dom.js';
+import { HostUiKit } from './ui-kit.js';
 import * as widgets from './widgets.js';
+
+const SHARED_KIT = new HostUiKit();
 
 const PLUGIN_ATTR = 'data-vrcnext-plugin';
 
@@ -114,6 +117,9 @@ class PluginUiImpl implements PluginUi {
 
     return button;
   }
+
+  /** Stateless, so every plugin shares one instance. */
+  readonly kit = SHARED_KIT;
 
   /** The scrolling, gapped column VRCNext gives its own tabs. */
   createPanelLayout(): HTMLElement {

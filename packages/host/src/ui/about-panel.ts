@@ -17,10 +17,12 @@ import type { PluginManager } from '../plugin-manager.js';
 import type { Updater } from '../update/updater.js';
 import { element } from './dom.js';
 import {
+  badge,
   button,
   card,
   controlRow,
   description,
+  grid,
   panelLayout,
   row,
   sectionLabel,
@@ -61,12 +63,19 @@ export class AboutPanel {
   refresh(): void {
     const root = this.#root;
     if (root === undefined) return;
+    // A grid, not a stack: these cards are mostly short key/value lists, and full-width rows
+    // across a maximised window leave a metre of empty space between label and value.
+    const companion = this.#buildCompanion();
+    companion.style.gridColumn = 'span 2';
+
     root.replaceChildren(
-      this.#buildStatus(),
-      this.#buildCompanion(),
-      this.#buildUpdates(),
-      this.#buildPlatform(),
-      this.#buildAbout(),
+      grid([
+        this.#buildStatus(),
+        this.#buildPlatform(),
+        companion,
+        this.#buildUpdates(),
+        this.#buildAbout(),
+      ], 340),
     );
   }
 
@@ -131,7 +140,10 @@ export class AboutPanel {
         }
         targets.appendChild(sectionLabel('Targets'));
         for (const target of found) {
-          targets.appendChild(row(target.name, value(target.health), target.description));
+          const tone = target.health === 'up' ? 'ok' : target.health === 'down' ? 'err' : 'hidden';
+          targets.appendChild(
+            row(target.name, badge(tone === 'hidden' ? 'neutral' : tone, target.health), target.description),
+          );
         }
       });
     };
@@ -226,15 +238,20 @@ export class AboutPanel {
       ),
     );
 
-    for (const [label, text] of [
-      ['OSC', linux ? 'Unavailable — Windows only' : 'Available'],
-      ['Desktop & VR notifications', linux ? 'Unavailable — Windows only' : 'Available'],
-      ['In-app toasts, modals', 'Available'],
-      ['Host events, bridge actions', 'Available'],
-      ['Game log', 'Available'],
-      ['UI, context menus, routes', 'Available'],
+    for (const [label, available] of [
+      ['OSC', !linux],
+      ['Desktop & VR notifications', !linux],
+      ['In-app toasts, modals', true],
+      ['Host events, bridge actions', true],
+      ['Game log', true],
+      ['UI, context menus, routes', true],
     ] as const) {
-      panel.appendChild(row(label, value(text)));
+      panel.appendChild(
+        row(
+          label,
+          available ? badge('ok', 'Available') : badge('warn', 'Windows only'),
+        ),
+      );
     }
     return panel;
   }
