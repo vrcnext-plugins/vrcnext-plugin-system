@@ -7,6 +7,7 @@
 
 import type { PluginId, PluginKey, RepoId } from '@vrcnext/plugin-api';
 
+import { orderPluginsByDependency } from './loader/dependency-order.js';
 import type { PluginLoader } from './loader/plugin-loader.js';
 import type { InstalledPlugin, InstalledRepo, Registry } from './registry/registry.js';
 
@@ -33,10 +34,11 @@ export class PluginManager {
     );
   }
 
-  /** Activates every plugin the user had enabled. One failure must not block the others. */
+  /** Activates every plugin the user had enabled in dependency order. One failure must not block the others. */
   async activateEnabled(): Promise<readonly Error[]> {
-    const failures: Error[] = [];
-    for (const record of this.#registry.enabledPlugins) {
+    const { ordered, errors: dependencyErrors } = orderPluginsByDependency(this.#registry.enabledPlugins);
+    const failures: Error[] = [...dependencyErrors];
+    for (const record of ordered) {
       try {
         await this.#loader.activate(record);
       } catch (error) {
@@ -85,8 +87,25 @@ export class PluginManager {
   }
 
   async setEnabled(key: PluginKey, enabled: boolean): Promise<void> {
-    const record = await this.#registry.setEnabled(key, enabled);
+    const target = this.#registry.find(key);
+    if (target === undefined) throw new Error('That plugin is not installed.');
+
     if (enabled) {
+      // Ensure all declared dependencies are installed and enabled first
+      const deps = target.manifest.dependencies ?? [];
+      for (const depId of deps) {
+        const depPlugin = this.#registry.plugins.find((p) => p.manifest.id === depId);
+        if (depPlugin === undefined) {
+          throw new Error(
+            `Cannot enable "${target.manifest.name}": dependency "${depId}" is not installed.`,
+          );
+        }
+        if (!depPlugin.enabled) {
+          await this.setEnabled(depPlugin.key, true);
+        }
+      }
+
+      const record = await this.#registry.setEnabled(key, true);
       try {
         await this.#loader.activate(record);
       } catch (error) {
@@ -96,6 +115,8 @@ export class PluginManager {
       }
       return;
     }
+
+    await this.#registry.setEnabled(key, false);
     await this.#loader.deactivate(key);
   }
 

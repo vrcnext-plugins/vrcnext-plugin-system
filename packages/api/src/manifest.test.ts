@@ -90,3 +90,24 @@ test('reports a non-object manifest', () => {
     assert.ok(errors.length > 0);
   }
 });
+
+test('parses tags, searchTerms, and dependencies', () => {
+  const { manifest, errors } = parseRepoManifest(
+    validManifest([
+      validPlugin({
+        tags: ['Utility', 'OSC', '  CustomTag  ', ''],
+        searchTerms: ['vrchat', 'tracking', 'osc', ''],
+        dependencies: ['core-osc', 'audio-api', 'Invalid ID with spaces'],
+      }),
+    ]),
+  );
+  assert.ok(manifest);
+  assert.equal(manifest.plugins.length, 1);
+  const plugin = manifest.plugins[0];
+  assert.ok(plugin);
+  assert.deepEqual(plugin.tags, ['Utility', 'OSC', 'CustomTag']);
+  assert.deepEqual(plugin.searchTerms, ['vrchat', 'tracking', 'osc']);
+  assert.deepEqual(plugin.dependencies, ['core-osc', 'audio-api']);
+  assert.ok(errors.some((e) => e.includes('malformed dependency id')));
+});
+

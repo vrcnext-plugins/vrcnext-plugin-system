@@ -6,8 +6,8 @@
  * the host can reuse the same parsers it hands to plugins.
  */
 
-export { MANIFEST_FILENAME, MANIFEST_FORMAT_VERSION, parseRepoManifest } from './manifest.js';
-export type { ManifestParseResult, PluginManifest, RepoManifest } from './manifest.js';
+export { MANIFEST_FILENAME, MANIFEST_FORMAT_VERSION, PLUGIN_TAGS, parseRepoManifest } from './manifest.js';
+export type { ManifestParseResult, PluginManifest, PluginTag, RepoManifest } from './manifest.js';
 
 export { isPluginId, makePluginKey, makeRepoId, parsePluginId } from './ids.js';
 export type { PluginId, PluginKey, RepoId } from './ids.js';
