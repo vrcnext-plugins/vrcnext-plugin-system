@@ -30,6 +30,7 @@ house many plugins, and both plugins and the host auto-update.
 | **Deep links** — observe the `vrcn://` links VRCNext delivers | `ctx.deepLinks` |
 | **Typed persisted settings** with a rendered UI | `ctx.settings` |
 | **Levelled logging** — console + live in-app Logs panel + persisted + downloadable | `ctx.logger` |
+| **VR overlay + desktop notifications** — via an optional native companion, on any platform | `ctx.native` |
 | **Automatic teardown** | `ctx.disposables`, `ctx.signal` |
 
 ```ts
@@ -54,7 +55,9 @@ Three limits are real and documented rather than papered over:
 3. **OSC, the VR overlay, the chatbox and several other features are Windows-only in VRCNext
    itself.** `IsWindowsOnlyAction` filters those actions out on Linux before any handler runs, so
    `ctx.osc.available` and `ctx.notifications.desktopAvailable` report it instead of failing
-   silently.
+   silently. For notifications there is a way around it: the optional
+   [vrcnext-bridge](https://github.com/vrcnext-plugins/vrcnext-bridge) companion is a separate
+   process, so it reaches VR overlays and the desktop on any platform via `ctx.native`.
 
 See [Limitations](https://vrcnext-plugins.github.io/limitations) for the full platform matrix.
 
