@@ -87,6 +87,7 @@ export default definePlugin({
     installDeepLinks(ctx, state);
     installRoutes(ctx, state);
     installContextMenu(ctx, state);
+    installNotifications(ctx, state);
     installUi(ctx, state);
 
     ctx.logger.info(`Kitchen Sink v${ctx.version} ready.`);
@@ -248,7 +249,38 @@ function installContextMenu(ctx: Ctx, state: State): void {
   });
 }
 
-/** 9. UI: a dashboard card, a sidebar tab and a settings card. */
+/** 9. Every notification surface VRCNext exposes. */
+function installNotifications(ctx: Ctx, state: State): void {
+  ctx.gameLog.onType('OnPlayerJoined', (entry) => {
+    const who = entry.detail || entry.message;
+
+    // In-app toast — always available.
+    ctx.notifications.toast({ message: `${who} joined.` });
+
+    // OS tray toast + SteamVR wrist overlay, in one call. Windows only.
+    if (ctx.notifications.desktopAvailable) {
+      ctx.notifications.desktop({
+        title: 'Player joined',
+        subtitle: who,
+        accent: 'info',
+      });
+    } else {
+      state.log('[notify] desktop/VR notifications are Windows-only.');
+    }
+  });
+
+  // Styled like one of VRCNext's own notification kinds.
+  ctx.events.on('friendTimelineEvent', (payload) => {
+    if (payload.type !== 'online') return;
+    ctx.notifications.notifToast({
+      kind: 'notification',
+      sender: payload.friendName,
+      message: 'came online',
+    });
+  });
+}
+
+/** 10. UI: a dashboard card, a sidebar tab and a settings card. */
 function installUi(ctx: Ctx, state: State): void {
   ctx.ui.addDashboardCard({
     title: 'Kitchen Sink',
@@ -307,6 +339,25 @@ function installUi(ctx: Ctx, state: State): void {
           (checked) => { void ctx.settings.set('watchGameLog', checked); },
         ),
       );
+
+      // Blocking confirmation modal; resolves false on cancel, backdrop click or dismissal.
+      const reset = document.createElement('button');
+      reset.textContent = 'Reset settings';
+      reset.addEventListener('click', () => {
+        void ctx.notifications
+          .confirm({
+            title: 'Reset Kitchen Sink',
+            message: 'Restore every Kitchen Sink setting to its default?',
+            confirmLabel: 'Reset',
+            icon: 'restart_alt',
+          })
+          .then(async (confirmed) => {
+            if (!confirmed) return;
+            await ctx.settings.reset();
+            ctx.notifications.toast({ message: 'Kitchen Sink settings reset.' });
+          });
+      });
+      card.appendChild(reset);
     },
   });
 }

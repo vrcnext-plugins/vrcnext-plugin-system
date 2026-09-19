@@ -14,6 +14,7 @@ import type { GameLogApi } from './game-log.js';
 import type { PluginId } from './ids.js';
 import type { DeepLinkApi, RouterApi } from './links.js';
 import type { Logger } from './logger.js';
+import type { NotificationsApi } from './notifications.js';
 import type { OscApi } from './osc.js';
 import type { SettingsSchema, SettingsStore } from './settings.js';
 import type { UiApi } from './ui.js';
@@ -26,6 +27,7 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly events: EventBus;
   readonly bridge: Bridge;
   readonly ui: UiApi;
+  readonly notifications: NotificationsApi;
   readonly osc: OscApi;
   readonly gameLog: GameLogApi;
   readonly deepLinks: DeepLinkApi;

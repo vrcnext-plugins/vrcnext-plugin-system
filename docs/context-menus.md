@@ -77,4 +77,4 @@ Consequences worth knowing:
 - Providers run on **every menu open** — keep them cheap.
 - A provider that throws is logged and skipped; the menu still opens.
 
-[← UI injection](ui.md) · [OSC →](osc.md)
+[← Using TSX](tsx.md) · [OSC →](osc.md)

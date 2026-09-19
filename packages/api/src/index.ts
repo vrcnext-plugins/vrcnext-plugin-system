@@ -49,6 +49,16 @@ export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKin
 
 export type { GameLogApi, GameLogEntry } from './game-log.js';
 
+export { NOTIFY_ACCENTS, NOTIF_TOAST_KINDS } from './notifications.js';
+export type {
+  ConfirmOptions,
+  DesktopNotifyOptions,
+  NotificationsApi,
+  NotifToastKind,
+  NotifToastOptions,
+  NotifyAccent,
+} from './notifications.js';
+
 export { DEEP_LINK_PREFIXES } from './links.js';
 export type {
   DeepLinkApi,

@@ -10,6 +10,9 @@
  */
 
 import type { Disposable } from './disposable.js';
+import type { ToastOptions } from './notifications.js';
+
+export type { ToastOptions };
 
 /** A Material Symbols ligature name, e.g. `extension`, `notifications`, `travel_explore`. */
 export type IconName = string;
@@ -33,11 +36,6 @@ export interface SettingsCardOptions {
   readonly icon: IconName;
   /** Renders extra controls below the schema-derived ones. */
   render?(container: HTMLElement): void;
-}
-
-export interface ToastOptions {
-  readonly message: string;
-  readonly ok?: boolean;
 }
 
 export interface DashboardCardOptions {

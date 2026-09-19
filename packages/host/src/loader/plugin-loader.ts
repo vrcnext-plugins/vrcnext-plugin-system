@@ -29,7 +29,9 @@ import { HostOscApi } from '../capabilities/osc-api.js';
 import { PluginRouter, type RouteTable } from '../capabilities/router.js';
 import { PluginEventBus } from '../events/plugin-event-bus.js';
 import type { EventRouter } from '../events/event-router.js';
-import { createLogger, type LogSink } from '../log/host-logger.js';
+import { HostNotificationsApi } from '../capabilities/notifications.js';
+import { createLogger } from '../log/create-logger.js';
+import type { LogSink } from '../log/log-sink.js';
 import type { InstalledPlugin } from '../registry/registry.js';
 import { PluginSettingsStore } from '../settings/plugin-settings-store.js';
 import type { IdbStore } from '../storage/idb-store.js';
@@ -51,6 +53,7 @@ export interface LoaderDeps {
   readonly routes: RouteTable;
   readonly deepLinks: DeepLinkHub;
   readonly contextMenu: ContextMenuHub;
+  readonly isLinux: () => boolean;
 }
 
 export class PluginLoader {
@@ -123,6 +126,7 @@ export class PluginLoader {
       events: new PluginEventBus(this.#deps.router, bag),
       bridge: this.#deps.bridge,
       ui,
+      notifications: new HostNotificationsApi(this.#deps.bridge, logger, this.#deps.isLinux()),
       osc: new HostOscApi(this.#deps.bridge, this.#deps.router, bag),
       gameLog: new HostGameLogApi(this.#deps.bridge, this.#deps.router, bag),
       deepLinks: new PluginDeepLinkApi(this.#deps.deepLinks, bag),

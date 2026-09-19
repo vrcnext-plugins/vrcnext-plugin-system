@@ -22,6 +22,9 @@ Users install plugins by pasting a **repository URL**. One repository can house 
 | [Settings](settings.md) | Declarative schema, type inference, persistence. |
 | [Events & the bridge](events-and-bridge.md) | Host events, sending actions, interception. |
 | [UI injection](ui.md) | Nav tabs, dashboard cards, settings cards, toasts, CSS. |
+| [Notifications](notifications.md) | In-app, desktop tray, **SteamVR overlay**, confirm modals. |
+| [Logging](logging.md) | Levelled logger, the Logs panel, downloading logs. |
+| [Using TSX](tsx.md) | JSX in plugins, and why VRCNext itself has no framework. |
 | [Context menus](context-menus.md) | Items, dividers, submenus, entity targets. |
 | [OSC](osc.md) | Sending and receiving OSC through VRCNext. |
 | [Game log](game-log.md) | The VRChat log stream and backlog. |

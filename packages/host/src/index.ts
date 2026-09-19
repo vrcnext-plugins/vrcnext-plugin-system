@@ -5,7 +5,7 @@
  * re-inject a theme script without a reload, and booting twice would double every listener.
  */
 
-import { DisposableBag, type ToastOptions } from '@vrcnext/plugin-api';
+import { DisposableBag, type Logger, type ToastOptions } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from './api-version.js';
 import { PhotinoBridge } from './bridge/photino-bridge.js';
@@ -14,10 +14,12 @@ import { DeepLinkHub } from './capabilities/deep-links.js';
 import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
 import { PluginLoader } from './loader/plugin-loader.js';
-import { createLogger, LogSink } from './log/host-logger.js';
+import { createLogger } from './log/create-logger.js';
+import { LogSink } from './log/log-sink.js';
 import { PluginManager } from './plugin-manager.js';
 import { Registry } from './registry/registry.js';
 import { IdbStore } from './storage/idb-store.js';
+import { LogPanel } from './ui/log-panel.js';
 import { ManagerPanel } from './ui/manager-panel.js';
 import { UiHost } from './ui/ui-host.js';
 import { Updater } from './update/updater.js';
@@ -49,10 +51,21 @@ function createToast(sink: LogSink): (options: ToastOptions) => void {
   };
 }
 
-export async function boot(): Promise<HostHandle> {
-  const running = existingHost();
-  if (running !== undefined) return running;
+/** Wires the shared services every capability hangs off. */
+interface Core {
+  readonly sink: LogSink;
+  readonly logger: Logger;
+  readonly router: EventRouter;
+  readonly bridge: PhotinoBridge;
+  readonly storage: IdbStore;
+  readonly manager: PluginManager;
+  readonly ui: UiHost;
+  readonly toast: (options: ToastOptions) => void;
+  readonly routes: RouteTable;
+  readonly contextMenu: ContextMenuHub;
+}
 
+async function buildCore(): Promise<Core> {
   const sink = new LogSink();
   const logger = createLogger(sink, 'host');
   logger.info(`Starting plugin host, API ${API_VERSION}.`);
@@ -60,15 +73,25 @@ export async function boot(): Promise<HostHandle> {
   const router = new EventRouter();
   const bridge = PhotinoBridge.attach(router);
   const storage = new IdbStore();
+  await sink.attachStorage(storage);
   const registry = new Registry(storage);
   await registry.load();
+
+  // VRCNext reports the platform once, right after the page sends `ready`. Until then assume
+  // Windows so a desktop notification is attempted rather than silently dropped.
+  let isLinux = false;
+  router.on('setPlatform', (payload) => {
+    if (typeof payload === 'object' && payload !== null) {
+      isLinux = (payload as { isLinux?: unknown }).isLinux === true;
+      logger.debug(`Platform reported: ${isLinux ? 'Linux' : 'Windows'}.`);
+    }
+  });
 
   const toast = createToast(sink);
   const ui = new UiHost(toast);
 
   const routes = new RouteTable(globalThis.location.href);
   routes.install();
-  const deepLinks = new DeepLinkHub(router);
   const contextMenu = new ContextMenuHub();
   contextMenu.install();
 
@@ -79,53 +102,85 @@ export async function boot(): Promise<HostHandle> {
     sink,
     ui,
     routes,
-    deepLinks,
+    deepLinks: new DeepLinkHub(router),
     contextMenu,
+    isLinux: () => isLinux,
   });
-  const manager = new PluginManager(registry, loader);
 
+  return {
+    sink,
+    logger,
+    router,
+    bridge,
+    storage,
+    manager: new PluginManager(registry, loader),
+    ui,
+    toast,
+    routes,
+    contextMenu,
+  };
+}
+
+/** Mounts the Plugins tab: repository manager above, live log viewer below. */
+function mountUi(core: Core, bag: DisposableBag): void {
   const panel = new ManagerPanel({
-    manager,
+    manager: core.manager,
     onError: (message) => {
-      logger.error(message);
-      toast({ message, ok: false });
+      core.logger.error(message);
+      core.toast({ message, ok: false });
     },
   });
 
-  const bag = new DisposableBag();
-  const hostUi = ui.forHost(bag);
+  const logPanel = new LogPanel(core.sink);
+  bag.add(() => { logPanel.dispose(); });
 
+  const hostUi = core.ui.forHost(bag);
   hostUi.addNavTab({
     label: 'Plugins',
     icon: 'extension',
-    render: (container) => { panel.render(container); },
+    render: (container) => {
+      panel.render(container);
+      const logs = hostUi.createCard('Plugin logs', 'article');
+      logPanel.render(logs);
+      container.appendChild(logs);
+    },
   });
+}
 
-  const failures = await manager.activateEnabled();
-  for (const failure of failures) logger.error(failure.message);
+export async function boot(): Promise<HostHandle> {
+  const running = existingHost();
+  if (running !== undefined) return running;
+
+  const core = await buildCore();
+  const bag = new DisposableBag();
+  mountUi(core, bag);
+
+  const failures = await core.manager.activateEnabled();
+  for (const failure of failures) core.logger.error(failure.message);
   if (failures.length > 0) {
-    toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
+    core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
   }
 
   const shutdownController = new AbortController();
   const updater = new Updater({
-    manager,
-    logger: logger.scoped('update'),
-    notify: (message, ok) => { toast({ message, ok }); },
+    manager: core.manager,
+    logger: core.logger.scoped('update'),
+    notify: (message, ok) => { core.toast({ message, ok }); },
   });
   updater.start(shutdownController.signal);
 
   const handle: HostHandle = {
     apiVersion: API_VERSION,
-    manager,
+    manager: core.manager,
     updater,
     shutdown: async (): Promise<void> => {
       shutdownController.abort();
-      await manager.shutdown();
-      contextMenu.uninstall();
-      routes.uninstall();
+      await core.manager.shutdown();
+      core.contextMenu.uninstall();
+      core.routes.uninstall();
       bag.dispose();
-      storage.close();
+      core.sink.dispose();
+      core.storage.close();
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;
     },
   };
@@ -139,7 +194,7 @@ export async function boot(): Promise<HostHandle> {
     { once: true },
   );
 
-  logger.info('Plugin host ready.');
+  core.logger.info('Plugin host ready.');
   return handle;
 }
 

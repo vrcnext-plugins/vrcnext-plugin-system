@@ -33,6 +33,7 @@ interface VrcnextPlugin<S> {
 | `events` | `EventBus` |
 | `bridge` | `Bridge` |
 | `ui` | `UiApi` |
+| `notifications` | `NotificationsApi` |
 | `osc` | `OscApi` |
 | `gameLog` | `GameLogApi` |
 | `deepLinks` | `DeepLinkApi` |
@@ -99,6 +100,21 @@ interface UiApi {
   createToggleRow(label: string, checked: boolean, onChange: (next: boolean) => void): HTMLElement;
 }
 ```
+
+## Notifications
+
+```ts
+interface NotificationsApi {
+  toast(options: ToastOptions): void;
+  notifToast(options: NotifToastOptions): void;
+  desktop(options: DesktopNotifyOptions): void;   // tray + SteamVR overlay; Windows only
+  readonly desktopAvailable: boolean;
+  confirm(options: ConfirmOptions): Promise<boolean>;
+}
+```
+
+`NOTIFY_ACCENTS` = `'accent' | 'info' | 'ok' | 'warn' | 'err'`
+`NOTIF_TOAST_KINDS` = `'invite' | 'friendRequest' | 'notification'`
 
 ## Context menu
 

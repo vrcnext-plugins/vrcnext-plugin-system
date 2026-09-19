@@ -94,4 +94,4 @@ Prefix your class names (`.mp-`) — the page is a single shared document.
 Every injector returns a `PanelHandle` with `.element` and `.dispose()`, and is disposed
 automatically with the plugin.
 
-[← Events & the bridge](events-and-bridge.md) · [Context menus →](context-menus.md)
+[← Events & the bridge](events-and-bridge.md) · [Notifications →](notifications.md)

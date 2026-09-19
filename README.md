@@ -23,12 +23,14 @@ house many plugins, and both plugins and the host auto-update.
 | **Host actions** — ~474 backend actions, with request/response and outbound interception | `ctx.bridge` |
 | **OSC** — send and receive through VRCNext's sockets, incl. avatar parameters | `ctx.osc` |
 | **VRChat game log** — live stream and 1000-entry backlog | `ctx.gameLog` |
-| **Sidebar tabs, dashboard cards, settings cards, toasts, custom CSS** | `ctx.ui` |
+| **Sidebar tabs, dashboard cards, settings cards, custom CSS** | `ctx.ui` |
+| **Notifications** — in-app toasts, OS tray toasts, **SteamVR wrist overlay**, confirm modals | `ctx.notifications` |
 | **Context menus** — items, dividers, submenus, entity-aware targeting | `ctx.contextMenu` |
 | **In-page HTTP routes** with path params | `ctx.router` |
 | **Deep links** — observe the `vrcn://` links VRCNext delivers | `ctx.deepLinks` |
 | **Typed persisted settings** with a rendered UI | `ctx.settings` |
-| **Scoped logging and automatic teardown** | `ctx.logger`, `ctx.disposables`, `ctx.signal` |
+| **Levelled logging** — console + live in-app Logs panel + persisted + downloadable | `ctx.logger` |
+| **Automatic teardown** | `ctx.disposables`, `ctx.signal` |
 
 ```ts
 import { definePlugin, type PluginId } from '@vrcnext/plugin-api';
@@ -89,6 +91,7 @@ theme manually under **Settings → Design → Themes**.
         ├── RouteTable       → wraps fetch for /plugins/<id>/…
         ├── ContextMenuHub   → appends into VRCNext's rendered menu
         ├── UiHost           → nav tabs, dashboard and settings cards
+        ├── LogSink          → console + ring buffer + IndexedDB + downloadable .log
         └── Updater          → plugin auto-update; host update detection
 ```
 
@@ -112,9 +115,19 @@ npm run build
 ```
 
 Strict by policy: `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
-`typescript-eslint` `strictTypeChecked`, no `any`, no non-null assertions, no `enum`, and
-file/function size limits enforced by the linter. There are **no lint suppressions** in the
-codebase.
+`typescript-eslint` `strictTypeChecked`, no `any`, no non-null assertions, no `enum`. There are
+**no lint suppressions** in the codebase.
+
+Size limits are machine-enforced, not eyeballed:
+
+| Limit | Enforced by | Behaviour |
+| :--- | :--- | :--- |
+| 100 lines per function | ESLint `max-lines-per-function` | Fails the gate |
+| 1000 lines per file | ESLint `max-lines` | Fails the gate |
+| 600 lines per file (soft) | `size-limits.test.ts` | Names the file, does not fail |
+| 4 parameters, depth 3 | ESLint `max-params`, `max-depth` | Fails the gate |
+
+`dist/` is minified with source maps — the host bundle is ~42 KB.
 
 ## Compatibility and verification status
 

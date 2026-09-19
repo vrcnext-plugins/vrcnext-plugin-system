@@ -19,8 +19,9 @@ npx esbuild packages/host/src/bootstrap.ts \
   --format=iife \
   --target=es2023 \
   --platform=browser \
+  --minify \
   --sourcemap \
-  --legal-comments=inline \
+  --legal-comments=eof \
   --outfile="$BUNDLE"
 
 echo "==> Bundling example plugins"
@@ -30,6 +31,8 @@ for example in hello-world kitchen-sink; do
     --format=esm \
     --target=es2023 \
     --platform=browser \
+    --minify \
+    --sourcemap \
     --outfile="examples/$example/dist/$example.js"
 done
 
