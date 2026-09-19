@@ -12,12 +12,7 @@
  * # Shape
  *
  * Fire-and-forget and entirely optional. Records are batched on a short timer rather than sent per
- * line, because a chatty plugin would otherwise produce a frame per record. If the socket is down,
- * records queue up to a bounded buffer and flush on reconnect; past that bound the **oldest** are
- * dropped, since the newest lines are the ones someone debugging actually wants.
- *
- * When passed a {@link NativeClient}, it shares the companion's single multiplexed WebSocket
- * rather than opening a second connection.
+ * line. Logs are multiplexed over {@link NativeClient}'s single WebSocket connection (`/v1/ws`).
  *
  * Nothing here ever throws into a caller: this sits behind `logger.info()`, and a logging call
  * that can fail is worse than no logging at all.
@@ -36,9 +31,6 @@ const MAX_QUEUED = 500;
 
 /** Most records per frame. Matches the daemon's own batch bound. */
 const MAX_BATCH = 200;
-
-/** Reconnect backoff, in milliseconds. Caps so a long-absent daemon is still picked up. */
-const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000] as const;
 
 interface WireRecord {
   readonly level: LogLevel;
@@ -63,88 +55,48 @@ function isWireRecord(value: unknown): value is WireRecord {
     typeof value['message'] === 'string';
 }
 
-function isRecordBatch(value: unknown): value is { readonly records: readonly WireRecord[] } {
-  if (!isRecord(value) || !Array.isArray(value['records'])) return false;
-  return value['records'].every(isWireRecord);
-}
-
 export class LogStream {
-  readonly #endpoint: string;
-  readonly #native: NativeClient | undefined;
+  readonly #native: NativeClient;
   readonly #queue: WireRecord[] = [];
-  #socket: WebSocket | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
-  #retry: ReturnType<typeof setTimeout> | undefined;
-  #attempt = 0;
-  #stopped = false;
   #unsubscribe: (() => void) | undefined;
   #unsubscribeBroadcast: (() => void) | undefined;
-
   #sink: LogSink | undefined;
 
-  /** @param endpointOrNative the companion's HTTP origin or the NativeClient instance. */
-  constructor(endpointOrNative: string | NativeClient) {
-    if (typeof endpointOrNative === 'string') {
-      this.#endpoint = endpointOrNative;
-      this.#native = undefined;
-    } else {
-      this.#endpoint = endpointOrNative.endpoint;
-      this.#native = endpointOrNative;
-    }
-  }
-
-  /** `http://…` → `ws://…/v1/logs/stream`. */
-  get url(): string {
-    return `${this.#endpoint.replace(/^http/, 'ws')}/v1/logs/stream`;
+  constructor(native: NativeClient) {
+    this.#native = native;
   }
 
   get connected(): boolean {
-    if (this.#native !== undefined) {
-      return this.#native.connected;
-    }
-    return this.#socket?.readyState === 1; // WebSocket.OPEN
+    return this.#native.connected;
   }
 
   /**
    * Subscribe to a sink and begin streaming. Safe to call when no daemon is running.
    *
-   * Seeds from the sink's existing records first. The host logs several lines while booting —
-   * the API version, the detected platform — and those are exactly the ones worth having when
-   * diagnosing a broken start, so subscribing to only *future* records would lose the best part.
+   * Seeds from the sink's existing records first.
    */
   start(sink: LogSink): void {
     this.#sink = sink;
-    this.#stopped = false;
     this.#unsubscribe?.();
     this.#unsubscribeBroadcast?.();
 
-    if (this.#native !== undefined) {
-      this.#unsubscribeBroadcast = this.#native.onLogBroadcast((records) => {
-        this.#onBroadcastRecords(records);
-      });
-    }
+    this.#unsubscribeBroadcast = this.#native.onLogBroadcast((records) => {
+      this.#onBroadcastRecords(records);
+    });
 
     for (const record of sink.records) this.#enqueue(record);
     this.#unsubscribe = sink.subscribe((record) => { this.#enqueue(record); });
-
-    if (this.#native === undefined) {
-      this.#connect();
-    }
   }
 
   stop(): void {
-    this.#stopped = true;
     this.#sink = undefined;
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
     this.#unsubscribeBroadcast?.();
     this.#unsubscribeBroadcast = undefined;
     if (this.#timer !== undefined) globalThis.clearTimeout(this.#timer);
-    if (this.#retry !== undefined) globalThis.clearTimeout(this.#retry);
     this.#timer = undefined;
-    this.#retry = undefined;
-    this.#socket?.close();
-    this.#socket = undefined;
     this.#queue.length = 0;
   }
 
@@ -178,89 +130,13 @@ export class LogStream {
   }
 
   #flush(): void {
-    if (this.#native !== undefined) {
-      while (this.#queue.length > 0) {
-        const batch = this.#queue.splice(0, MAX_BATCH);
-        const sent = this.#native.sendLogs(batch);
-        if (!sent) {
-          // Socket not open; put back in queue
-          this.#queue.unshift(...batch);
-          return;
-        }
-      }
-      return;
-    }
-
-    const socket = this.#socket;
-    if (socket?.readyState !== 1) return; // WebSocket.OPEN
-
     while (this.#queue.length > 0) {
       const batch = this.#queue.splice(0, MAX_BATCH);
-      try {
-        socket.send(JSON.stringify({ records: batch }));
-      } catch {
-        // Put them back and wait for the socket to settle; never throw into the logger.
+      const sent = this.#native.sendLogs(batch);
+      if (!sent) {
         this.#queue.unshift(...batch);
         return;
       }
     }
-  }
-
-  #connect(): void {
-    if (this.#stopped || this.#socket !== undefined) return;
-
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(this.url);
-    } catch {
-      this.#scheduleRetry();
-      return;
-    }
-    this.#socket = socket;
-
-    socket.addEventListener('open', () => {
-      this.#attempt = 0;
-      this.#flush();
-    });
-
-    socket.addEventListener('message', (event: MessageEvent<string>) => {
-      this.#onMessage(event.data);
-    });
-
-    // `error` is always followed by `close`, so reconnection is driven from one place.
-    socket.addEventListener('close', () => {
-      this.#socket = undefined;
-      this.#scheduleRetry();
-    });
-  }
-
-  #onMessage(data: unknown): void {
-    if (typeof data !== 'string' || this.#sink === undefined) return;
-    try {
-      const parsed: unknown = JSON.parse(data);
-      if (!isRecordBatch(parsed)) return;
-      for (const rec of parsed.records) {
-        this.#sink.write(rec.level, rec.scope, rec.message, []);
-      }
-    } catch {
-      // Silently drop non-JSON or malformed broadcast frames.
-    }
-  }
-
-  /**
-   * Retry with backoff.
-   *
-   * The daemon being absent is the common case, so this must stay quiet: no console noise, no
-   * warnings. It is a background nicety, not a dependency.
-   */
-  #scheduleRetry(): void {
-    if (this.#stopped || this.#retry !== undefined) return;
-
-    const delay = BACKOFF_MS[Math.min(this.#attempt, BACKOFF_MS.length - 1)] ?? 30_000;
-    this.#attempt += 1;
-    this.#retry = globalThis.setTimeout(() => {
-      this.#retry = undefined;
-      this.#connect();
-    }, delay);
   }
 }

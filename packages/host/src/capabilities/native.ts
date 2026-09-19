@@ -151,9 +151,9 @@ export class NativeClient implements NativeApi {
     return this.#endpoint;
   }
 
-  /** `http://…` → `ws://…/v1/logs/stream`. */
+  /** `http://…` → `ws://…/v1/ws`. */
   get wsUrl(): string {
-    return `${this.#endpoint.replace(/^http/, 'ws')}/v1/logs/stream`;
+    return `${this.#endpoint.replace(/^http/, 'ws')}/v1/ws`;
   }
 
   /**
@@ -265,9 +265,6 @@ export class NativeClient implements NativeApi {
         this.#handleResponse(record);
       } else if (record['type'] === 'push' && record['event'] === 'logBroadcast') {
         this.#handlePush(record['data']);
-      } else if (Array.isArray(record['records'])) {
-        // Legacy broadcast format
-        for (const listener of this.#broadcastListeners) listener(record['records'] as unknown[]);
       }
     } catch {
       // Silently ignore malformed frames

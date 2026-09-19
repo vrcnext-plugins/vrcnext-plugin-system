@@ -186,6 +186,7 @@ test('an empty endpoint falls back to the default rather than producing a bare p
 
   await client.setEndpoint('   ');
   assert.equal(client.endpoint, 'http://127.0.0.1:42081');
+  assert.equal(client.wsUrl, 'ws://127.0.0.1:42081/v1/ws');
 });
 
 test('reports tri-state correctly for not_detected, running_not_connected, and connected', async () => {
