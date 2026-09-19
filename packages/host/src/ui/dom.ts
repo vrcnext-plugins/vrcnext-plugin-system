@@ -61,7 +61,18 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** Material Symbols ligature span, matching VRCNext's own `.msi` usage. */
+/**
+ * Material Symbols ligature span, matching VRCNext's own `.msi` usage.
+ *
+ * **Only use glyph names VRCNext itself uses.** Its `material-symbols-rounded.woff2` is a ~568 KB
+ * subset, not the full ~3.5 MB face, so a valid Material Symbols name that VRCNext happens not to
+ * use has no glyph and renders as its own literal text — `cable` showed up as the word "CABLE".
+ * There is no runtime signal for this; it has to be checked against the frontend:
+ *
+ * ```bash
+ * grep -rho 'msi">[a-z_0-9]*' frontend/ | sed 's/.*>//' | sort -u
+ * ```
+ */
 export function iconSpan(name: string, extraClass?: string): HTMLSpanElement {
   return element('span', extraClass === undefined ? CLASSES.icon : `${CLASSES.icon} ${extraClass}`, name);
 }

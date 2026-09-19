@@ -27,6 +27,7 @@ import {
   tabContainer,
   tabIndexOf,
 } from './dom.js';
+import * as widgets from './widgets.js';
 
 const PLUGIN_ATTR = 'data-vrcnext-plugin';
 
@@ -114,6 +115,11 @@ class PluginUiImpl implements PluginUi {
     return button;
   }
 
+  /** The scrolling, gapped column VRCNext gives its own tabs. */
+  createPanelLayout(): HTMLElement {
+    return widgets.panelLayout();
+  }
+
   addDashboardCard(options: DashboardCardOptions): PanelHandle {
     const card = this.createCard(options.title, options.icon);
     card.setAttribute(PLUGIN_ATTR, this.#pluginId);
@@ -168,31 +174,11 @@ class PluginUiImpl implements PluginUi {
   }
 
   createCard(title: string, icon: string): HTMLElement {
-    const card = element('div', CLASSES.card);
-    const header = element('div', CLASSES.cardHeader);
-    header.appendChild(iconSpan(icon));
-    header.appendChild(element('span', undefined, title));
-    card.appendChild(header);
-    return card;
+    return widgets.card(title, icon);
   }
 
   createToggleRow(label: string, checked: boolean, onChange: (next: boolean) => void): HTMLElement {
-    const row = element('div', CLASSES.toggleRow);
-    row.appendChild(element('div', undefined, label));
-
-    const wrapper = element('label', CLASSES.toggle);
-    const input = element('input');
-    input.type = 'checkbox';
-    input.checked = checked;
-    input.addEventListener('change', () => { onChange(input.checked); });
-
-    const track = element('div', CLASSES.toggleTrack);
-    track.appendChild(element('div', CLASSES.toggleKnob));
-
-    wrapper.appendChild(input);
-    wrapper.appendChild(track);
-    row.appendChild(wrapper);
-    return row;
+    return widgets.row(label, widgets.toggle(checked, onChange));
   }
 
   disposeAll(): void {

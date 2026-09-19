@@ -8,7 +8,8 @@
 import type { LogLevel } from '@vrcnext/plugin-api';
 
 import { formatRecord, LEVEL_ORDER, type LogRecord, type LogSink } from '../log/log-sink.js';
-import { CLASSES, element, iconSpan } from './dom.js';
+import { element } from './dom.js';
+import { button, controlRow, dropdown, sectionLabel } from './widgets.js';
 
 const MAX_RENDERED_LINES = 500;
 const LEVELS: readonly LogLevel[] = ['debug', 'info', 'warn', 'error'];
@@ -33,12 +34,14 @@ export class LogPanel {
 
   render(card: HTMLElement): void {
     card.appendChild(this.#buildControls());
+    card.appendChild(sectionLabel('Output'));
 
-    const list = element('div');
+    // `.folder-list` is VRCNext's own inset scroll container — same inset fill and radius its
+    // settings lists use. Only the monospace face is added on top, which a log genuinely needs.
+    const list = element('div', 'folder-list');
     list.style.cssText =
-      'max-height:320px;overflow-y:auto;background:var(--bg-input);border-radius:8px;' +
-      'padding:8px 10px;font-family:ui-monospace,monospace;' +
-      'font-size:calc(11px + var(--fs-off, 0px));';
+      'max-height:340px;overflow-y:auto;margin-bottom:0;' +
+      'font-family:ui-monospace,monospace;font-size:calc(11px + var(--fs-off, 0px));line-height:1.55;';
     this.#list = list;
     card.appendChild(list);
 
@@ -47,57 +50,57 @@ export class LogPanel {
   }
 
   #buildControls(): HTMLElement {
-    const row = element('div', CLASSES.toggleRow);
-
-    const level = element('select');
-    for (const value of LEVELS) {
-      const option = element('option', undefined, value.toUpperCase());
-      option.value = value;
-      level.appendChild(option);
-    }
-    level.value = this.#minLevel;
-    level.addEventListener('change', () => {
-      this.#minLevel = LEVELS.find((l) => l === level.value) ?? 'debug';
-      this.#redraw();
+    const level = dropdown({
+      options: LEVELS.map((name) => ({ value: name, label: name.toUpperCase() })),
+      selected: this.#minLevel,
+      onChange: (next) => {
+        this.#minLevel = LEVELS.find((candidate) => candidate === next) ?? 'debug';
+        this.#redraw();
+      },
     });
 
-    const scope = element('select');
-    const refreshScopes = (): void => {
+    // Scopes appear as plugins load, so the list is rebuilt when the user opens it rather than
+    // frozen at render time.
+    const scope = dropdown({
+      options: [{ value: '', label: 'All plugins' }],
+      selected: '',
+      onChange: (next) => {
+        this.#scope = next;
+        this.#redraw();
+      },
+    });
+    scope.addEventListener('mousedown', () => {
       const current = scope.value;
       scope.replaceChildren();
-      const all = element('option', undefined, 'All plugins');
-      all.value = '';
-      scope.appendChild(all);
-      for (const name of this.#sink.scopes()) {
-        const option = element('option', undefined, name);
-        option.value = name;
+      for (const { value, label } of [
+        { value: '', label: 'All plugins' },
+        ...this.#sink.scopes().map((name) => ({ value: name, label: name })),
+      ]) {
+        const option = element('option', undefined, label);
+        option.value = value;
         scope.appendChild(option);
       }
       scope.value = current;
-    };
-    refreshScopes();
-    scope.addEventListener('mousedown', refreshScopes);
-    scope.addEventListener('change', () => {
-      this.#scope = scope.value;
-      this.#redraw();
     });
 
-    const copy = element('button', undefined, 'Copy');
-    copy.addEventListener('click', () => {
-      void navigator.clipboard.writeText(this.#text());
-    });
-
-    const download = element('button', undefined, 'Download');
-    download.addEventListener('click', () => { this.#download(); });
-
-    const clear = element('button', undefined, 'Clear');
-    clear.addEventListener('click', () => {
-      this.#sink.clear();
-      this.#redraw();
-    });
-
-    row.append(iconSpan('article'), level, scope, copy, download, clear);
-    return row;
+    return controlRow(
+      level,
+      scope,
+      button({
+        label: 'Copy',
+        icon: 'content_copy',
+        onClick: () => { void navigator.clipboard.writeText(this.#text()); },
+      }),
+      button({ label: 'Download', icon: 'download', onClick: () => { this.#download(); } }),
+      button({
+        label: 'Clear',
+        icon: 'cleaning_services',
+        onClick: () => {
+          this.#sink.clear();
+          this.#redraw();
+        },
+      }),
+    );
   }
 
   #text(): string {

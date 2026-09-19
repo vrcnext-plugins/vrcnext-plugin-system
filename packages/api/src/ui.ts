@@ -75,6 +75,14 @@ export interface UiApi {
    * Creates an element using VRCNext's classes. Prefer this over `document.createElement` so
    * markup stays consistent with the host when its stylesheet changes.
    */
+  /**
+   * The scrolling, gapped column VRCNext gives its own settings tabs.
+   *
+   * Put cards inside one of these in a nav tab. Appending cards straight to the tab produces
+   * flush, edge-to-edge panels with no padding between them.
+   */
+  createPanelLayout(): HTMLElement;
+
   createCard(title: string, icon: IconName): HTMLElement;
 
   /** Creates a labelled toggle row matching VRCNext's `sf-toggle-row` markup. */

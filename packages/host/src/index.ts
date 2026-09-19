@@ -182,15 +182,18 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
       label: 'Logs',
       icon: 'article',
       render: (container) => {
-        const card = core.ui.forHost(bag).createCard('Plugin logs', 'article');
+        const host = core.ui.forHost(bag);
+        const layout = host.createPanelLayout();
+        const card = host.createCard('Plugin logs', 'article');
         logPanel.render(card);
-        container.appendChild(card);
+        layout.appendChild(card);
+        container.replaceChildren(layout);
       },
     },
     {
       id: 'system',
       label: 'Plugin System',
-      icon: 'settings_applications',
+      icon: 'tune',
       render: (container) => { aboutPanel.render(container); },
     },
   ];
