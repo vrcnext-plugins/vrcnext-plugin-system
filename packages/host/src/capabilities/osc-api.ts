@@ -8,6 +8,7 @@
 import type {
   Bridge,
   DisposableBag,
+  Logger,
   OscApi,
   OscAvatarChangeEvent,
   OscParamEvent,
@@ -54,30 +55,54 @@ function toAvatarChange(payload: unknown): OscAvatarChangeEvent | undefined {
   return { avatarId: typeof avatarId === 'string' ? avatarId : '', parameters };
 }
 
+export interface OscApiDeps {
+  readonly bridge: Bridge;
+  readonly router: EventRouter;
+  readonly bag: DisposableBag;
+  readonly logger: Logger;
+  /** VRCNext drops every `osc*` action on Linux, so sending there is pointless. */
+  readonly available: boolean;
+}
+
 export class HostOscApi implements OscApi {
   readonly #bridge: Bridge;
   readonly #router: EventRouter;
   readonly #bag: DisposableBag;
+  readonly #logger: Logger;
+  readonly available: boolean;
 
-  constructor(bridge: Bridge, router: EventRouter, bag: DisposableBag) {
-    this.#bridge = bridge;
-    this.#router = router;
-    this.#bag = bag;
+  constructor(deps: OscApiDeps) {
+    this.#bridge = deps.bridge;
+    this.#router = deps.router;
+    this.#bag = deps.bag;
+    this.#logger = deps.logger;
+    this.available = deps.available;
+  }
+
+  /** Logs rather than silently dropping, so an unsupported platform is visible in the log. */
+  #guard(what: string): boolean {
+    if (this.available) return true;
+    this.#logger.warn(`OSC is Windows-only in VRCNext; ${what} ignored.`);
+    return false;
   }
 
   connect(): void {
+    if (!this.#guard('connect()')) return;
     this.#bridge.send('oscConnect');
   }
 
   disconnect(): void {
+    if (!this.#guard('disconnect()')) return;
     this.#bridge.send('oscDisconnect');
   }
 
   send(name: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
+    if (!this.#guard(`send(${name})`)) return;
     this.#bridge.send('oscSend', { name, type: kind, value });
   }
 
   sendRaw(address: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
+    if (!this.#guard(`sendRaw(${address})`)) return;
     this.#bridge.send('oscSendRaw', { address, type: kind, value });
   }
 

@@ -21,10 +21,10 @@ house many plugins, and both plugins and the host auto-update.
 | :--- | :--- |
 | **Host events** — ~310 VRCNext event types, verified payloads typed | `ctx.events` |
 | **Host actions** — ~474 backend actions, with request/response and outbound interception | `ctx.bridge` |
-| **OSC** — send and receive through VRCNext's sockets, incl. avatar parameters | `ctx.osc` |
+| **OSC** — send and receive through VRCNext's sockets *(Windows only — see below)* | `ctx.osc` |
 | **VRChat game log** — live stream and 1000-entry backlog | `ctx.gameLog` |
 | **Sidebar tabs, dashboard cards, settings cards, custom CSS** | `ctx.ui` |
-| **Notifications** — in-app toasts, OS tray toasts, **SteamVR wrist overlay**, confirm modals | `ctx.notifications` |
+| **Notifications** — in-app toasts and confirm modals everywhere; OS tray + **SteamVR wrist overlay** *(Windows only)* | `ctx.notifications` |
 | **Context menus** — items, dividers, submenus, entity-aware targeting | `ctx.contextMenu` |
 | **In-page HTTP routes** with path params | `ctx.router` |
 | **Deep links** — observe the `vrcn://` links VRCNext delivers | `ctx.deepLinks` |
@@ -46,10 +46,17 @@ export default definePlugin({
 });
 ```
 
-Two limits are real and documented rather than papered over: plugin HTTP routes are
-**in-page only**, and **custom `vrcn://` prefixes are impossible** — VRCNext validates the link
-type in C# and drops unknown ones before the page sees them. See
-[Limitations](https://vrcnext-plugins.github.io/limitations).
+Three limits are real and documented rather than papered over:
+
+1. Plugin HTTP routes are **in-page only** — VRCNext's C# listener has a fixed route table.
+2. **Custom `vrcn://` prefixes are impossible** — VRCNext validates the link type in C# and drops
+   unknown ones before the page sees them.
+3. **OSC, the VR overlay, the chatbox and several other features are Windows-only in VRCNext
+   itself.** `IsWindowsOnlyAction` filters those actions out on Linux before any handler runs, so
+   `ctx.osc.available` and `ctx.notifications.desktopAvailable` report it instead of failing
+   silently.
+
+See [Limitations](https://vrcnext-plugins.github.io/limitations) for the full platform matrix.
 
 ## Install
 

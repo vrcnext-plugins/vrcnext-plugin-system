@@ -127,7 +127,13 @@ export class PluginLoader {
       bridge: this.#deps.bridge,
       ui,
       notifications: new HostNotificationsApi(this.#deps.bridge, logger, this.#deps.isLinux()),
-      osc: new HostOscApi(this.#deps.bridge, this.#deps.router, bag),
+      osc: new HostOscApi({
+        bridge: this.#deps.bridge,
+        router: this.#deps.router,
+        bag,
+        logger,
+        available: !this.#deps.isLinux(),
+      }),
       gameLog: new HostGameLogApi(this.#deps.bridge, this.#deps.router, bag),
       deepLinks: new PluginDeepLinkApi(this.#deps.deepLinks, bag),
       router: new PluginRouter(this.#deps.routes, pluginId, globalThis.location.origin, (dispose) => {

@@ -152,8 +152,12 @@ function installGameLog(ctx: Ctx, state: State): void {
     });
 }
 
-/** 5. OSC in and out, through VRCNext's sockets. */
+/** 5. OSC in and out. Windows-only in VRCNext — always guard on `available`. */
 function installOsc(ctx: Ctx, state: State): void {
+  if (!ctx.osc.available) {
+    state.log('[osc] OSC is Windows-only in VRCNext; skipping.');
+    return;
+  }
   ctx.osc.connect();
 
   ctx.osc.onParam((event) => {
@@ -170,6 +174,7 @@ function installOsc(ctx: Ctx, state: State): void {
 
 /** Sends the configured parameter. Shared by the dashboard button and the HTTP route. */
 function pulseOsc(ctx: Ctx): string {
+  if (!ctx.osc.available) return 'OSC unavailable (Windows only)';
   const name = ctx.settings.get('oscParameter');
   const value = ctx.settings.get('oscValue');
   ctx.osc.send(name, 'int', value);

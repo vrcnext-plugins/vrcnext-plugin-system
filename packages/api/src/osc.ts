@@ -8,6 +8,16 @@
  *
  * Verified against VRCNext's `oscSend` / `oscSendRaw` actions and `oscParams` / `oscAvatarParams`
  * events.
+ *
+ * > [!WARNING]
+ * > **OSC is Windows-only in VRCNext.** `MessageRouter.IsWindowsOnlyAction` drops any action
+ * > whose name starts with `osc` followed by an uppercase letter, so `oscSend`, `oscSendRaw`,
+ * > `oscConnect` and `oscDisconnect` never reach the backend on Linux. VRCNext's own OSC Tool
+ * > tab is hidden there for the same reason, and its Action Flow OSC blocks are equally inert —
+ * > they emit the same two actions.
+ * >
+ * > There is no workaround from the page. Check {@link OscApi.available} before building
+ * > behaviour on OSC, and treat it as a Windows-only feature.
  */
 
 export const OSC_VALUE_KINDS = ['bool', 'int', 'float'] as const;
@@ -34,6 +44,12 @@ export interface OscAvatarChangeEvent {
 }
 
 export interface OscApi {
+  /**
+   * `false` on Linux, where VRCNext filters every `osc*` action out before it reaches the
+   * backend. Every method below is a no-op (logged, not silent) when this is `false`.
+   */
+  readonly available: boolean;
+
   /** Starts VRCNext's OSC service if it is not already running. */
   connect(): void;
   disconnect(): void;
