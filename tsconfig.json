@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/api" },
+    { "path": "./packages/host" },
+    { "path": "./examples/hello-world" }
+  ]
+}

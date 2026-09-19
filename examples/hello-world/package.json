@@ -1,0 +1,11 @@
+{
+  "name": "@vrcnext-examples/hello-world",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal VRCNext plugin showing settings, events and UI injection.",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@vrcnext/plugin-api": "0.1.0"
+  }
+}
