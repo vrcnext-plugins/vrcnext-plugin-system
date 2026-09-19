@@ -17,6 +17,7 @@ import { EventRouter } from './events/event-router.js';
 import { PluginLoader } from './loader/plugin-loader.js';
 import { createLogger } from './log/create-logger.js';
 import { LogSink } from './log/log-sink.js';
+import { LogStream } from './log/log-stream.js';
 import { PluginManager } from './plugin-manager.js';
 import { Registry } from './registry/registry.js';
 import { IdbStore } from './storage/idb-store.js';
@@ -68,6 +69,7 @@ interface Core {
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
   readonly native: NativeClient;
+  readonly logStream: LogStream;
   readonly isLinux: () => boolean;
 }
 
@@ -113,6 +115,12 @@ async function buildCore(): Promise<Core> {
   // Touch `ready` so the probe starts now; plugins await the same promise rather than racing it.
   void native.ready;
 
+  // Mirror everything logged here into the companion's log file, so plugin behaviour can be
+  // followed with `tail -f` instead of by keeping the Logs panel open and copying text out.
+  // Entirely optional: with no daemon running this quietly retries in the background forever.
+  const logStream = new LogStream(native.endpoint);
+  logStream.start(sink);
+
   const loader = new PluginLoader({
     router,
     bridge,
@@ -138,6 +146,7 @@ async function buildCore(): Promise<Core> {
     routes,
     contextMenu,
     native,
+    logStream,
     isLinux: () => isLinux,
   };
 }
@@ -241,6 +250,7 @@ export async function boot(): Promise<HostHandle> {
     updater,
     shutdown: async (): Promise<void> => {
       shutdownController.abort();
+      core.logStream.stop();
       await core.manager.shutdown();
       core.contextMenu.uninstall();
       core.routes.uninstall();
