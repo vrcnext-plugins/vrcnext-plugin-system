@@ -38,7 +38,7 @@ import type { IconName } from './ui.js';
 export type UiChild = Node | string | false | null | undefined;
 
 /** Semantic colours from VRCNext's own badge set. */
-export type UiBadgeTone = 'ok' | 'warn' | 'err' | 'accent' | 'cyan' | 'neutral';
+export type UiBadgeTone = 'ok' | 'warn' | 'warning' | 'err' | 'accent' | 'cyan' | 'neutral';
 
 export interface UiCardOptions {
   /** Card heading. Omit for a card with no header. */

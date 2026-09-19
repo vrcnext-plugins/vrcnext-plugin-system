@@ -43,6 +43,27 @@ interface WireRecord {
   readonly ts: number;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isLogLevel(value: unknown): value is LogLevel {
+  return typeof value === 'string' &&
+    (value === 'trace' || value === 'debug' || value === 'info' || value === 'warn' || value === 'error');
+}
+
+function isWireRecord(value: unknown): value is WireRecord {
+  if (!isRecord(value)) return false;
+  return isLogLevel(value['level']) &&
+    typeof value['scope'] === 'string' &&
+    typeof value['message'] === 'string';
+}
+
+function isRecordBatch(value: unknown): value is { readonly records: readonly WireRecord[] } {
+  if (!isRecord(value) || !Array.isArray(value['records'])) return false;
+  return value['records'].every(isWireRecord);
+}
+
 export class LogStream {
   readonly #endpoint: string;
   readonly #queue: WireRecord[] = [];
@@ -52,6 +73,8 @@ export class LogStream {
   #attempt = 0;
   #stopped = false;
   #unsubscribe: (() => void) | undefined;
+
+  #sink: LogSink | undefined;
 
   /** @param endpoint the companion's HTTP origin, e.g. `http://127.0.0.1:42081`. */
   constructor(endpoint: string) {
@@ -75,6 +98,7 @@ export class LogStream {
    * diagnosing a broken start, so subscribing to only *future* records would lose the best part.
    */
   start(sink: LogSink): void {
+    this.#sink = sink;
     this.#stopped = false;
     this.#unsubscribe?.();
     for (const record of sink.records) this.#enqueue(record);
@@ -84,6 +108,7 @@ export class LogStream {
 
   stop(): void {
     this.#stopped = true;
+    this.#sink = undefined;
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
     if (this.#timer !== undefined) globalThis.clearTimeout(this.#timer);
@@ -96,6 +121,9 @@ export class LogStream {
   }
 
   #enqueue(record: LogRecord): void {
+    // Never mirror logs that originated from the bridge back to the bridge.
+    if (record.scope === 'bridge') return;
+
     this.#queue.push({
       level: record.level,
       scope: record.scope,
@@ -145,11 +173,28 @@ export class LogStream {
       this.#flush();
     });
 
+    socket.addEventListener('message', (event: MessageEvent<string>) => {
+      this.#onMessage(event.data);
+    });
+
     // `error` is always followed by `close`, so reconnection is driven from one place.
     socket.addEventListener('close', () => {
       this.#socket = undefined;
       this.#scheduleRetry();
     });
+  }
+
+  #onMessage(data: unknown): void {
+    if (typeof data !== 'string' || this.#sink === undefined) return;
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (!isRecordBatch(parsed)) return;
+      for (const rec of parsed.records) {
+        this.#sink.write(rec.level, rec.scope, rec.message, []);
+      }
+    } catch {
+      // Silently drop non-JSON or malformed broadcast frames.
+    }
   }
 
   /**

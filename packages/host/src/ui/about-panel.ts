@@ -12,6 +12,7 @@ import type { Logger } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from '../api-version.js';
 import type { NativeClient } from '../capabilities/native.js';
+import type { DebugHub } from '../log/debug-hub.js';
 import type { LogSink } from '../log/log-sink.js';
 import type { PluginManager } from '../plugin-manager.js';
 import type { Updater } from '../update/updater.js';
@@ -28,6 +29,7 @@ import {
   sectionLabel,
   statusCard,
   textField,
+  toggle,
   value,
 } from './widgets.js';
 
@@ -41,6 +43,7 @@ export interface AboutPanelDeps {
   readonly sink: LogSink;
   readonly logger: Logger;
   readonly native: NativeClient;
+  readonly debugHub: DebugHub;
   readonly isLinux: () => boolean;
   readonly openUrl: (url: string) => void;
 }
@@ -70,7 +73,7 @@ export class AboutPanel {
     // squeezed four paragraphs of prose into ~300px columns. Here the two compact key/value cards
     // share row one, the companion owns row two because its target rows and endpoint field use
     // the width, and the two prose cards share row three at a readable measure.
-    const companion = this.#buildCompanion();
+    const companion = this.#buildCompanion(() => { this.refresh(); });
     companion.classList.add('vrcnx-full');
 
     root.replaceChildren(
@@ -79,6 +82,7 @@ export class AboutPanel {
           this.#buildStatus(),
           this.#buildPlatform(),
           companion,
+          this.#buildDiagnostics(),
           this.#buildUpdates(),
           this.#buildAbout(),
         ],
@@ -112,16 +116,16 @@ export class AboutPanel {
    * Rendered whether or not it is installed: a user wondering why a plugin's VR notifications do
    * nothing should find the answer here rather than in a log file.
    */
-  #buildCompanion(): HTMLElement {
+  #buildCompanion(onProbeChanged?: () => void): HTMLElement {
     const { native } = this.#deps;
-    const panel = card('Native companion', 'hub');
+    const panel = card('VRCNext Bridge', 'hub');
 
     panel.appendChild(
       description(
         'vrcnext-bridge is an optional local daemon. It is the only way plugins can reach a VR ' +
-          'overlay or the desktop notification daemon, because the page itself cannot open a UDP ' +
-          'socket or talk to D-Bus. Without it those targets are unavailable — nothing else stops ' +
-          'working.',
+        'overlay or the desktop notification daemon, because the page itself cannot open a UDP ' +
+        'socket or talk to D-Bus. Without it those targets are unavailable — nothing else stops ' +
+        'working.',
       ),
     );
 
@@ -136,7 +140,12 @@ export class AboutPanel {
           action: button({
             label: 'Re-check',
             icon: 'refresh',
-            onClick: () => { void native.probe().then(paint); },
+            onClick: () => {
+              void native.probe().then(() => {
+                paint();
+                onProbeChanged?.();
+              });
+            },
           }),
         }),
       );
@@ -163,7 +172,12 @@ export class AboutPanel {
         textField({
           value: native.endpoint,
           placeholder: 'http://127.0.0.1:42081',
-          onCommit: (next) => { void native.setEndpoint(next).then(paint); },
+          onCommit: (next) => {
+            void native.setEndpoint(next).then(() => {
+              paint();
+              onProbeChanged?.();
+            });
+          },
         }),
         button({
           label: 'Get the daemon',
@@ -183,9 +197,9 @@ export class AboutPanel {
     panel.appendChild(
       description(
         'Plugins update automatically: every repository is re-read on boot and every six hours, ' +
-          'and any plugin with a newer manifest version is re-downloaded and restarted. Settings ' +
-          'are preserved. The host itself can only detect a new release — it is a file in ' +
-          'VRCNext’s theme folder, and the page cannot write to disk.',
+        'and any plugin with a newer manifest version is re-downloaded and restarted. Settings ' +
+        'are preserved. The host itself can only detect a new release — it is a file in ' +
+        'VRCNext’s theme folder, and the page cannot write to disk.',
       ),
     );
 
@@ -236,31 +250,27 @@ export class AboutPanel {
   #buildPlatform(): HTMLElement {
     const panel = card('Platform support', 'desktop_windows');
     const linux = this.#deps.isLinux();
+    const { native } = this.#deps;
 
     panel.appendChild(
-      description(
-        linux
-          ? 'Running on Linux. VRCNext compiles several features out on this platform, so the ' +
-              'capabilities below are unavailable to plugins no matter what they do. The native ' +
-              'companion above is a separate process and is not subject to those gates.'
-          : 'Running on Windows. All plugin capabilities are available.',
-      ),
+      description(linux ? 'Running on Linux.' : 'Running on Windows.'),
     );
 
-    for (const [label, available] of [
-      ['OSC', !linux],
-      ['Desktop & VR notifications', !linux],
-      ['In-app toasts, modals', true],
-      ['Host events, bridge actions', true],
-      ['Game log', true],
-      ['UI, context menus, routes', true],
+    const notificationsBadge = !linux
+      ? badge('ok', 'Available')
+      : native.available
+        ? badge('ok', 'Bridge')
+        : badge('neutral', 'Bridge');
+
+    for (const [label, badgeEl] of [
+      ['OSC', !linux ? badge('ok', 'Available') : badge('warn', 'Windows only')],
+      ['Desktop & VR notifications', notificationsBadge],
+      ['In-app toasts, modals', badge('ok', 'Available')],
+      ['Host events, bridge actions', badge('ok', 'Available')],
+      ['Game log', badge('ok', 'Available')],
+      ['UI, context menus, routes', badge('ok', 'Available')],
     ] as const) {
-      panel.appendChild(
-        row(
-          label,
-          available ? badge('ok', 'Available') : badge('warn', 'Windows only'),
-        ),
-      );
+      panel.appendChild(row(label, badgeEl));
     }
     return panel;
   }
@@ -271,9 +281,9 @@ export class AboutPanel {
     panel.appendChild(
       description(
         'A plugin runtime for VRCNext that installs as a custom theme and never modifies ' +
-          'VRCNext itself. Plugins run with the full authority of this page — your VRChat ' +
-          'session, your webhooks, your settings. There is no sandbox, so only install ' +
-          'repositories you trust.',
+        'VRCNext itself. Plugins run with the full authority of this page — your VRChat ' +
+        'session, your webhooks, your settings. There is no sandbox, so only install ' +
+        'repositories you trust.',
       ),
     );
 
@@ -293,6 +303,25 @@ export class AboutPanel {
     );
 
     panel.appendChild(description('Released into the public domain under the Unlicense.'));
+    return panel;
+  }
+
+  #buildDiagnostics(): HTMLElement {
+    const panel = card('Diagnostics', 'bug_report');
+    panel.appendChild(
+      description(
+        'Developer diagnostics and tracing. When enabled, browser console errors and warnings ' +
+        'are mirrored into the host log stream, and UI interaction events are recorded.',
+      ),
+    );
+    panel.appendChild(
+      row(
+        'Verbose debug logging',
+        toggle(this.#deps.debugHub.enabled, (next) => {
+          this.#deps.debugHub.enabled = next;
+        }),
+      ),
+    );
     return panel;
   }
 }

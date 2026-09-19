@@ -151,6 +151,31 @@ test('re-attaches after navRender() clears #navEl', async () => {
   assert.ok(navEl.querySelector('#vrcnextPluginsNavGroup'), 'group not restored');
 });
 
+test('opens popout in modern-folders mode and activates tab on cell click', () => {
+  const navEl = q('#navEl');
+  navEl?.classList.add('modern-folders');
+
+  const group = q('#vrcnextPluginsNavGroup');
+  const header = group?.querySelector('.nav-group-btn');
+  assert.ok(header);
+
+  // Click header to open popout
+  (header as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  const popout = q('#navFolderPopout');
+  assert.ok(popout, 'modern folder popout missing');
+  assert.equal(popout.querySelector('.nav-folder-popout-title')?.textContent, 'Plugins');
+
+  const cells = [...popout.querySelectorAll('.nav-folder-cell')];
+  assert.equal(cells.length, 3);
+  assert.equal(cells[1]?.querySelector('.nav-folder-cell-label')?.textContent, 'Logs');
+
+  // Click Logs cell
+  (cells[1] as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.deepEqual(renders, ['logs']);
+  assert.deepEqual(shown, [2]);
+  assert.equal(q('#navFolderPopout'), null, 'popout should close after item click');
+});
+
 test('dispose removes everything it injected', () => {
   nav.dispose();
   assert.equal(q('#navEl .nav-sep'), null);

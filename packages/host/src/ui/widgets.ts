@@ -119,7 +119,9 @@ export function pair(first: UiChild, second: UiChild): HTMLElement {
 export function badge(tone: UiBadgeTone, text: string): HTMLElement {
   // `neutral` is spelled `hidden` in VRCNext's stylesheet; that name is meaningless outside its
   // instance-privacy context, so the kit exposes the colour rather than the jargon.
-  return element('span', `vrcn-badge ${tone === 'neutral' ? 'hidden' : tone}`, text);
+  // `warning` maps to VRCNext's `.vrcn-badge.warn` class (yellow).
+  const cls = tone === 'neutral' ? 'hidden' : tone === 'warning' ? 'warn' : tone;
+  return element('span', `vrcn-badge ${cls}`, text);
 }
 
 /** A big number with a caption. */
@@ -127,8 +129,9 @@ export function stat(label: string, text: string, tone?: UiBadgeTone): HTMLEleme
   ensureKitStyles();
   const root = element('div', 'vrcnx-stat');
   const number = element('div', 'vrcnx-stat-value', text);
-  if (tone === 'ok' || tone === 'warn' || tone === 'err') {
-    number.style.color = `var(--${tone})`;
+  if (tone === 'ok' || tone === 'warn' || tone === 'warning' || tone === 'err') {
+    const varName = tone === 'warning' ? 'warn' : tone;
+    number.style.color = `var(--${varName})`;
   }
   root.append(number, element('div', 'vrcnx-stat-label', label));
   return root;

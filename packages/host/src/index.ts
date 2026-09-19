@@ -16,6 +16,7 @@ import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
 import { PluginLoader } from './loader/plugin-loader.js';
 import { createLogger } from './log/create-logger.js';
+import { DebugHub } from './log/debug-hub.js';
 import { LogSink } from './log/log-sink.js';
 import { LogStream } from './log/log-stream.js';
 import { PluginManager } from './plugin-manager.js';
@@ -29,6 +30,7 @@ import { UiHost } from './ui/ui-host.js';
 import { Updater } from './update/updater.js';
 
 const GLOBAL_KEY = '__vrcnextPluginHost';
+const BOOT_KEY = '__vrcnextPluginHostBooting';
 const THEME_ID = 'vrcnext-plugin-system';
 
 export interface HostHandle {
@@ -70,6 +72,7 @@ interface Core {
   readonly contextMenu: ContextMenuHub;
   readonly native: NativeClient;
   readonly logStream: LogStream;
+  readonly debugHub: DebugHub;
   readonly isLinux: () => boolean;
 }
 
@@ -120,6 +123,7 @@ async function buildCore(): Promise<Core> {
   // Entirely optional: with no daemon running this quietly retries in the background forever.
   const logStream = new LogStream(native.endpoint);
   logStream.start(sink);
+  const debugHub = new DebugHub(sink);
 
   const loader = new PluginLoader({
     router,
@@ -147,6 +151,7 @@ async function buildCore(): Promise<Core> {
     contextMenu,
     native,
     logStream,
+    debugHub,
     isLinux: () => isLinux,
   };
 }
@@ -175,6 +180,7 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
     sink: core.sink,
     logger: core.logger,
     native: core.native,
+    debugHub: core.debugHub,
     isLinux: core.isLinux,
     openUrl: (url) => { core.bridge.send('openUrl', { url }); },
   });
@@ -217,6 +223,9 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
         `Could not render "${entry.label}": ${error instanceof Error ? error.message : String(error)}`,
       );
     },
+    onUiEvent: (action, detail) => {
+      core.debugHub.logUi(action, detail);
+    },
   });
   nav.mount();
   bag.add(nav);
@@ -226,52 +235,65 @@ export async function boot(): Promise<HostHandle> {
   const running = existingHost();
   if (running !== undefined) return running;
 
-  const core = await buildCore();
-  const bag = new DisposableBag();
+  const inFlight: unknown = (globalThis as Record<string, unknown>)[BOOT_KEY];
+  if (inFlight instanceof Promise) return inFlight as Promise<HostHandle>;
 
-  const failures = await core.manager.activateEnabled();
-  for (const failure of failures) core.logger.error(failure.message);
-  if (failures.length > 0) {
-    core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
-  }
+  const bootPromise = (async (): Promise<HostHandle> => {
+    try {
+      const core = await buildCore();
+      const bag = new DisposableBag();
 
-  const shutdownController = new AbortController();
-  const updater = new Updater({
-    manager: core.manager,
-    logger: core.logger.scoped('update'),
-    notify: (message, ok) => { core.toast({ message, ok }); },
-  });
-  updater.start(shutdownController.signal);
-  mountNav(core, updater, bag);
+      const failures = await core.manager.activateEnabled();
+      for (const failure of failures) core.logger.error(failure.message);
+      if (failures.length > 0) {
+        core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
+      }
 
-  const handle: HostHandle = {
-    apiVersion: API_VERSION,
-    manager: core.manager,
-    updater,
-    shutdown: async (): Promise<void> => {
-      shutdownController.abort();
-      core.logStream.stop();
-      await core.manager.shutdown();
-      core.contextMenu.uninstall();
-      core.routes.uninstall();
-      bag.dispose();
-      core.sink.dispose();
-      core.storage.close();
-      (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;
-    },
-  };
+      const shutdownController = new AbortController();
+      const updater = new Updater({
+        manager: core.manager,
+        logger: core.logger.scoped('update'),
+        notify: (message, ok) => { core.toast({ message, ok }); },
+      });
+      updater.start(shutdownController.signal);
+      mountNav(core, updater, bag);
 
-  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
+      const handle: HostHandle = {
+        apiVersion: API_VERSION,
+        manager: core.manager,
+        updater,
+        shutdown: async (): Promise<void> => {
+          shutdownController.abort();
+          core.debugHub.dispose();
+          core.logStream.stop();
+          await core.manager.shutdown();
+          core.contextMenu.uninstall();
+          core.routes.uninstall();
+          bag.dispose();
+          core.sink.dispose();
+          core.storage.close();
+          (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;
+        },
+      };
 
-  // VRCNext fires this when the user disables the bootstrap theme.
-  document.documentElement.addEventListener(
-    `vrcnext:theme:unload:${THEME_ID}`,
-    () => { void handle.shutdown(); },
-    { once: true },
-  );
+      (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
 
-  core.logger.info('Plugin host ready.');
-  return handle;
+      // VRCNext fires this when the user disables the bootstrap theme.
+      document.documentElement.addEventListener(
+        `vrcnext:theme:unload:${THEME_ID}`,
+        () => { void handle.shutdown(); },
+        { once: true },
+      );
+
+      core.logger.info('Plugin host ready.');
+      return handle;
+    } finally {
+      (globalThis as Record<string, unknown>)[BOOT_KEY] = undefined;
+    }
+  })();
+
+  (globalThis as Record<string, unknown>)[BOOT_KEY] = bootPromise;
+  return bootPromise;
 }
 
 export type { PluginManager } from './plugin-manager.js';
