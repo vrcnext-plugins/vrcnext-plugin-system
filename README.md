@@ -3,7 +3,7 @@
 **A plugin runtime for [VRCNext](https://github.com/shinyflvre/VRCNext) that never touches
 VRCNext.**
 
-📖 **[Documentation for plugin authors →](https://vrcnext-plugins.github.io/vrcnext-plugin-system/)**
+📖 **[Documentation for plugin authors →](https://vrcnext-plugins.github.io/)**
 
 VRCNext ships no plugin API. This project adds one by installing itself as a VRCNext *custom
 theme* — a folder under `~/.config/VRCNext/custom-themes/` whose JavaScript VRCNext injects into
@@ -49,7 +49,7 @@ export default definePlugin({
 Two limits are real and documented rather than papered over: plugin HTTP routes are
 **in-page only**, and **custom `vrcn://` prefixes are impossible** — VRCNext validates the link
 type in C# and drops unknown ones before the page sees them. See
-[Limitations](https://vrcnext-plugins.github.io/vrcnext-plugin-system/limitations).
+[Limitations](https://vrcnext-plugins.github.io/limitations).
 
 ## Install
 
@@ -103,8 +103,10 @@ theme manually under **Settings → Design → Themes**.
 | `packages/host` | The runtime injected into VRCNext. |
 | `examples/kitchen-sink` | Reference plugin exercising **every** capability, with custom CSS. |
 | `examples/hello-world` | Minimal plugin. |
-| `docs/` | The documentation site. |
 | `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh`. |
+
+Documentation lives in its own repository:
+[vrcnext-plugins.github.io](https://github.com/vrcnext-plugins/vrcnext-plugins.github.io).
 
 ## Development
 
@@ -145,7 +147,7 @@ unverified until you have run it.
 Plugins run with the **full authority of the VRCNext page**: the user's VRChat session, webhooks
 and settings. There is no sandbox. Installing a plugin is equivalent to running a binary from
 that repository, and the UI says so at the point of install. See
-[Security model](https://vrcnext-plugins.github.io/vrcnext-plugin-system/security).
+[Security model](https://vrcnext-plugins.github.io/security).
 
 ## License
 

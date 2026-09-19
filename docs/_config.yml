@@ -1,8 +1,0 @@
-title: VRCNext Plugin System
-description: Build plugins for VRCNext without modifying VRCNext.
-theme: jekyll-theme-cayman
-show_downloads: false
-markdown: kramdown
-kramdown:
-  input: GFM
-  syntax_highlighter: rouge
