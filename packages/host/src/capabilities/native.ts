@@ -6,9 +6,9 @@
  * is the normal state for most users, and it must produce a clean "unavailable", never a rejected
  * promise a plugin forgot to catch.
  *
- * Requests deliberately send `Content-Type: application/json`, which makes them non-simple and
- * forces a CORS preflight. That is not incidental — it is half of the companion's defence against
- * arbitrary web pages reaching it, and sending anything else would be quietly weakening it.
+ * All plugin calls are multiplexed over a single persistent WebSocket connection using correlation
+ * IDs. The HTTP health probe is preserved to give the host an independent signal for detecting
+ * a daemon that is running but not yet connected (the Platform Support tri-state).
  */
 
 import type {
@@ -49,6 +49,17 @@ interface ErrorBody {
   readonly error?: { readonly code?: string; readonly message?: string };
 }
 
+interface PendingCall {
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+export type NativeStatus = 'not_detected' | 'running_not_connected' | 'connected';
+
+/** Reconnect backoff for WebSocket, in milliseconds. */
+const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000] as const;
+
 /**
  * The companion answered, and said no.
  *
@@ -71,8 +82,16 @@ export class NativeRequestError extends Error {
 export class NativeClient implements NativeApi {
   #endpoint: string;
   readonly #logger: Logger;
-  #available = false;
+  #running = false;
   #ready: Promise<boolean> | undefined;
+
+  #socket: WebSocket | undefined;
+  #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  #attempt = 0;
+  #stopped = false;
+  #reqCounter = 0;
+  readonly #pending = new Map<string, PendingCall>();
+  readonly #broadcastListeners = new Set<(records: readonly unknown[]) => void>();
 
   constructor(logger: Logger, endpoint: string = storedEndpoint()) {
     this.#logger = logger;
@@ -95,6 +114,7 @@ export class NativeClient implements NativeApi {
     const next = NativeClient.#normalise(endpoint) || DEFAULT_NATIVE_ENDPOINT;
     this.#endpoint = next;
     this.#ready = undefined;
+    this.#disconnectWs();
     try {
       if (next === DEFAULT_NATIVE_ENDPOINT) globalThis.localStorage.removeItem(ENDPOINT_KEY);
       else globalThis.localStorage.setItem(ENDPOINT_KEY, next);
@@ -104,8 +124,36 @@ export class NativeClient implements NativeApi {
     return this.probe();
   }
 
+  /** Whether the companion is reachable (running or connected). */
   get available(): boolean {
-    return this.#available;
+    return this.connected || this.#running;
+  }
+
+  /** Whether the HTTP probe succeeded. */
+  get running(): boolean {
+    return this.#running;
+  }
+
+  /** Whether the multiplexed WebSocket is connected and open. */
+  get connected(): boolean {
+    return this.#socket?.readyState === 1; // WebSocket.OPEN
+  }
+
+  /** Platform support tri-state: gray = not detected, yellow = running not connected, green = connected. */
+  get status(): NativeStatus {
+    if (this.connected) return 'connected';
+    if (this.#running) return 'running_not_connected';
+    return 'not_detected';
+  }
+
+  /** The companion's HTTP origin. */
+  get endpoint(): string {
+    return this.#endpoint;
+  }
+
+  /** `http://…` → `ws://…/v1/logs/stream`. */
+  get wsUrl(): string {
+    return `${this.#endpoint.replace(/^http/, 'ws')}/v1/logs/stream`;
   }
 
   /**
@@ -120,28 +168,171 @@ export class NativeClient implements NativeApi {
     return this.#ready;
   }
 
-  get endpoint(): string {
-    return this.#endpoint;
-  }
-
   async probe(): Promise<boolean> {
     try {
       const health = await this.#request('GET', '/v1/health');
-      this.#available = (health as { ok?: unknown }).ok === true;
+      this.#running = (health as { ok?: unknown }).ok === true;
     } catch {
       // Not running is the common case and not worth a warning on every boot.
-      this.#available = false;
+      this.#running = false;
     }
+
+    if (this.#running && !this.connected) {
+      this.connectWs();
+    }
+
     this.#logger.info(
-      this.#available
+      this.#running
         ? `Native companion reachable at ${this.#endpoint}.`
         : `No native companion at ${this.#endpoint}; VR and desktop notification targets are unavailable.`,
     );
-    return this.#available;
+    return this.#running;
+  }
+
+  /** Open the persistent multiplexed WebSocket connection if supported and not yet open. */
+  connectWs(): void {
+    if (this.#stopped || this.#socket !== undefined) return;
+    if (typeof globalThis.WebSocket === 'undefined') return;
+
+    let socket: WebSocket;
+    try {
+      socket = new globalThis.WebSocket(this.wsUrl);
+    } catch {
+      this.#scheduleReconnect();
+      return;
+    }
+
+    this.#socket = socket;
+
+    socket.addEventListener('open', () => {
+      this.#attempt = 0;
+      this.#logger.debug(`WebSocket connected to companion at ${this.wsUrl}`);
+    });
+
+    socket.addEventListener('message', (event: MessageEvent<string>) => {
+      this.#onWsMessage(event.data);
+    });
+
+    socket.addEventListener('close', () => {
+      this.#socket = undefined;
+      this.#rejectAllPending(new NativeRequestError('unavailable', 503, 'WebSocket connection closed'));
+      this.#scheduleReconnect();
+    });
+  }
+
+  #disconnectWs(): void {
+    if (this.#reconnectTimer !== undefined) {
+      globalThis.clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = undefined;
+    }
+    if (this.#socket !== undefined) {
+      try {
+        this.#socket.close();
+      } catch {
+        // Socket already closing
+      }
+      this.#socket = undefined;
+    }
+    this.#rejectAllPending(new NativeRequestError('unavailable', 503, 'WebSocket disconnected'));
+  }
+
+  #rejectAllPending(error: Error): void {
+    for (const [, call] of this.#pending) {
+      globalThis.clearTimeout(call.timer);
+      call.reject(error);
+    }
+    this.#pending.clear();
+  }
+
+  #scheduleReconnect(): void {
+    if (this.#stopped || this.#reconnectTimer !== undefined) return;
+    const delay = BACKOFF_MS[Math.min(this.#attempt, BACKOFF_MS.length - 1)] ?? 30_000;
+    this.#attempt += 1;
+    this.#reconnectTimer = globalThis.setTimeout(() => {
+      this.#reconnectTimer = undefined;
+      this.connectWs();
+    }, delay);
+  }
+
+  #onWsMessage(data: unknown): void {
+    if (typeof data !== 'string') return;
+    try {
+      const msg: unknown = JSON.parse(data);
+      if (typeof msg !== 'object' || msg === null) return;
+
+      const record = msg as Record<string, unknown>;
+      if (record['type'] === 'response') {
+        this.#handleResponse(record);
+      } else if (record['type'] === 'push' && record['event'] === 'logBroadcast') {
+        this.#handlePush(record['data']);
+      } else if (Array.isArray(record['records'])) {
+        // Legacy broadcast format
+        for (const listener of this.#broadcastListeners) listener(record['records'] as unknown[]);
+      }
+    } catch {
+      // Silently ignore malformed frames
+    }
+  }
+
+  #handleResponse(record: Record<string, unknown>): void {
+    const id = typeof record['id'] === 'string' ? record['id'] : '';
+    const pending = this.#pending.get(id);
+    if (pending === undefined) return;
+
+    this.#pending.delete(id);
+    globalThis.clearTimeout(pending.timer);
+    if (record['ok'] === true) {
+      pending.resolve(record['result']);
+      return;
+    }
+
+    const err = record['error'] as { code?: string; message?: string } | undefined;
+    pending.reject(new NativeRequestError(
+      err?.code ?? 'error',
+      400,
+      err?.message ?? 'call failed',
+    ));
+  }
+
+  #handlePush(payload: unknown): void {
+    const records = Array.isArray(payload)
+      ? payload
+      : (typeof payload === 'object' && payload !== null && Array.isArray((payload as Record<string, unknown>)['records']))
+        ? (payload as { records: unknown[] }).records
+        : [];
+    for (const listener of this.#broadcastListeners) listener(records);
+  }
+
+  /**
+   * Send a log batch over the WebSocket connection.
+   *
+   * @returns whether the frame was queued for transmission.
+   */
+  sendLogs(records: readonly unknown[]): boolean {
+    if (this.#socket?.readyState === 1) { // WebSocket.OPEN
+      try {
+        this.#socket.send(JSON.stringify({ type: 'logs', records }));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /** Subscribe to daemon log broadcasts received over the WebSocket. */
+  onLogBroadcast(listener: (records: readonly unknown[]) => void): () => void {
+    this.#broadcastListeners.add(listener);
+    return () => {
+      this.#broadcastListeners.delete(listener);
+    };
   }
 
   async describe(): Promise<NativeDescription | undefined> {
     try {
+      if (this.connected) {
+        return (await this.call('describe', 'describe', {})) as NativeDescription;
+      }
       return (await this.#request('GET', '/v1/describe')) as NativeDescription;
     } catch (error) {
       this.#logger.debug(`describe() failed: ${String(error)}`);
@@ -151,7 +342,7 @@ export class NativeClient implements NativeApi {
 
   async targets(): Promise<readonly NativeTarget[]> {
     try {
-      const body = await this.#request('POST', '/v1/notify/targets', {});
+      const body = await this.call('notify', 'targets', {});
       const targets = (body as { targets?: unknown }).targets;
       return Array.isArray(targets) ? (targets as NativeTarget[]) : [];
     } catch (error) {
@@ -162,19 +353,60 @@ export class NativeClient implements NativeApi {
 
   async notify(options: NativeNotifyOptions): Promise<NativeNotifyResult> {
     try {
-      const body = await this.#request('POST', '/v1/notify/send', options);
+      const body = await this.call('notify', 'send', options);
       return body as NativeNotifyResult;
     } catch (error) {
       // Only a transport failure says anything about availability. A rejected request means the
       // companion is alive and the caller got it wrong.
-      if (!(error instanceof NativeRequestError)) this.#available = false;
+      if (!(error instanceof NativeRequestError)) {
+        this.#running = false;
+      }
       this.#logger.warn(`Native notification failed: ${String(error)}`);
       return UNAVAILABLE;
     }
   }
 
+  /**
+   * Execute a service method with correlation ID multiplexing.
+   *
+   * Uses WebSocket if connected; falls back to HTTP POST for legacy/offline environments.
+   */
   async call(service: string, method: string, params: unknown = {}): Promise<unknown> {
+    if (this.connected) {
+      return this.#callWs(service, method, params);
+    }
     return this.#request('POST', `/v1/${service}/${method}`, params);
+  }
+
+  #callWs(service: string, method: string, params: unknown): Promise<unknown> {
+    const socket = this.#socket;
+    if (socket?.readyState !== 1) {
+      throw new NativeRequestError('unavailable', 503, 'WebSocket is not open');
+    }
+
+    const id = `req-${String(++this.#reqCounter)}-${Date.now().toString(36)}`;
+    return new Promise((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new NativeRequestError('timeout', 504, 'request timed out'));
+      }, TIMEOUT_MS);
+
+      this.#pending.set(id, { resolve, reject, timer });
+
+      try {
+        socket.send(JSON.stringify({
+          type: 'request',
+          id,
+          service,
+          method,
+          params: params ?? {},
+        }));
+      } catch (err) {
+        globalThis.clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
   }
 
   /**
@@ -199,7 +431,7 @@ export class NativeClient implements NativeApi {
       const parsed: unknown = text === '' ? {} : JSON.parse(text);
 
       // Reached it either way, so record that before deciding whether the answer was a refusal.
-      this.#available = true;
+      this.#running = true;
 
       if (!response.ok) {
         const details = parsed as ErrorBody;
@@ -213,5 +445,11 @@ export class NativeClient implements NativeApi {
     } finally {
       globalThis.clearTimeout(timer);
     }
+  }
+
+  /** Stop background reconnection and close any open WebSocket. */
+  dispose(): void {
+    this.#stopped = true;
+    this.#disconnectWs();
   }
 }

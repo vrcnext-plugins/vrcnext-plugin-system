@@ -187,3 +187,227 @@ test('an empty endpoint falls back to the default rather than producing a bare p
   await client.setEndpoint('   ');
   assert.equal(client.endpoint, 'http://127.0.0.1:42081');
 });
+
+test('reports tri-state correctly for not_detected, running_not_connected, and connected', async () => {
+  const client = new NativeClient(silentLogger);
+  assert.equal(client.status, 'not_detected');
+  assert.equal(client.running, false);
+  assert.equal(client.connected, false);
+
+  stubFetch(() => json({ ok: true, version: '0.1.0', services: [] }));
+  await client.probe();
+  // In Node test environment without global WebSocket open, it is running_not_connected
+  assert.equal(client.running, true);
+  assert.equal(client.status, 'running_not_connected');
+});
+
+test('multiplexes service calls over WebSocket with correlation IDs', async () => {
+  const realWs = globalThis.WebSocket;
+  try {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket extends EventTarget {
+      readyState = 1; // OPEN
+      readonly sent: string[] = [];
+      url: string;
+      constructor(url: string) {
+        super();
+        this.url = url;
+        sockets.push(this);
+        setTimeout(() => { this.dispatchEvent(new Event('open')); }, 0);
+      }
+      send(data: string): void {
+        this.sent.push(data);
+        const parsed = JSON.parse(data) as { type: string; id: string; service: string; method: string };
+        if (parsed.type === 'request') {
+          setTimeout(() => {
+            this.dispatchEvent(
+              new MessageEvent('message', {
+                data: JSON.stringify({
+                  type: 'response',
+                  id: parsed.id,
+                  ok: true,
+                  result: { answer: 42 },
+                }),
+              }),
+            );
+          }, 0);
+        }
+      }
+      close(): void {
+        this.readyState = 3;
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+
+    // @ts-expect-error Mock socket
+    globalThis.WebSocket = FakeSocket;
+
+    const client = new NativeClient(silentLogger);
+    client.connectWs();
+    const activeSocket = sockets[0];
+    assert.ok(activeSocket !== undefined);
+    assert.equal(client.connected, true);
+    assert.equal(client.status, 'connected');
+
+    const result = await client.call('math', 'compute', { x: 1 });
+    assert.deepEqual(result, { answer: 42 });
+
+    const sent = JSON.parse(activeSocket.sent[0] ?? '{}') as Record<string, unknown>;
+    assert.equal(sent['type'], 'request');
+    assert.equal(sent['service'], 'math');
+    assert.equal(sent['method'], 'compute');
+    assert.ok(typeof sent['id'] === 'string' && sent['id'].startsWith('req-'));
+
+    client.dispose();
+  } finally {
+    globalThis.WebSocket = realWs;
+  }
+});
+
+test('handles multiplexed concurrent calls and error responses over WebSocket', async () => {
+  const realWs = globalThis.WebSocket;
+  try {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket extends EventTarget {
+      readyState = 1;
+      readonly sent: string[] = [];
+      url: string;
+      constructor(url: string) {
+        super();
+        this.url = url;
+        sockets.push(this);
+      }
+      send(data: string): void {
+        this.sent.push(data);
+      }
+      close(): void {
+        this.readyState = 3;
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+
+    // @ts-expect-error Mock socket
+    globalThis.WebSocket = FakeSocket;
+
+    const client = new NativeClient(silentLogger);
+    client.connectWs();
+    const activeSocket = sockets[0];
+    assert.ok(activeSocket !== undefined);
+
+    const call1 = client.call('svc', 'm1', {});
+    const call2 = client.call('svc', 'm2', {});
+
+    assert.equal(activeSocket.sent.length, 2);
+    const req1 = JSON.parse(activeSocket.sent[0] ?? '{}') as { id: string };
+    const req2 = JSON.parse(activeSocket.sent[1] ?? '{}') as { id: string };
+
+    // Reply to req2 with failure
+    activeSocket.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'response',
+          id: req2.id,
+          ok: false,
+          error: { code: 'bad_request', message: 'oops' },
+        }),
+      }),
+    );
+
+    // Reply to req1 with success
+    activeSocket.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'response',
+          id: req1.id,
+          ok: true,
+          result: 'ok1',
+        }),
+      }),
+    );
+
+    const [res1, err2] = await Promise.all([
+      call1,
+      call2.then(
+        () => { assert.fail('should reject'); },
+        (err: unknown) => err,
+      ),
+    ]);
+
+    assert.equal(res1, 'ok1');
+    assert.ok(err2 instanceof NativeRequestError);
+    assert.equal(err2.code, 'bad_request');
+    assert.equal(err2.message, 'bad_request: oops');
+
+    client.dispose();
+  } finally {
+    globalThis.WebSocket = realWs;
+  }
+});
+
+test('streams logs and dispatches log broadcasts over WebSocket', () => {
+  const realWs = globalThis.WebSocket;
+  try {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket extends EventTarget {
+      readyState = 1;
+      readonly sent: string[] = [];
+      url: string;
+      constructor(url: string) {
+        super();
+        this.url = url;
+        sockets.push(this);
+      }
+      send(data: string): void {
+        this.sent.push(data);
+      }
+      close(): void {
+        this.readyState = 3;
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+
+    // @ts-expect-error Mock socket
+    globalThis.WebSocket = FakeSocket;
+
+    const client = new NativeClient(silentLogger);
+    client.connectWs();
+    const activeSocket = sockets[0];
+    assert.ok(activeSocket !== undefined);
+
+    const receivedBroadcasts: unknown[] = [];
+    const unsubscribe = client.onLogBroadcast((records) => {
+      receivedBroadcasts.push(...records);
+    });
+
+    // Test sendLogs
+    const sent = client.sendLogs([{ level: 'info', scope: 'app', message: 'hi' }]);
+    assert.equal(sent, true);
+    const sentMsg = JSON.parse(activeSocket.sent[0] ?? '{}') as { type: string; records: unknown[] };
+    assert.equal(sentMsg.type, 'logs');
+    assert.equal(sentMsg.records.length, 1);
+
+    // Test broadcast push
+    activeSocket.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'push',
+          event: 'logBroadcast',
+          data: [{ level: 'warn', scope: 'bridge', message: 'daemon warning' }],
+        }),
+      }),
+    );
+
+    assert.equal(receivedBroadcasts.length, 1);
+    assert.deepEqual(receivedBroadcasts[0], {
+      level: 'warn',
+      scope: 'bridge',
+      message: 'daemon warning',
+    });
+
+    unsubscribe();
+    client.dispose();
+  } finally {
+    globalThis.WebSocket = realWs;
+  }
+});
+

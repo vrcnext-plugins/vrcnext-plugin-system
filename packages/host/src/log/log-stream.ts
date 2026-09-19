@@ -16,12 +16,16 @@
  * records queue up to a bounded buffer and flush on reconnect; past that bound the **oldest** are
  * dropped, since the newest lines are the ones someone debugging actually wants.
  *
+ * When passed a {@link NativeClient}, it shares the companion's single multiplexed WebSocket
+ * rather than opening a second connection.
+ *
  * Nothing here ever throws into a caller: this sits behind `logger.info()`, and a logging call
  * that can fail is worse than no logging at all.
  */
 
 import type { LogLevel } from '@vrcnext/plugin-api';
 
+import type { NativeClient } from '../capabilities/native.js';
 import type { LogRecord, LogSink } from './log-sink.js';
 
 /** How long to gather records before sending a frame. */
@@ -66,6 +70,7 @@ function isRecordBatch(value: unknown): value is { readonly records: readonly Wi
 
 export class LogStream {
   readonly #endpoint: string;
+  readonly #native: NativeClient | undefined;
   readonly #queue: WireRecord[] = [];
   #socket: WebSocket | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -73,12 +78,19 @@ export class LogStream {
   #attempt = 0;
   #stopped = false;
   #unsubscribe: (() => void) | undefined;
+  #unsubscribeBroadcast: (() => void) | undefined;
 
   #sink: LogSink | undefined;
 
-  /** @param endpoint the companion's HTTP origin, e.g. `http://127.0.0.1:42081`. */
-  constructor(endpoint: string) {
-    this.#endpoint = endpoint;
+  /** @param endpointOrNative the companion's HTTP origin or the NativeClient instance. */
+  constructor(endpointOrNative: string | NativeClient) {
+    if (typeof endpointOrNative === 'string') {
+      this.#endpoint = endpointOrNative;
+      this.#native = undefined;
+    } else {
+      this.#endpoint = endpointOrNative.endpoint;
+      this.#native = endpointOrNative;
+    }
   }
 
   /** `http://…` → `ws://…/v1/logs/stream`. */
@@ -87,7 +99,10 @@ export class LogStream {
   }
 
   get connected(): boolean {
-    return this.#socket?.readyState === WebSocket.OPEN;
+    if (this.#native !== undefined) {
+      return this.#native.connected;
+    }
+    return this.#socket?.readyState === 1; // WebSocket.OPEN
   }
 
   /**
@@ -101,9 +116,20 @@ export class LogStream {
     this.#sink = sink;
     this.#stopped = false;
     this.#unsubscribe?.();
+    this.#unsubscribeBroadcast?.();
+
+    if (this.#native !== undefined) {
+      this.#unsubscribeBroadcast = this.#native.onLogBroadcast((records) => {
+        this.#onBroadcastRecords(records);
+      });
+    }
+
     for (const record of sink.records) this.#enqueue(record);
     this.#unsubscribe = sink.subscribe((record) => { this.#enqueue(record); });
-    this.#connect();
+
+    if (this.#native === undefined) {
+      this.#connect();
+    }
   }
 
   stop(): void {
@@ -111,6 +137,8 @@ export class LogStream {
     this.#sink = undefined;
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
+    this.#unsubscribeBroadcast?.();
+    this.#unsubscribeBroadcast = undefined;
     if (this.#timer !== undefined) globalThis.clearTimeout(this.#timer);
     if (this.#retry !== undefined) globalThis.clearTimeout(this.#retry);
     this.#timer = undefined;
@@ -118,6 +146,15 @@ export class LogStream {
     this.#socket?.close();
     this.#socket = undefined;
     this.#queue.length = 0;
+  }
+
+  #onBroadcastRecords(records: readonly unknown[]): void {
+    if (this.#sink === undefined) return;
+    for (const rec of records) {
+      if (isWireRecord(rec)) {
+        this.#sink.write(rec.level, rec.scope, rec.message, []);
+      }
+    }
   }
 
   #enqueue(record: LogRecord): void {
@@ -141,8 +178,21 @@ export class LogStream {
   }
 
   #flush(): void {
+    if (this.#native !== undefined) {
+      while (this.#queue.length > 0) {
+        const batch = this.#queue.splice(0, MAX_BATCH);
+        const sent = this.#native.sendLogs(batch);
+        if (!sent) {
+          // Socket not open; put back in queue
+          this.#queue.unshift(...batch);
+          return;
+        }
+      }
+      return;
+    }
+
     const socket = this.#socket;
-    if (socket?.readyState !== WebSocket.OPEN) return;
+    if (socket?.readyState !== 1) return; // WebSocket.OPEN
 
     while (this.#queue.length > 0) {
       const batch = this.#queue.splice(0, MAX_BATCH);

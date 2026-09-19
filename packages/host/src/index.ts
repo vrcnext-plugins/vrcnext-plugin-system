@@ -121,7 +121,7 @@ async function buildCore(): Promise<Core> {
   // Mirror everything logged here into the companion's log file, so plugin behaviour can be
   // followed with `tail -f` instead of by keeping the Logs panel open and copying text out.
   // Entirely optional: with no daemon running this quietly retries in the background forever.
-  const logStream = new LogStream(native.endpoint);
+  const logStream = new LogStream(native);
   logStream.start(sink);
   const debugHub = new DebugHub(sink);
 
