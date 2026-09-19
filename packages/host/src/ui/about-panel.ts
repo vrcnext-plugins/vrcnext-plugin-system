@@ -125,7 +125,8 @@ export class AboutPanel {
         'vrcnext-bridge is an optional local daemon. It is the only way plugins can reach a VR ' +
         'overlay or the desktop notification daemon, because the page itself cannot open a UDP ' +
         'socket or talk to D-Bus. Without it those targets are unavailable — nothing else stops ' +
-        'working.',
+        'working. Note honestly: the page cannot distinguish a daemon that is not installed from ' +
+        'one that is installed but stopped.',
       ),
     );
 
@@ -133,10 +134,18 @@ export class AboutPanel {
     const targets = element('div');
 
     const paint = (): void => {
+      const { status: bridgeStatus } = native;
+      const state = bridgeStatus === 'connected' ? 'online' : bridgeStatus === 'running_not_connected' ? 'warn' : 'offline';
+      const label = bridgeStatus === 'connected'
+        ? 'Connected'
+        : bridgeStatus === 'running_not_connected'
+          ? 'Running (not connected)'
+          : 'Not detected';
       status.replaceChildren(
         statusCard({
-          online: native.available,
-          label: native.available ? 'Connected' : 'Not running',
+          online: bridgeStatus === 'connected',
+          state,
+          label,
           action: button({
             label: 'Re-check',
             icon: 'refresh',
@@ -253,14 +262,20 @@ export class AboutPanel {
     const { native } = this.#deps;
 
     panel.appendChild(
-      description(linux ? 'Running on Linux.' : 'Running on Windows.'),
+      description(
+        (linux ? 'Running on Linux. ' : 'Running on Windows. ') +
+        'Bridge-backed features depend on vrcnext-bridge (gray = not detected, yellow = running but not connected, green = connected). ' +
+        'Note: the page cannot distinguish an uninstalled daemon from one that is stopped.',
+      ),
     );
 
     const notificationsBadge = !linux
       ? badge('ok', 'Available')
-      : native.available
+      : native.connected
         ? badge('ok', 'Bridge')
-        : badge('neutral', 'Bridge');
+        : native.running
+          ? badge('warn', 'Bridge')
+          : badge('neutral', 'Bridge');
 
     for (const [label, badgeEl] of [
       ['OSC', !linux ? badge('ok', 'Available') : badge('warn', 'Windows only')],

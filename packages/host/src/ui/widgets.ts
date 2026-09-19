@@ -170,6 +170,7 @@ export function card(title?: string, icon?: string, children?: readonly UiChild[
  */
 export function statusCard(options: {
   readonly online: boolean;
+  readonly state?: 'online' | 'warn' | 'offline';
   readonly label: string;
   readonly action?: HTMLElement;
 }): HTMLElement {
@@ -177,7 +178,12 @@ export function statusCard(options: {
   const strip = element('div', 'sf-status-row');
 
   const status = element('div', 'sf-status');
-  status.appendChild(element('span', `sf-dot ${options.online ? 'online' : 'offline'}`));
+  const dotCls = options.state ?? (options.online ? 'online' : 'offline');
+  const dot = element('span', `sf-dot ${dotCls}`);
+  if (dotCls === 'warn') {
+    dot.style.backgroundColor = 'var(--warn, #eab308)';
+  }
+  status.appendChild(dot);
   status.appendChild(element('span', undefined, options.label));
 
   strip.appendChild(status);
