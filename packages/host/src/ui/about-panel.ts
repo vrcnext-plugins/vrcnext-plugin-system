@@ -63,19 +63,28 @@ export class AboutPanel {
   refresh(): void {
     const root = this.#root;
     if (root === undefined) return;
-    // A grid, not a stack: these cards are mostly short key/value lists, and full-width rows
-    // across a maximised window leave a metre of empty space between label and value.
+    // Paired by content type, two columns at most, in a deliberate order — not dropped into an
+    // auto-fit grid and left to pack itself.
+    //
+    // A three-column auto-fit produced orphan cells (five cards do not divide into three) and
+    // squeezed four paragraphs of prose into ~300px columns. Here the two compact key/value cards
+    // share row one, the companion owns row two because its target rows and endpoint field use
+    // the width, and the two prose cards share row three at a readable measure.
     const companion = this.#buildCompanion();
-    companion.style.gridColumn = 'span 2';
+    companion.classList.add('vrcnx-full');
 
     root.replaceChildren(
-      grid([
-        this.#buildStatus(),
-        this.#buildPlatform(),
-        companion,
-        this.#buildUpdates(),
-        this.#buildAbout(),
-      ], 340),
+      grid(
+        [
+          this.#buildStatus(),
+          this.#buildPlatform(),
+          companion,
+          this.#buildUpdates(),
+          this.#buildAbout(),
+        ],
+        // Wide enough that the grid can only ever resolve to two columns, then one.
+        460,
+      ),
     );
   }
 

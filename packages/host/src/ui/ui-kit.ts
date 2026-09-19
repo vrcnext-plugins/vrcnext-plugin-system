@@ -40,7 +40,9 @@ export class HostUiKit implements UiKit {
 
   card(options: UiCardOptions): HTMLElement {
     const node = widgets.card(options.title, options.icon, options.children ?? []);
-    if (options.span !== undefined && options.span > 1) {
+    if (options.span === 'full') {
+      node.classList.add('vrcnx-full');
+    } else if (options.span !== undefined && options.span > 1) {
       node.style.gridColumn = `span ${String(options.span)}`;
     }
     return node;

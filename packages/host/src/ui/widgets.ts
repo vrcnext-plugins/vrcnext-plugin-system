@@ -33,13 +33,25 @@ import { element, iconSpan } from './dom.js';
  * one, and has no stat tile at all. They are named `vrcnx-` so they cannot collide, and are built
  * from the same variables as the rest of the app so they track the active theme.
  */
+// Two rules in here are load-bearing and easy to "tidy" into bugs:
+//
+// - `grid-auto-flow: row dense` back-fills the gap a full-width card would otherwise leave as an
+//   orphan cell.
+// - `.vrcnx-full` uses `grid-column: 1 / -1`, not `span 2`. A fixed span overflows the panel once
+//   the grid has collapsed to a single column on a narrow window, because the span conjures an
+//   implicit second column. `1 / -1` means "every column there currently is".
+//
+// Kept as TS comments rather than CSS ones because backticks inside this template literal would
+// terminate it.
 const KIT_CSS = `
 .vrcnx-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(var(--vrcnx-grid-min, 280px), 1fr));
   gap: 16px;
   align-items: start;
+  grid-auto-flow: row dense;
 }
+.vrcnx-grid > .vrcnx-full { grid-column: 1 / -1; }
 .vrcnx-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; min-width: 0; }
 .vrcnx-stat-value {
   font-size: calc(20px + var(--fs-off, 0px));

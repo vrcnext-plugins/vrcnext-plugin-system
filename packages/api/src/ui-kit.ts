@@ -46,8 +46,14 @@ export interface UiCardOptions {
   /** Leading icon for the heading. Must be a glyph VRCNext ships — see {@link IconName}. */
   readonly icon?: IconName;
   readonly children?: readonly UiChild[];
-  /** Columns to occupy inside a {@link UiKit.grid}. Ignored elsewhere. */
-  readonly span?: number;
+  /**
+   * Width inside a {@link UiKit.grid}. Ignored elsewhere.
+   *
+   * `'full'` spans every column there currently is, and is what you want for a card that should
+   * own its row. A **number** is a fixed span, which overflows if the grid has since collapsed to
+   * fewer columns than that on a narrow window — prefer `'full'` unless you control the width.
+   */
+  readonly span?: number | 'full';
 }
 
 export interface UiStatusCardOptions {
