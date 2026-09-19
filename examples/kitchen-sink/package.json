@@ -1,8 +1,8 @@
 {
-  "name": "@vrcnext-examples/hello-world",
+  "name": "@vrcnext-examples/kitchen-sink",
   "version": "1.0.0",
   "private": true,
-  "description": "Minimal VRCNext plugin showing settings, events and UI injection.",
+  "description": "Reference VRCNext plugin exercising every host capability.",
   "license": "Unlicense",
   "type": "module",
   "dependencies": {

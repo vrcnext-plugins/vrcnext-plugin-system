@@ -1,8 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/api/tsconfig.build.json" },
-    { "path": "./packages/host/tsconfig.build.json" },
-    { "path": "./examples/hello-world" }
+    {
+      "path": "./packages/api/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/host/tsconfig.build.json"
+    },
+    {
+      "path": "./examples/hello-world"
+    },
+    {
+      "path": "./examples/kitchen-sink"
+    }
   ]
 }

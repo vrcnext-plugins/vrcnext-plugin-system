@@ -22,6 +22,11 @@ import { satisfies } from 'compare-versions';
 
 import { API_VERSION } from '../api-version.js';
 import type { PhotinoBridge } from '../bridge/photino-bridge.js';
+import { PluginContextMenuApi, type ContextMenuHub } from '../capabilities/context-menu.js';
+import { PluginDeepLinkApi, type DeepLinkHub } from '../capabilities/deep-links.js';
+import { HostGameLogApi } from '../capabilities/game-log-api.js';
+import { HostOscApi } from '../capabilities/osc-api.js';
+import { PluginRouter, type RouteTable } from '../capabilities/router.js';
 import { PluginEventBus } from '../events/plugin-event-bus.js';
 import type { EventRouter } from '../events/event-router.js';
 import { createLogger, type LogSink } from '../log/host-logger.js';
@@ -43,6 +48,9 @@ export interface LoaderDeps {
   readonly storage: IdbStore;
   readonly sink: LogSink;
   readonly ui: UiHost;
+  readonly routes: RouteTable;
+  readonly deepLinks: DeepLinkHub;
+  readonly contextMenu: ContextMenuHub;
 }
 
 export class PluginLoader {
@@ -106,14 +114,22 @@ export class PluginLoader {
     const ui = this.#deps.ui.forPlugin(record, bag);
     bag.add(() => { ui.disposeAll(); });
 
+    const pluginId = record.manifest.id;
     return {
-      id: record.manifest.id,
+      id: pluginId,
       version: record.manifest.version,
       logger,
       settings,
       events: new PluginEventBus(this.#deps.router, bag),
       bridge: this.#deps.bridge,
       ui,
+      osc: new HostOscApi(this.#deps.bridge, this.#deps.router, bag),
+      gameLog: new HostGameLogApi(this.#deps.bridge, this.#deps.router, bag),
+      deepLinks: new PluginDeepLinkApi(this.#deps.deepLinks, bag),
+      router: new PluginRouter(this.#deps.routes, pluginId, globalThis.location.origin, (dispose) => {
+        bag.add(dispose);
+      }),
+      contextMenu: new PluginContextMenuApi(this.#deps.contextMenu, pluginId, bag),
       disposables: bag,
       signal: controller.signal,
     };

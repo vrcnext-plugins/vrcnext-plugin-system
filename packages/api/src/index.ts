@@ -44,7 +44,33 @@ export type {
   StringSetting,
 } from './settings.js';
 
+export { OSC_VALUE_KINDS } from './osc.js';
+export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKind } from './osc.js';
+
+export type { GameLogApi, GameLogEntry } from './game-log.js';
+
+export { DEEP_LINK_PREFIXES } from './links.js';
 export type {
+  DeepLinkApi,
+  DeepLinkEvent,
+  DeepLinkPrefix,
+  RouteHandler,
+  RouteRequest,
+  RouterApi,
+} from './links.js';
+
+export type {
+  ContextMenuApi,
+  ContextMenuDivider,
+  ContextMenuEntry,
+  ContextMenuItem,
+  ContextMenuProvider,
+  ContextMenuSubmenu,
+  ContextMenuTarget,
+} from './context-menu.js';
+
+export type {
+  DashboardCardOptions,
   IconName,
   NavTabOptions,
   PanelHandle,

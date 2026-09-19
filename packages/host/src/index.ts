@@ -9,6 +9,9 @@ import { DisposableBag, type ToastOptions } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from './api-version.js';
 import { PhotinoBridge } from './bridge/photino-bridge.js';
+import { ContextMenuHub } from './capabilities/context-menu.js';
+import { DeepLinkHub } from './capabilities/deep-links.js';
+import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
 import { PluginLoader } from './loader/plugin-loader.js';
 import { createLogger, LogSink } from './log/host-logger.js';
@@ -17,6 +20,7 @@ import { Registry } from './registry/registry.js';
 import { IdbStore } from './storage/idb-store.js';
 import { ManagerPanel } from './ui/manager-panel.js';
 import { UiHost } from './ui/ui-host.js';
+import { Updater } from './update/updater.js';
 
 const GLOBAL_KEY = '__vrcnextPluginHost';
 const THEME_ID = 'vrcnext-plugin-system';
@@ -24,6 +28,7 @@ const THEME_ID = 'vrcnext-plugin-system';
 export interface HostHandle {
   readonly apiVersion: string;
   readonly manager: PluginManager;
+  readonly updater: Updater;
   shutdown(): Promise<void>;
 }
 
@@ -60,7 +65,23 @@ export async function boot(): Promise<HostHandle> {
 
   const toast = createToast(sink);
   const ui = new UiHost(toast);
-  const loader = new PluginLoader({ router, bridge, storage, sink, ui });
+
+  const routes = new RouteTable(globalThis.location.href);
+  routes.install();
+  const deepLinks = new DeepLinkHub(router);
+  const contextMenu = new ContextMenuHub();
+  contextMenu.install();
+
+  const loader = new PluginLoader({
+    router,
+    bridge,
+    storage,
+    sink,
+    ui,
+    routes,
+    deepLinks,
+    contextMenu,
+  });
   const manager = new PluginManager(registry, loader);
 
   const panel = new ManagerPanel({
@@ -86,11 +107,23 @@ export async function boot(): Promise<HostHandle> {
     toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
   }
 
+  const shutdownController = new AbortController();
+  const updater = new Updater({
+    manager,
+    logger: logger.scoped('update'),
+    notify: (message, ok) => { toast({ message, ok }); },
+  });
+  updater.start(shutdownController.signal);
+
   const handle: HostHandle = {
     apiVersion: API_VERSION,
     manager,
+    updater,
     shutdown: async (): Promise<void> => {
+      shutdownController.abort();
       await manager.shutdown();
+      contextMenu.uninstall();
+      routes.uninstall();
       bag.dispose();
       storage.close();
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;

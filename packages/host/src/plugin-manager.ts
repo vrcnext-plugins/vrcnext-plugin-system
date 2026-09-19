@@ -65,6 +65,25 @@ export class PluginManager {
     return await this.#registry.installPlugin(repoId, pluginId);
   }
 
+  /**
+   * Re-downloads an installed plugin and restarts it if it was running. Used by the updater;
+   * settings are preserved because they are keyed separately from the bundle.
+   */
+  async reinstallPlugin(key: PluginKey): Promise<InstalledPlugin> {
+    const existing = this.#registry.find(key);
+    if (existing === undefined) throw new Error('That plugin is not installed.');
+
+    const wasRunning = this.#loader.isActive(key);
+    if (wasRunning) await this.#loader.deactivate(key);
+
+    const record = await this.#registry.installPlugin(existing.repoId, existing.manifest.id);
+    if (!wasRunning) return record;
+
+    const enabled = await this.#registry.setEnabled(key, true);
+    await this.#loader.activate(enabled);
+    return enabled;
+  }
+
   async setEnabled(key: PluginKey, enabled: boolean): Promise<void> {
     const record = await this.#registry.setEnabled(key, enabled);
     if (enabled) {

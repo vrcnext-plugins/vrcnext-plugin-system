@@ -2,7 +2,7 @@
   "name": "@vrcnext/plugin-api",
   "version": "0.1.0",
   "description": "Typed contract between VRCNext plugins and the plugin host.",
-  "license": "MIT",
+  "license": "Unlicense",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +12,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "compare-versions": "^6.1.1"
   }

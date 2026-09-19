@@ -40,12 +40,32 @@ export interface ToastOptions {
   readonly ok?: boolean;
 }
 
+export interface DashboardCardOptions {
+  readonly title: string;
+  readonly icon: IconName;
+  render(container: HTMLElement): void | Promise<void>;
+  /** Lower sorts earlier among plugin cards. Defaults to 100. */
+  readonly order?: number;
+}
+
 export interface UiApi {
   /**
    * Adds a sidebar entry and its tab body. The tab is removed and the nav button restored on
    * dispose, so a disabled plugin leaves no orphaned chrome behind.
    */
   addNavTab(options: NavTabOptions): PanelHandle;
+
+  /**
+   * Adds a card to the dashboard (tab 0). VRCNext re-renders the dashboard on data changes, so
+   * the card is re-attached automatically until disposed.
+   */
+  addDashboardCard(options: DashboardCardOptions): PanelHandle;
+
+  /**
+   * Injects a stylesheet scoped to this plugin. Removed on dispose, so a disabled plugin does
+   * not leave styling behind.
+   */
+  injectCss(css: string): PanelHandle;
 
   /** Adds a card to VRCNext's own settings page, below the plugin's generated settings rows. */
   addSettingsCard(options: SettingsCardOptions): PanelHandle;

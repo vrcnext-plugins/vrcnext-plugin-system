@@ -12,6 +12,8 @@ export const SELECTORS = {
   tabs: '.tab',
   content: '.content',
   settingsTab: '#tab9',
+  // Tab 0 is the dashboard; VRCNext fills these empty divs lazily from JS.
+  dashboard: '#tab0',
 } as const;
 
 export const CLASSES = {

@@ -23,12 +23,14 @@ npx esbuild packages/host/src/bootstrap.ts \
   --legal-comments=inline \
   --outfile="$BUNDLE"
 
-echo "==> Bundling example plugin"
-npx esbuild examples/hello-world/src/index.ts \
-  --bundle \
-  --format=esm \
-  --target=es2023 \
-  --platform=browser \
-  --outfile="examples/hello-world/dist/hello-world.js"
+echo "==> Bundling example plugins"
+for example in hello-world kitchen-sink; do
+  npx esbuild "examples/$example/src/index.ts" \
+    --bundle \
+    --format=esm \
+    --target=es2023 \
+    --platform=browser \
+    --outfile="examples/$example/dist/$example.js"
+done
 
 printf '==> Built %s (%s bytes)\n' "$BUNDLE" "$(stat -c%s "$BUNDLE")"

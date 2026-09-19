@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "name": "VRCNext Example Plugins",
+  "plugins": [
+    {
+      "id": "kitchen-sink",
+      "name": "Kitchen Sink",
+      "version": "1.0.0",
+      "description": "Reference plugin exercising every host capability.",
+      "entry": "dist/kitchen-sink.js",
+      "apiVersion": "^0.1.0",
+      "author": "vrcnext-plugins",
+      "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system"
+    },
+    {
+      "id": "hello-world",
+      "name": "Hello World",
+      "version": "1.0.0",
+      "description": "Minimal plugin showing settings, events and UI injection.",
+      "entry": "dist/hello-world.js",
+      "apiVersion": "^0.1.0",
+      "author": "vrcnext-plugins",
+      "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system"
+    }
+  ]
+}

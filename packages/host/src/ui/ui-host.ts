@@ -7,6 +7,7 @@
  */
 
 import type {
+  DashboardCardOptions,
   DisposableBag,
   NavTabOptions,
   PanelHandle,
@@ -111,6 +112,42 @@ class PluginUiImpl implements PluginUi {
     button.setAttribute('onclick', `showTab(${String(tabIndexOf(tab))})`);
 
     return button;
+  }
+
+  addDashboardCard(options: DashboardCardOptions): PanelHandle {
+    const card = this.createCard(options.title, options.icon);
+    card.setAttribute(PLUGIN_ATTR, this.#pluginId);
+    card.style.order = String(options.order ?? 100);
+    void Promise.resolve(options.render(card)).catch((error: unknown) => {
+      globalThis.console.error(`[vrcnext-plugins:${this.#pluginId}] dashboard render failed`, error);
+    });
+
+    // VRCNext rebuilds the dashboard whenever its data changes, which drops the card.
+    const dashboard = requireElement(SELECTORS.dashboard);
+    dashboard.appendChild(card);
+    const observer = new MutationObserver(() => {
+      if (!dashboard.contains(card)) dashboard.appendChild(card);
+    });
+    observer.observe(dashboard, { childList: true });
+
+    return this.#track({
+      element: card,
+      dispose: (): void => {
+        observer.disconnect();
+        card.remove();
+      },
+    });
+  }
+
+  injectCss(css: string): PanelHandle {
+    const style = element('style');
+    style.setAttribute(PLUGIN_ATTR, this.#pluginId);
+    style.textContent = css;
+    document.head.appendChild(style);
+    return this.#track({
+      element: style,
+      dispose: (): void => { style.remove(); },
+    });
   }
 
   addSettingsCard(options: SettingsCardOptions): PanelHandle {

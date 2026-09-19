@@ -7,10 +7,14 @@
  */
 
 import type { Bridge } from './bridge.js';
+import type { ContextMenuApi } from './context-menu.js';
 import type { DisposableBag } from './disposable.js';
 import type { EventBus } from './events.js';
+import type { GameLogApi } from './game-log.js';
 import type { PluginId } from './ids.js';
+import type { DeepLinkApi, RouterApi } from './links.js';
 import type { Logger } from './logger.js';
+import type { OscApi } from './osc.js';
 import type { SettingsSchema, SettingsStore } from './settings.js';
 import type { UiApi } from './ui.js';
 
@@ -22,6 +26,11 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly events: EventBus;
   readonly bridge: Bridge;
   readonly ui: UiApi;
+  readonly osc: OscApi;
+  readonly gameLog: GameLogApi;
+  readonly deepLinks: DeepLinkApi;
+  readonly router: RouterApi;
+  readonly contextMenu: ContextMenuApi;
   /** Register teardown here; the host disposes it on deactivate. */
   readonly disposables: DisposableBag;
   /** Aborts when the plugin is deactivated. Pass to every long-lived `fetch`. */
