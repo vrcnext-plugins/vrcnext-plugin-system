@@ -34,6 +34,7 @@ export type { Logger, LogLevel } from './logger.js';
 export { coerceSetting, defaultsFor } from './settings.js';
 export type {
   BooleanSetting,
+  ColorSetting,
   NumberSetting,
   SelectOption,
   SelectSetting,

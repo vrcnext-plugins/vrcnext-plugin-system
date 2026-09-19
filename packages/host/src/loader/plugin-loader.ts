@@ -116,7 +116,7 @@ export class PluginLoader {
     const schema: SettingsSchema = plugin.settings ?? {};
     const settings = await PluginSettingsStore.load(schema, record.key, this.#deps.storage);
     const logger = createLogger(this.#deps.sink, record.manifest.id);
-    const ui = this.#deps.ui.forPlugin(record, bag);
+    const ui = this.#deps.ui.forPlugin(record, bag, settings, schema);
     bag.add(() => { ui.disposeAll(); });
 
     const pluginId = record.manifest.id;

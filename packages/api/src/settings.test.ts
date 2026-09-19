@@ -7,6 +7,7 @@ const schema = {
   enabled: { kind: 'boolean', label: 'Enabled', default: true },
   threshold: { kind: 'number', label: 'Threshold', default: 5, min: 0, max: 10 },
   note: { kind: 'string', label: 'Note', default: '' },
+  accentColor: { kind: 'color', label: 'Accent', default: '#ff0055' },
   mode: {
     kind: 'select',
     label: 'Mode',
@@ -23,6 +24,7 @@ test('derives defaults from the schema', () => {
     enabled: true,
     threshold: 5,
     note: '',
+    accentColor: '#ff0055',
     mode: 'all',
   });
 });
@@ -31,6 +33,7 @@ test('coerces values matching their kind', () => {
   assert.equal(coerceSetting(schema.enabled, false), false);
   assert.equal(coerceSetting(schema.threshold, 7), 7);
   assert.equal(coerceSetting(schema.note, 'hi'), 'hi');
+  assert.equal(coerceSetting(schema.accentColor, '#00ffaa'), '#00ffaa');
   assert.equal(coerceSetting(schema.mode, 'favorites'), 'favorites');
 });
 

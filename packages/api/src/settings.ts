@@ -14,6 +14,8 @@ export interface SelectOption<V extends string> {
 interface SettingBase {
   readonly label: string;
   readonly description?: string;
+  readonly hidden?: boolean;
+  readonly disabled?: boolean;
 }
 
 export interface BooleanSetting extends SettingBase {
@@ -27,6 +29,8 @@ export interface NumberSetting extends SettingBase {
   readonly min?: number;
   readonly max?: number;
   readonly step?: number;
+  /** When true, renders an interactive range slider instead of a text input. */
+  readonly slider?: boolean;
 }
 
 export interface StringSetting extends SettingBase {
@@ -34,6 +38,11 @@ export interface StringSetting extends SettingBase {
   readonly default: string;
   readonly placeholder?: string;
   readonly multiline?: boolean;
+}
+
+export interface ColorSetting extends SettingBase {
+  readonly kind: 'color';
+  readonly default: string;
 }
 
 export interface SelectSetting<V extends string = string> extends SettingBase {
@@ -44,6 +53,7 @@ export interface SelectSetting<V extends string = string> extends SettingBase {
 
 export type SettingSpec =
   | BooleanSetting
+  | ColorSetting
   | NumberSetting
   | StringSetting
   | SelectSetting;
@@ -53,6 +63,7 @@ export type SettingsSchema = Readonly<Record<string, SettingSpec>>;
 /** Maps one spec to the type of its stored value. `select` resolves to its literal option union. */
 type InferSetting<S extends SettingSpec> =
   S extends BooleanSetting ? boolean
+  : S extends ColorSetting ? string
   : S extends NumberSetting ? number
   : S extends SelectSetting<infer V> ? V
   : S extends StringSetting ? string
@@ -103,6 +114,11 @@ export function coerceSetting(spec: SettingSpec, value: unknown): unknown {
     }
     case 'string':
       return typeof value === 'string' ? value : undefined;
+    case 'color': {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(trimmed) ? trimmed : undefined;
+    }
     case 'select':
       return typeof value === 'string' && spec.options.some((o) => o.value === value)
         ? value
