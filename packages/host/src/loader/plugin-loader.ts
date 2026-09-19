@@ -25,6 +25,7 @@ import type { PhotinoBridge } from '../bridge/photino-bridge.js';
 import { PluginContextMenuApi, type ContextMenuHub } from '../capabilities/context-menu.js';
 import { PluginDeepLinkApi, type DeepLinkHub } from '../capabilities/deep-links.js';
 import { HostGameLogApi } from '../capabilities/game-log-api.js';
+import type { NativeClient } from '../capabilities/native.js';
 import { HostOscApi } from '../capabilities/osc-api.js';
 import { PluginRouter, type RouteTable } from '../capabilities/router.js';
 import { PluginEventBus } from '../events/plugin-event-bus.js';
@@ -53,6 +54,7 @@ export interface LoaderDeps {
   readonly routes: RouteTable;
   readonly deepLinks: DeepLinkHub;
   readonly contextMenu: ContextMenuHub;
+  readonly native: NativeClient;
   readonly isLinux: () => boolean;
 }
 
@@ -127,6 +129,7 @@ export class PluginLoader {
       bridge: this.#deps.bridge,
       ui,
       notifications: new HostNotificationsApi(this.#deps.bridge, logger, this.#deps.isLinux()),
+      native: this.#deps.native,
       osc: new HostOscApi({
         bridge: this.#deps.bridge,
         router: this.#deps.router,

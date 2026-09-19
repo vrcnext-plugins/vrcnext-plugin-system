@@ -14,6 +14,7 @@ import type { GameLogApi } from './game-log.js';
 import type { PluginId } from './ids.js';
 import type { DeepLinkApi, RouterApi } from './links.js';
 import type { Logger } from './logger.js';
+import type { NativeApi } from './native.js';
 import type { NotificationsApi } from './notifications.js';
 import type { OscApi } from './osc.js';
 import type { SettingsSchema, SettingsStore } from './settings.js';
@@ -29,6 +30,8 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly ui: UiApi;
   readonly notifications: NotificationsApi;
   readonly osc: OscApi;
+  /** The optional `vrcnext-bridge` companion. Always present; check `.available`. */
+  readonly native: NativeApi;
   readonly gameLog: GameLogApi;
   readonly deepLinks: DeepLinkApi;
   readonly router: RouterApi;

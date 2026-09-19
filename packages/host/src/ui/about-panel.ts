@@ -5,7 +5,7 @@
  * should not have to discover the platform gates by watching a plugin silently do nothing.
  */
 
-import type { Logger } from '@vrcnext/plugin-api';
+import type { Logger, NativeApi } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from '../api-version.js';
 import type { LogSink } from '../log/log-sink.js';
@@ -21,6 +21,7 @@ export interface AboutPanelDeps {
   readonly updater: Updater;
   readonly sink: LogSink;
   readonly logger: Logger;
+  readonly native: NativeApi;
   readonly isLinux: () => boolean;
   readonly openUrl: (url: string) => void;
 }
@@ -45,6 +46,7 @@ export class AboutPanel {
       this.#buildStatus(),
       this.#buildUpdates(),
       this.#buildPlatform(),
+      this.#buildCompanion(),
       AboutPanel.#buildAbout(this.#deps.openUrl),
     );
   }
@@ -141,6 +143,61 @@ export class AboutPanel {
       ['Game log', 'Available'],
       ['UI, context menus, routes', 'Available'],
     ]);
+    return card;
+  }
+
+  /**
+   * The native companion's status.
+   *
+   * Rendered whether or not it is installed: a user wondering why a plugin's VR notifications do
+   * nothing should find the answer here rather than in a log file.
+   */
+  #buildCompanion(): HTMLElement {
+    const card = AboutPanel.#card('Native companion', 'cable');
+    const { native } = this.#deps;
+
+    card.appendChild(
+      AboutPanel.#note(
+        'vrcnext-bridge is an optional local daemon. It is the only way plugins can reach a VR ' +
+          'overlay or the desktop notification daemon, because the page itself cannot open a UDP ' +
+          'socket or talk to D-Bus. Without it, those targets are simply unavailable — nothing ' +
+          'else stops working.',
+      ),
+    );
+
+    const status = element('div', undefined, native.available ? 'Connected.' : 'Not running.');
+    const targets = element('div');
+    const refresh = element('button', undefined, 'Re-check');
+
+    const update = (): void => {
+      status.textContent = native.available ? 'Connected.' : 'Not running.';
+      void native.targets().then((found) => {
+        targets.replaceChildren();
+        for (const target of found) {
+          const row = element('div', CLASSES.toggleRow);
+          row.appendChild(element('div', undefined, target.name));
+          const detail = element('div', undefined, `${target.health} — ${target.description}`);
+          detail.style.cssText = 'color:var(--tx2);';
+          row.appendChild(detail);
+          targets.appendChild(row);
+        }
+      });
+    };
+
+    refresh.addEventListener('click', () => {
+      refresh.disabled = true;
+      void native.probe().finally(() => {
+        refresh.disabled = false;
+        update();
+      });
+    });
+
+    const row = element('div', CLASSES.toggleRow);
+    row.append(refresh, status);
+    card.append(row, targets);
+
+    AboutPanel.#rows(card, [['Endpoint', native.endpoint]]);
+    update();
     return card;
   }
 

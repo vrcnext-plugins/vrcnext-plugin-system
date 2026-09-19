@@ -44,6 +44,16 @@ export type {
   StringSetting,
 } from './settings.js';
 
+export type {
+  NativeApi,
+  NativeDescription,
+  NativeNotifyFields,
+  NativeNotifyOptions,
+  NativeNotifyOverride,
+  NativeNotifyResult,
+  NativeTarget,
+  NativeUrgency,
+} from './native.js';
 export { OSC_VALUE_KINDS } from './osc.js';
 export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKind } from './osc.js';
 

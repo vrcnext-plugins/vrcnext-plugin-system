@@ -88,6 +88,7 @@ export default definePlugin({
     installRoutes(ctx, state);
     installContextMenu(ctx, state);
     installNotifications(ctx, state);
+    installNative(ctx, state);
     installUi(ctx, state);
 
     ctx.logger.info(`Kitchen Sink v${ctx.version} ready.`);
@@ -285,7 +286,64 @@ function installNotifications(ctx: Ctx, state: State): void {
   });
 }
 
-/** 10. UI: a dashboard card, a sidebar tab and a settings card. */
+/**
+ * 10. The optional native companion — VR overlay and desktop notification targets.
+ *
+ * Everything here is written for the companion being absent, because for most users it is. Note
+ * the two-step: ask what targets exist, then address them by name. Hard-coding `'wayvr'` would
+ * work today and break the moment someone runs a different overlay.
+ */
+function installNative(ctx: Ctx, state: State): void {
+  if (!ctx.native.available) {
+    state.log(`[native] no companion at ${ctx.native.endpoint}; VR targets unavailable.`);
+    return;
+  }
+
+  void ctx.native.targets().then((targets) => {
+    state.log(`[native] targets: ${targets.map((t) => t.name).join(', ') || 'none'}`);
+  });
+
+  ctx.gameLog.onType('OnPlayerJoined', (entry) => {
+    const who = entry.detail || entry.message;
+
+    // One call, presented differently in each place: a tall translucent panel in VR, an ordinary
+    // toast on the monitor. Omitting `sinks` means "every target the companion has".
+    void ctx.native.notify({
+      title: 'Player joined',
+      content: who,
+      timeoutSecs: 4,
+      icon: 'user-available',
+      overrides: {
+        wayvr: {
+          content: `${who} joined the instance`,
+          height: 200,
+          opacity: 0.85,
+          alwaysShow: true,
+        },
+      },
+    });
+  });
+
+  // VR only — deliberately nothing on the monitor, because this fires often.
+  ctx.events.on('friendTimelineEvent', (payload) => {
+    if (payload.type !== 'online') return;
+    void ctx.native.notify({
+      title: payload.friendName,
+      content: 'came online',
+      sinks: ['wayvr'],
+      timeoutSecs: 3,
+      opacity: 0.7,
+    });
+  });
+
+  // The forward-compatible path: call a service this example predates.
+  void ctx.native.describe().then((description) => {
+    if (description === undefined) return;
+    state.log(`[native] companion ${description.version}, services: ${Object.keys(description.services).join(', ')}`);
+  });
+}
+
+/** 11. UI: a dashboard card, a sidebar tab and a settings card. */
 function installUi(ctx: Ctx, state: State): void {
   ctx.ui.addDashboardCard({
     title: 'Kitchen Sink',

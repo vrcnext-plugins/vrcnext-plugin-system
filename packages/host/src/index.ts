@@ -11,6 +11,7 @@ import { API_VERSION } from './api-version.js';
 import { PhotinoBridge } from './bridge/photino-bridge.js';
 import { ContextMenuHub } from './capabilities/context-menu.js';
 import { DeepLinkHub } from './capabilities/deep-links.js';
+import { NativeClient } from './capabilities/native.js';
 import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
 import { PluginLoader } from './loader/plugin-loader.js';
@@ -46,7 +47,8 @@ function createToast(sink: LogSink): (options: ToastOptions) => void {
   return ({ message, ok = true }: ToastOptions): void => {
     const show: unknown = (globalThis as { showToast?: unknown }).showToast;
     if (typeof show === 'function') {
-      (show as (msg: string, ok: boolean) => void)(message, ok);
+      // VRCNext's signature is showToast(ok, msg) — ok first.
+      (show as (ok: boolean, msg: string) => void)(ok, message);
       return;
     }
     sink.write(ok ? 'info' : 'warn', 'toast', message, []);
@@ -65,6 +67,7 @@ interface Core {
   readonly toast: (options: ToastOptions) => void;
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
+  readonly native: NativeClient;
   readonly isLinux: () => boolean;
 }
 
@@ -98,6 +101,11 @@ async function buildCore(): Promise<Core> {
   const contextMenu = new ContextMenuHub();
   contextMenu.install();
 
+  // Probed rather than awaited: the companion is optional, and boot must not wait on a daemon
+  // most users do not run.
+  const native = new NativeClient(createLogger(sink, 'native'));
+  void native.probe();
+
   const loader = new PluginLoader({
     router,
     bridge,
@@ -107,6 +115,7 @@ async function buildCore(): Promise<Core> {
     routes,
     deepLinks: new DeepLinkHub(router),
     contextMenu,
+    native,
     isLinux: () => isLinux,
   });
 
@@ -121,6 +130,7 @@ async function buildCore(): Promise<Core> {
     toast,
     routes,
     contextMenu,
+    native,
     isLinux: () => isLinux,
   };
 }
@@ -148,6 +158,7 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
     updater,
     sink: core.sink,
     logger: core.logger,
+    native: core.native,
     isLinux: core.isLinux,
     openUrl: (url) => { core.bridge.send('openUrl', { url }); },
   });
