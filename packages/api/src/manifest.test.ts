@@ -62,7 +62,7 @@ test('rejects unknown permissions instead of dropping them', () => {
 test('rejects a non-semver version', () => {
   const { manifest, errors } = parsePluginManifest(valid({ version: 'latest' }));
   assert.equal(manifest, undefined);
-  assert.ok(errors.some((e) => e.includes('semver')));
+  assert.ok(errors.some((e) => e.includes('MAJOR.MINOR.PATCH')));
 });
 
 test('rejects hosts that carry a scheme, path or wildcard', () => {
