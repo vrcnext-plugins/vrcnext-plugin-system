@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "name": "VRCNext Example Plugins",
+  "plugins": [
+    {
+      "id": "club-security",
+      "name": "Club Security",
+      "version": "1.0.0",
+      "description": "When someone joins your instance, gathers age verification, avatar performance, group membership and rejoin history, then notifies you in-app, on the desktop, in VR or on Discord.",
+      "entry": "dist/club-security.js",
+      "apiVersion": "^0.1.0",
+      "author": "vrcnext-plugins",
+      "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system",
+      "icon": "security",
+      "tags": ["Notifications", "Privacy", "Activity"],
+      "searchTerms": ["security", "door", "bouncer", "join", "age verified", "performance rank", "group", "rejoin", "discord", "webhook"]
+    }
+  ]
+}

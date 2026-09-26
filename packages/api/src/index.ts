@@ -85,7 +85,8 @@ export type {
 export { OSC_VALUE_KINDS } from './osc.js';
 export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKind } from './osc.js';
 
-export type { GameLogApi, GameLogEntry } from './game-log.js';
+export { GAME_LOG_TYPES } from './game-log.js';
+export type { GameLogApi, GameLogEntry, GameLogType } from './game-log.js';
 
 export { NOTIFY_ACCENTS, NOTIF_TOAST_KINDS } from './notifications.js';
 export type {

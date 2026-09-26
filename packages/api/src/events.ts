@@ -14,7 +14,7 @@
 export const LOG_COLORS = ['sec', 'warn', 'err'] as const;
 export type LogColor = (typeof LOG_COLORS)[number];
 
-/** Payloads verified against the VRCNext source at version 2026.60.5. */
+/** Payloads verified against the VRCNext source at version 2026.61.2. */
 export interface VrcnextEventMap {
   /** Sent once after the page reports `ready`; drives the hiding of Windows-only tabs. */
   readonly setPlatform: { readonly isLinux: boolean };

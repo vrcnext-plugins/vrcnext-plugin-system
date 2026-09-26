@@ -139,8 +139,8 @@ function installGameLog(ctx: Ctx, state: State): void {
     state.log(`[gamelog] ${entry.type}: ${entry.message}`);
   });
 
-  ctx.gameLog.onType('OnPlayerJoined', (entry) => {
-    state.log(`[join] ${entry.detail || entry.message}`);
+  ctx.gameLog.onType('gl_player_join', (entry) => {
+    state.log(`[join] ${entry.message}`);
   });
 
   // Backlog is fetched once, aborted if the plugin is disabled mid-flight.
@@ -259,8 +259,8 @@ function installContextMenu(ctx: Ctx, state: State): void {
 
 /** 9. Every notification surface VRCNext exposes. Needs only the `notifications` category. */
 function installNotifications(ctx: Ctx, state: State): void {
-  ctx.gameLog.onType('OnPlayerJoined', (entry) => {
-    const who = entry.detail || entry.message;
+  ctx.gameLog.onType('gl_player_join', (entry) => {
+    const who = entry.message;
 
     // In-app toast — always available.
     ctx.notifications.toast({ message: `${who} joined.` });
@@ -299,8 +299,8 @@ async function installNative(ctx: Ctx, state: State): Promise<void> {
   }
   state.log(`[native] targets: ${targets.map((t) => t.name).join(', ') || 'none'}`);
 
-  ctx.gameLog.onType('OnPlayerJoined', (entry) => {
-    const who = entry.detail || entry.message;
+  ctx.gameLog.onType('gl_player_join', (entry) => {
+    const who = entry.message;
 
     // One call, presented differently in each place: a tall translucent panel in VR, an ordinary
     // toast on the monitor. Omitting `sinks` means "every target the bridge has".
