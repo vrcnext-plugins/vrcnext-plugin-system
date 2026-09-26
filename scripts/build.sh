@@ -24,6 +24,7 @@ npx esbuild packages/host/src/index.ts \
   --bundle \
   --format=iife \
   --target=es2022 \
+  --tsconfig-raw='{"compilerOptions":{"target":"es2022","useDefineForClassFields":true}}' \
   --platform=browser \
   --minify \
   --sourcemap=linked \
