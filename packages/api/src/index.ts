@@ -1,16 +1,29 @@
 /**
  * `@vrcnext/plugin-api` — the contract between a VRCNext plugin and the plugin host.
  *
- * This package is types plus a little pure logic (manifest parsing, settings defaults). It has
+ * This package is types plus a little pure logic (manifest parsing, permissions, settings
+ * defaults). It has
  * no DOM side effects and no host dependency, so plugin authors can unit-test against it and
  * the host can reuse the same parsers it hands to plugins.
  */
 
-export { MANIFEST_FILENAME, MANIFEST_FORMAT_VERSION, PLUGIN_TAGS, parseRepoManifest } from './manifest.js';
-export type { ManifestParseResult, PluginManifest, PluginTag, RepoManifest } from './manifest.js';
+export { MANIFEST_FILENAME, MANIFEST_LIMITS, PLUGIN_TAGS, parsePluginManifest } from './manifest.js';
+export type { ManifestParseResult, PluginManifest, PluginSummary, PluginTag } from './manifest.js';
 
-export { isPluginId, makePluginKey, makeRepoId, parsePluginId } from './ids.js';
-export type { PluginId, PluginKey, RepoId } from './ids.js';
+export { PLUGIN_ID_PATTERN, isPluginId, parsePluginId } from './ids.js';
+export type { PluginId } from './ids.js';
+
+export {
+  PERMISSIONS,
+  PERMISSION_NAMES,
+  PermissionError,
+  isPermission,
+  permissionInfo,
+} from './permissions.js';
+export type { Permission, PermissionInfo, PermissionTone, PermissionsApi } from './permissions.js';
+
+export type { HttpApi } from './http.js';
+export type { ClipboardApi } from './clipboard.js';
 
 export { DisposableBag } from './disposable.js';
 export type { Disposable, DisposeFn } from './disposable.js';
@@ -47,12 +60,10 @@ export type {
 
 export type {
   NativeApi,
-  NativeDescription,
   NativeNotifyFields,
   NativeNotifyOptions,
   NativeNotifyOverride,
   NativeNotifyResult,
-  NativeStatus,
   NativeTarget,
   NativeUrgency,
 } from './native.js';

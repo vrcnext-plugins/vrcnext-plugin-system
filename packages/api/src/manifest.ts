@@ -1,70 +1,79 @@
 /**
- * Plugin repository manifest.
+ * `plugin.json` — the manifest at the root of every plugin repository.
  *
- * A repo publishes one `vrcnext-plugins.json` at its root describing every plugin it houses, so
- * a single repo URL can offer many plugins. The file is fetched from an untrusted host, so it is
- * parsed defensively: unknown fields are ignored, and one malformed entry does not discard the
- * rest of the manifest.
+ * The bridge validates it when a plugin is installed or updated, and the host validates it again
+ * when it reads the compiled plugin table at boot. Both use this parser, so a manifest that
+ * passes one passes the other. Parsing never throws: a bad manifest yields a list of problems
+ * the UI can show verbatim.
  */
 
+import { validate as isSemver } from 'compare-versions';
+
 import { parsePluginId, type PluginId } from './ids.js';
+import { isPermission, type Permission } from './permissions.js';
 
-/** Bumped only on a breaking change to this file's shape. */
-export const MANIFEST_FORMAT_VERSION = 1;
+/** File name at the repository root. */
+export const MANIFEST_FILENAME = 'plugin.json';
 
-/** Manifest file expected at the root of a plugin repository. */
-export const MANIFEST_FILENAME = 'vrcnext-plugins.json';
+export const MANIFEST_LIMITS = {
+  descriptionChars: 200,
+  tags: 8,
+} as const;
 
+/** Suggested tags. Any string is accepted; these are the ones the manager filters by. */
 export const PLUGIN_TAGS = [
-  'Accessibility',
-  'Activity',
-  'Audio',
-  'Chat',
-  'Customisation',
-  'Developer',
-  'Emotes',
-  'Friends',
-  'Fun',
-  'Media',
-  'Notifications',
-  'OSC',
-  'Organisation',
-  'Privacy',
-  'UI',
-  'Utility',
+  'accessibility',
+  'activity',
+  'audio',
+  'chat',
+  'customisation',
+  'developer',
+  'friends',
+  'fun',
+  'media',
+  'notifications',
+  'osc',
+  'privacy',
+  'ui',
+  'utility',
 ] as const;
 
 export type PluginTag = (typeof PLUGIN_TAGS)[number] | (string & {});
 
-export interface PluginManifest {
+/**
+ * What the manager needs to describe a plugin, whether it comes from the compiled bundle or from
+ * the bridge's list of clones. Everything user-facing, nothing about the build.
+ */
+export interface PluginSummary {
   readonly id: PluginId;
   readonly name: string;
   readonly version: string;
   readonly description: string;
-  /** Repo-relative path to the built ESM entry point, e.g. `dist/friend-alerts.js`. */
-  readonly entry: string;
-  /** Semver range of `@vrcnext/plugin-api` this plugin was built against. */
+  readonly tags: readonly PluginTag[];
+  /** Granted at enable time, or the plugin does not run. */
+  readonly permissions: readonly Permission[];
+  /** Requested lazily through `ctx.permissions.request`. */
+  readonly optionalPermissions: readonly Permission[];
+  /** Exact VRCNext action names `ctx.bridge` may send. Needs `host:actions`. */
+  readonly actions: readonly string[];
+  /** Exact host event names `ctx.events` may subscribe to. Needs `host:events`. */
+  readonly events: readonly string[];
+  /** Exact hosts `ctx.http.fetch` may reach. Needs `network`. No wildcards. */
+  readonly hosts: readonly string[];
+}
+
+/** The full `plugin.json` shape. */
+export interface PluginManifest extends PluginSummary {
+  /** Semver range of `@vrcnext/plugin-api` this plugin was written against. */
   readonly apiVersion: string;
   readonly author?: string;
   readonly homepage?: string;
-  readonly icon?: string;
-  /** Categorization tags for browsing and discovery. */
-  readonly tags?: readonly PluginTag[];
-  /** Additional search keywords that surface this plugin in search results. */
-  readonly searchTerms?: readonly string[];
-  /** IDs of other plugins that must be installed and loaded before this plugin. */
+  /** Ids of plugins that must be running before this one activates. */
   readonly dependencies?: readonly PluginId[];
 }
 
-export interface RepoManifest {
-  readonly formatVersion: number;
-  readonly name: string;
-  readonly plugins: readonly PluginManifest[];
-}
-
 export interface ManifestParseResult {
-  readonly manifest: RepoManifest | undefined;
-  /** Human-readable problems. Non-empty with a defined manifest means entries were skipped. */
+  readonly manifest: PluginManifest | undefined;
   readonly errors: readonly string[];
 }
 
@@ -78,147 +87,125 @@ function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function parseStringList(value: unknown): readonly string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const list: string[] = [];
-  for (const item of value) {
-    const s = asNonEmptyString(item);
-    if (s !== undefined && !list.includes(s)) list.push(s);
+/** A list of distinct, non-empty strings. `undefined` means the field is absent. */
+function stringList(field: string, value: unknown, errors: string[]): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    errors.push(`"${field}" must be an array of strings.`);
+    return undefined;
   }
-  return list.length > 0 ? list : undefined;
-}
-
-function parseDependencies(
-  value: unknown,
-  errors: string[],
-  pluginLabel: string,
-): readonly PluginId[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const list: PluginId[] = [];
+  const out: string[] = [];
   for (const item of value) {
-    const raw = asNonEmptyString(item);
-    if (raw === undefined) continue;
-    const id = parsePluginId(raw);
-    if (id === undefined) {
-      errors.push(`${pluginLabel}: malformed dependency id "${raw}".`);
+    const text = asNonEmptyString(item);
+    if (text === undefined) {
+      errors.push(`"${field}" contains an empty or non-string entry.`);
       continue;
     }
-    if (!list.includes(id)) list.push(id);
+    if (!out.includes(text)) out.push(text);
   }
-  return list.length > 0 ? list : undefined;
+  return out;
 }
 
-/**
- * Rejects entry paths that escape the repo root or point at an absolute/remote location.
- * The entry is later joined onto a raw-content URL, so a `..` segment would fetch from an
- * unrelated repository.
- */
-function asSafeEntryPath(value: unknown): string | undefined {
-  const raw = asNonEmptyString(value);
+function permissionList(field: string, value: unknown, errors: string[]): readonly Permission[] {
+  const out: Permission[] = [];
+  for (const item of stringList(field, value, errors) ?? []) {
+    if (isPermission(item)) out.push(item);
+    else errors.push(`"${field}": unknown permission "${item}".`);
+  }
+  return out;
+}
+
+function dependencyList(value: unknown, errors: string[]): readonly PluginId[] | undefined {
+  const raw = stringList('dependencies', value, errors);
   if (raw === undefined) return undefined;
-  if (raw.startsWith('/') || raw.includes('://') || raw.includes('\\')) return undefined;
-  const segments = raw.split('/');
-  if (segments.some((s) => s === '..' || s === '.' || s.length === 0)) return undefined;
-  return raw;
+  const out: PluginId[] = [];
+  for (const item of raw) {
+    const id = parsePluginId(item);
+    if (id === undefined) errors.push(`"dependencies": malformed plugin id "${item}".`);
+    else out.push(id);
+  }
+  return out;
 }
 
-function parsePlugin(value: unknown, index: number, errors: string[]): PluginManifest | undefined {
-  const record = asRecord(value);
-  if (record === undefined) {
-    errors.push(`plugins[${String(index)}] is not an object.`);
-    return undefined;
-  }
+/** A host as it appears in `hosts`: a bare host name, optionally with a port. No scheme, no path. */
+function isHostName(value: string): boolean {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i.test(value);
+}
 
-  const id = parsePluginId(asNonEmptyString(record['id']) ?? '');
+interface RequiredFields {
+  readonly id: PluginId;
+  readonly name: string;
+  readonly version: string;
+  readonly apiVersion: string;
+  readonly description: string;
+}
+
+function requiredFields(record: Record<string, unknown>, errors: string[]): RequiredFields | undefined {
+  const rawId = asNonEmptyString(record['id']);
+  const id = rawId === undefined ? undefined : parsePluginId(rawId);
   const name = asNonEmptyString(record['name']);
   const version = asNonEmptyString(record['version']);
-  const entry = asSafeEntryPath(record['entry']);
   const apiVersion = asNonEmptyString(record['apiVersion']);
+  const description = asNonEmptyString(record['description']) ?? '';
 
-  const label = id ?? `plugins[${String(index)}]`;
-  if (id === undefined) errors.push(`${label}: missing or malformed "id".`);
-  if (name === undefined) errors.push(`${label}: missing "name".`);
-  if (version === undefined) errors.push(`${label}: missing "version".`);
-  if (entry === undefined) errors.push(`${label}: missing or unsafe "entry" path.`);
-  if (apiVersion === undefined) errors.push(`${label}: missing "apiVersion".`);
-
-  if (
-    id === undefined ||
-    name === undefined ||
-    version === undefined ||
-    entry === undefined ||
-    apiVersion === undefined
-  ) {
-    return undefined;
+  if (id === undefined) errors.push('"id" is missing or not [a-z0-9][a-z0-9-]{1,39}.');
+  if (name === undefined) errors.push('"name" is missing.');
+  if (version === undefined) errors.push('"version" is missing.');
+  else if (!isSemver(version)) errors.push(`"version" is not semver: "${version}".`);
+  if (apiVersion === undefined) errors.push('"apiVersion" is missing.');
+  if (description.length > MANIFEST_LIMITS.descriptionChars) {
+    errors.push(`"description" is over ${String(MANIFEST_LIMITS.descriptionChars)} characters.`);
   }
 
-  const author = asNonEmptyString(record['author']);
-  const homepage = asNonEmptyString(record['homepage']);
-  const icon = asNonEmptyString(record['icon']);
-  const tags = parseStringList(record['tags']) as readonly PluginTag[] | undefined;
-  const searchTerms = parseStringList(record['searchTerms']);
-  const dependencies = parseDependencies(record['dependencies'], errors, label);
-
-  return {
-    id,
-    name,
-    version,
-    entry,
-    apiVersion,
-    description: asNonEmptyString(record['description']) ?? '',
-    ...(author !== undefined ? { author } : {}),
-    ...(homepage !== undefined ? { homepage } : {}),
-    ...(icon !== undefined ? { icon } : {}),
-    ...(tags !== undefined ? { tags } : {}),
-    ...(searchTerms !== undefined ? { searchTerms } : {}),
-    ...(dependencies !== undefined ? { dependencies } : {}),
-  };
+  if (id === undefined || name === undefined || version === undefined || apiVersion === undefined) {
+    return undefined;
+  }
+  return { id, name, version, apiVersion, description };
 }
 
-export function parseRepoManifest(raw: unknown): ManifestParseResult {
+export function parsePluginManifest(raw: unknown): ManifestParseResult {
   const errors: string[] = [];
   const record = asRecord(raw);
   if (record === undefined) {
     return { manifest: undefined, errors: [`${MANIFEST_FILENAME} is not a JSON object.`] };
   }
 
-  const formatVersion = record['formatVersion'];
-  if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
-    return { manifest: undefined, errors: ['"formatVersion" must be an integer.'] };
-  }
-  if (formatVersion > MANIFEST_FORMAT_VERSION) {
-    return {
-      manifest: undefined,
-      errors: [
-        `Manifest format ${String(formatVersion)} is newer than supported ` +
-          `(${String(MANIFEST_FORMAT_VERSION)}). Update the plugin system.`,
-      ],
-    };
-  }
+  const required = requiredFields(record, errors);
 
-  const rawPlugins = record['plugins'];
-  if (!Array.isArray(rawPlugins)) {
-    return { manifest: undefined, errors: ['"plugins" must be an array.'] };
+  const tags = stringList('tags', record['tags'], errors) ?? [];
+  if (tags.length > MANIFEST_LIMITS.tags) {
+    errors.push(`"tags" lists more than ${String(MANIFEST_LIMITS.tags)} tags.`);
   }
+  const permissions = permissionList('permissions', record['permissions'], errors);
+  const optionalPermissions = permissionList(
+    'optionalPermissions',
+    record['optionalPermissions'],
+    errors,
+  );
+  const actions = stringList('actions', record['actions'], errors) ?? [];
+  const events = stringList('events', record['events'], errors) ?? [];
+  const hosts = stringList('hosts', record['hosts'], errors) ?? [];
+  for (const host of hosts) {
+    if (!isHostName(host)) errors.push(`"hosts": "${host}" is not a bare host name.`);
+  }
+  const dependencies = dependencyList(record['dependencies'], errors);
+  const author = asNonEmptyString(record['author']);
+  const homepage = asNonEmptyString(record['homepage']);
 
-  const plugins: PluginManifest[] = [];
-  const seen = new Set<string>();
-  for (const [index, entry] of rawPlugins.entries()) {
-    const plugin = parsePlugin(entry, index, errors);
-    if (plugin === undefined) continue;
-    if (seen.has(plugin.id)) {
-      errors.push(`${plugin.id}: duplicate id in manifest, later entry ignored.`);
-      continue;
-    }
-    seen.add(plugin.id);
-    plugins.push(plugin);
-  }
+  if (required === undefined || errors.length > 0) return { manifest: undefined, errors };
 
   return {
     manifest: {
-      formatVersion,
-      name: asNonEmptyString(record['name']) ?? 'Unnamed repository',
-      plugins,
+      ...required,
+      tags,
+      permissions,
+      optionalPermissions,
+      actions,
+      events,
+      hosts,
+      ...(author !== undefined ? { author } : {}),
+      ...(homepage !== undefined ? { homepage } : {}),
+      ...(dependencies !== undefined ? { dependencies } : {}),
     },
     errors,
   };
