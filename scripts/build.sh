@@ -25,7 +25,7 @@ npx esbuild packages/host/src/bootstrap.ts \
   --outfile="$BUNDLE"
 
 echo "==> Bundling example plugins"
-for example in hello-world kitchen-sink; do
+for example in hello-world kitchen-sink club-security; do
   npx esbuild "examples/$example/src/index.ts" \
     --bundle \
     --format=esm \
