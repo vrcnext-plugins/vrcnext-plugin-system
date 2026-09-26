@@ -154,11 +154,11 @@ Size limits are machine-enforced, not eyeballed:
 | 600 lines per file (soft) | `size-limits.test.ts` | Names the file, does not fail |
 | 4 parameters, depth 3 | ESLint `max-params`, `max-depth` | Fails the gate |
 
-`dist/` is minified with source maps — the host bundle is ~42 KB.
+`dist/` is minified with source maps — the host bundle is ~70 KB.
 
 ## Compatibility and verification status
 
-Developed against **VRCNext 2026.60.5**. The host depends on VRCNext internals with no stability
+Developed against **VRCNext 2026.61.2**. The host depends on VRCNext internals with no stability
 guarantee — the Photino bridge shape, CSS class names, `showTab()` indexing, and the
 `vrcnext:theme:unload:<id>` event. Selectors are centralised in
 `packages/host/src/ui/dom.ts` so a VRCNext update fails loudly in one place.
