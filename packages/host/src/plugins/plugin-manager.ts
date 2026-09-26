@@ -14,8 +14,7 @@
  * does not leave the stored flag disagreeing with what the user sees.
  */
 
-import type { Logger, PluginId, PluginManifest } from '@vrcnext/plugin-api';
-import { satisfies } from 'compare-versions';
+import { satisfies, type Logger, type PluginId, type PluginManifest } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from '../api-version.js';
 import type { PermissionBroker } from '../permissions/broker.js';

@@ -7,10 +7,9 @@
  * the UI can show verbatim.
  */
 
-import { validate as isSemver } from 'compare-versions';
-
 import { parsePluginId, type PluginId } from './ids.js';
 import { isPermission, type Permission } from './permissions.js';
+import { isRange, isVersion } from './semver.js';
 
 /** File name at the repository root. */
 export const MANIFEST_FILENAME = 'plugin.json';
@@ -151,8 +150,9 @@ function requiredFields(record: Record<string, unknown>, errors: string[]): Requ
   if (id === undefined) errors.push('"id" is missing or not [a-z0-9][a-z0-9-]{1,39}.');
   if (name === undefined) errors.push('"name" is missing.');
   if (version === undefined) errors.push('"version" is missing.');
-  else if (!isSemver(version)) errors.push(`"version" is not semver: "${version}".`);
+  else if (!isVersion(version)) errors.push(`"version" is not MAJOR.MINOR.PATCH: "${version}".`);
   if (apiVersion === undefined) errors.push('"apiVersion" is missing.');
+  else if (!isRange(apiVersion)) errors.push(`"apiVersion" is not a version range: "${apiVersion}".`);
   if (description.length > MANIFEST_LIMITS.descriptionChars) {
     errors.push(`"description" is over ${String(MANIFEST_LIMITS.descriptionChars)} characters.`);
   }

@@ -129,3 +129,4 @@ export type {
 
 export { definePlugin } from './plugin.js';
 export type { PluginContext, VrcnextPlugin } from './plugin.js';
+export { compareVersions, isRange, isVersion, parseRange, parseVersion, satisfies } from './semver.js';
