@@ -44,6 +44,10 @@ async function fetchText(url: URL, options: FetchTextOptions): Promise<string> {
       signal: controller.signal,
       // A redirect could leave the origin we validated, so refuse rather than follow it.
       redirect: 'error',
+      // Forges send long max-age headers on raw content (GitHub 5 minutes, Gitea 6 hours), and
+      // the page's HTTP cache honours them, so a plain fetch would keep returning a stale manifest
+      // long after a release. Revalidate instead: a conditional request is cheap and honours ETags.
+      cache: 'no-cache',
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
       headers: { accept: 'text/plain, application/json' },
