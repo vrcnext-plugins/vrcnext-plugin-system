@@ -126,6 +126,11 @@ function buildGithub(owner: string, repo: string, ref: string): RepoParseResult 
   };
 }
 
+/**
+ * Gitea's web raw route (`/owner/repo/raw/branch/ref/…`) never carries CORS headers, so a fetch
+ * from the VRCNext page is blocked. Its API raw route does, once the instance enables
+ * `[cors]`, and takes the ref as a query parameter instead of a path segment.
+ */
 function buildGitea(origin: string, owner: string, repo: string, ref: string): RepoParseResult {
   if (!isSafeRef(ref)) return fail('The branch or tag name contains unsupported characters.');
   return {
@@ -135,7 +140,7 @@ function buildGitea(origin: string, owner: string, repo: string, ref: string): R
       owner,
       repo,
       ref,
-      rawBase: new URL(`${origin}/${owner}/${repo}/raw/branch/${ref}/`),
+      rawBase: new URL(`${origin}/api/v1/repos/${owner}/${repo}/raw/`),
       homepage: new URL(`${origin}/${owner}/${repo}`),
     },
     error: undefined,
@@ -144,5 +149,7 @@ function buildGitea(origin: string, owner: string, repo: string, ref: string): R
 
 /** Resolves a manifest-relative path against the repo's raw-content base. */
 export function rawUrlFor(source: RepoSource, relativePath: string): URL {
-  return new URL(relativePath, source.rawBase);
+  const url = new URL(relativePath, source.rawBase);
+  if (source.forge === FORGES.gitea) url.searchParams.set('ref', source.ref);
+  return url;
 }

@@ -37,7 +37,20 @@ test('builds a Gitea raw base for a self-hosted forge', () => {
   const { source } = parseRepoSource('https://git.example.com/o/r');
   assert.ok(source);
   assert.equal(source.forge, 'gitea');
-  assert.equal(source.rawBase.href, 'https://git.example.com/o/r/raw/branch/main/');
+  assert.equal(source.rawBase.href, 'https://git.example.com/api/v1/repos/o/r/raw/');
+});
+
+test('Gitea entry URLs go through the API raw route with the ref as a query parameter', () => {
+  const { source } = parseRepoSource('https://git.example.com/o/r/tree/release/2026');
+  assert.ok(source);
+  assert.equal(
+    rawUrlFor(source, 'dist/plugin.js').href,
+    'https://git.example.com/api/v1/repos/o/r/raw/dist/plugin.js?ref=release%2F2026',
+  );
+  assert.equal(
+    rawUrlFor(source, 'vrcnext-plugins.json').href,
+    'https://git.example.com/api/v1/repos/o/r/raw/vrcnext-plugins.json?ref=release%2F2026',
+  );
 });
 
 test('rejects non-https and malformed URLs', () => {
