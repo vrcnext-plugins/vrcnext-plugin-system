@@ -28,9 +28,9 @@ All optional, all in the plugin's settings card. Empty means "any".
 | Channel | How |
 | :--- | :--- |
 | In-app toast | Always available. One line. |
-| Desktop | Native companion target on any platform; VRCNext's tray toast on Windows without the companion. |
-| VR | Native companion VR target (WayVR and similar) on any platform; SteamVR wrist overlay on Windows without the companion. |
-| Discord | A webhook URL, posted straight from the VRCNext page as an embed. |
+| Desktop | A VRCNext Bridge desktop target on any platform; VRCNext's tray toast on Windows when the bridge delivers nothing. |
+| VR | A VRCNext Bridge VR target (WayVR and similar) on any platform; SteamVR wrist overlay on Windows when the bridge delivers nothing. |
+| Discord | A `discord.com` webhook URL, posted as an embed through `ctx.http.fetch` (`discord.com` is the plugin's only declared host). |
 
 ## Where each fact comes from
 
@@ -46,7 +46,16 @@ Everything waits at most the configured number of seconds, then reports what it 
 
 ## Your own joins
 
-VRChat logs an `OnPlayerJoined` line for the local player too, and right after it one line for
+The signed-in account comes from the `vrcUser` event VRCNext pushes after login; the plugin
+reads no page globals. VRChat logs an `OnPlayerJoined` line for the local player too, and right after it one line for
 every player already in the instance. The plugin ignores your own line and treats joins inside
 the settle window after it (or after a world change) as "already here": they are remembered for
 the rejoin check but not reported.
+
+## Layout and permissions
+
+Flat, like every plugin: `plugin.json`, `main.ts`, `src/`. The manifest declares `host:events`
+(the five `vrc…` events above and `vrcUser`), `host:actions` (the four `vrcGet…` lookups),
+`gamelog` (joins and world changes), `notifications` (toast, confirm, Windows tray toast),
+`native` (bridge targets) and `network` with `discord.com` as its only host. Nothing is optional:
+every channel is a plain setting, and a category that is off in the settings is simply never called.

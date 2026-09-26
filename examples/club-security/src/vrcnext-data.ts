@@ -3,8 +3,8 @@
  *
  * None of these events are in the API's verified map, so every payload arrives as `unknown`.
  * Shapes were read out of VRCNext 2026.61.2: `InstanceController.PushCurrentInstanceFromCache`,
- * `GroupsController` (`vrcGetGroupsForNetwork`), `FriendsController` (`vrcGetInstanceAvatars`)
- * and `MessageRouter` (`vrcGetAvatarDetail`).
+ * `GroupsController` (`vrcGetGroupsForNetwork`), `FriendsController` (`vrcGetInstanceAvatars`),
+ * `MessageRouter` (`vrcGetAvatarDetail`) and the `vrcUser` push after login.
  */
 
 export interface InstanceUser {
@@ -146,7 +146,19 @@ export function toAvatarPerformance(payload: unknown): AvatarPerformance | undef
   };
 }
 
-/** The signed-in account, from the `vrcUser` event VRCNext sends after login. */
-export function toSelfId(payload: unknown): string {
-  return str(rec(payload)?.['id']);
+export interface Self {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * The signed-in account, from the `vrcUser` event VRCNext pushes after login. `undefined` when
+ * the payload names nobody (the logged-out variant), so a stale identity is kept over an empty one.
+ */
+export function toSelf(payload: unknown): Self | undefined {
+  const r = rec(payload);
+  if (r === undefined) return undefined;
+  const id = str(r['id']);
+  const name = str(r['displayName']);
+  return id === '' && name === '' ? undefined : { id, name };
 }

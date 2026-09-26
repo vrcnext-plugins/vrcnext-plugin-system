@@ -4,17 +4,20 @@
  * Watches VRChat's game log for players joining your instance. When the instance passes the
  * configured filters (type, group, world), it gathers what VRCNext knows about the joiner and
  * sends one report per join to the enabled channels.
+ *
+ * Compare with `plugin.json`: every category used here is declared there, and the exact action
+ * and event names are listed so they are granted when the plugin is enabled.
  */
 
 import { definePlugin, type PluginContext, type PluginId } from '@vrcnext/plugin-api';
 
-import { FactCollector, type Joiner } from './collector.js';
-import { filterFrom, instanceMatches } from './filters.js';
-import { JoinMemory } from './memory.js';
-import { notifyAll, type Report } from './notify.js';
-import { ReportPanel } from './panel.js';
-import { settings } from './settings.js';
-import { toSelfId } from './vrcnext-data.js';
+import { FactCollector, type Joiner } from './src/collector.js';
+import { filterFrom, instanceMatches } from './src/filters.js';
+import { JoinMemory } from './src/memory.js';
+import { notifyAll, type Report } from './src/notify.js';
+import { ReportPanel } from './src/panel.js';
+import { settings } from './src/settings.js';
+import { toSelf, type Self } from './src/vrcnext-data.js';
 
 type Ctx = PluginContext<typeof settings>;
 
@@ -22,29 +25,17 @@ type Ctx = PluginContext<typeof settings>;
 const JOIN_EVENT = 'gl_player_join';
 const WORLD_JOIN_EVENT = 'gl_world_join';
 
-/**
- * The signed-in account, read live from VRCNext's own `currentVrcUser` binding.
- *
- * Read on every join rather than cached: it is `null` until login completes, and it changes when
- * the user switches accounts. VRChat logs the local player's own `OnPlayerJoined` too, so without
- * this every instance change would report the user to themselves.
- */
-function selfFromPage(): { readonly id: string; readonly name: string } {
-  if (typeof currentVrcUser !== 'object' || currentVrcUser === null) return { id: '', name: '' };
-  return {
-    id: typeof currentVrcUser.id === 'string' ? currentVrcUser.id : '',
-    name: typeof currentVrcUser.displayName === 'string' ? currentVrcUser.displayName : '',
-  };
-}
-
 class ClubSecurity {
   readonly #ctx: Ctx;
   readonly #collector: FactCollector;
   readonly #memory: JoinMemory;
   readonly #panel: ReportPanel;
-  /** From the `vrcUser` login event; the page binding is consulted first. */
-  #selfId = '';
-  #selfName = '';
+  /**
+   * The signed-in account, from the `vrcUser` event VRCNext pushes after login and whenever the
+   * profile is re-rendered. Empty until the first push: before that, only the settle window
+   * keeps the local player's own `OnPlayerJoined` line from being reported.
+   */
+  #self: Self = { id: '', name: '' };
   /** Joiners currently being looked up, so a duplicate log line does not produce two reports. */
   readonly #inFlight = new Set<string>();
   /**
@@ -66,10 +57,8 @@ class ClubSecurity {
 
   start(): void {
     this.#ctx.events.on('vrcUser', (payload) => {
-      const id = toSelfId(payload);
-      if (id !== '') this.#selfId = id;
-      const name = (payload as { displayName?: unknown }).displayName;
-      if (typeof name === 'string') this.#selfName = name;
+      const self = toSelf(payload);
+      if (self !== undefined) this.#self = self;
     });
     this.#ctx.events.on('vrcCurrentInstance', () => { this.#panel.refresh(); });
     this.#ctx.gameLog.onType(WORLD_JOIN_EVENT, () => { this.#startSettling(); });
@@ -123,13 +112,8 @@ class ClubSecurity {
     }
   }
 
-  #self(): { readonly id: string; readonly name: string } {
-    const page = selfFromPage();
-    return { id: page.id === '' ? this.#selfId : page.id, name: page.name === '' ? this.#selfName : page.name };
-  }
-
   #isSelf(joiner: Joiner): boolean {
-    const self = this.#self();
+    const self = this.#self;
     if (joiner.userId !== '' && self.id !== '') return joiner.userId === self.id;
     return self.name !== '' && joiner.name === self.name;
   }
@@ -141,7 +125,7 @@ class ClubSecurity {
       this.#ctx.notifications.toast({ message: 'Join an instance first; the test uses it.', ok: false });
       return;
     }
-    const self = this.#self();
+    const self = this.#self;
     const me = instance.users.find((u) => u.id === self.id) ?? instance.users[0];
     const name = me?.displayName ?? self.name;
     const joiner: Joiner = { name: name === '' ? 'Test player' : name, userId: me?.id ?? '' };

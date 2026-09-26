@@ -1,0 +1,33 @@
+{
+  "id": "club-security",
+  "name": "Club Security",
+  "version": "1.0.0",
+  "apiVersion": "^0.2.0",
+  "description": "When someone joins your instance, gathers age verification, avatar performance, group membership and rejoin history, then notifies you in-app, on the desktop, in VR or on Discord.",
+  "author": "vrcnext-plugins",
+  "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system/tree/main/examples/club-security",
+  "tags": ["notifications", "privacy", "activity"],
+  "permissions": [
+    "host:events",
+    "host:actions",
+    "gamelog",
+    "notifications",
+    "native",
+    "network"
+  ],
+  "optionalPermissions": [],
+  "actions": [
+    "vrcGetCurrentInstance",
+    "vrcGetGroupsForNetwork",
+    "vrcGetInstanceAvatars",
+    "vrcGetAvatarDetail"
+  ],
+  "events": [
+    "vrcUser",
+    "vrcCurrentInstance",
+    "vrcGroupsForNetwork",
+    "vrcInstanceAvatarFound",
+    "vrcAvatarDetail"
+  ],
+  "hosts": ["discord.com"]
+}

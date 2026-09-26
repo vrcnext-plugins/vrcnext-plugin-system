@@ -4,7 +4,7 @@
 # In an installation the bridge runs esbuild itself (vrcnext-bridge, crate `plugins`, module
 # `build`) with exactly these flags, aliasing `@vrcnext/static-plugins` to the import table it
 # generates from the installed clones. Here the alias points at the repo's own table,
-# packages/host/static-plugins.dev.ts, which lists the two examples. Keep the flag list below
+# packages/host/static-plugins.dev.ts, which lists the examples. Keep the flag list below
 # and the one in the bridge identical: a bundle that builds here but not there is the failure
 # this script exists to catch early.
 set -euo pipefail

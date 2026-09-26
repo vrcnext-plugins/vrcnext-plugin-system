@@ -76,13 +76,13 @@ export const settings = {
   notifyDesktop: {
     kind: 'boolean',
     label: 'Desktop notification',
-    description: 'Through the native companion on any platform, or VRCNext’s tray toast on Windows.',
+    description: 'Through the VRCNext Bridge on any platform, or VRCNext’s tray toast on Windows.',
     default: true,
   },
   notifyVr: {
     kind: 'boolean',
     label: 'VR overlay notification',
-    description: 'Through the native companion’s VR target on any platform, or the SteamVR wrist overlay on Windows.',
+    description: 'Through the VRCNext Bridge’s VR target on any platform, or the SteamVR wrist overlay on Windows.',
     default: true,
   },
   notifyDiscord: {

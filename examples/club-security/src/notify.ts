@@ -3,11 +3,11 @@
  *
  * Channels:
  * - In-app toast: always available.
- * - Desktop and VR: on any platform through the native companion, whose targets are addressed by
- *   name; on Windows without the companion, VRCNext's own tray toast plus SteamVR wrist overlay,
+ * - Desktop and VR: on any platform through the VRCNext Bridge, whose targets are addressed by
+ *   name; on Windows when the bridge delivers nothing, VRCNext's own tray toast plus SteamVR wrist overlay,
  *   which is a single action that reaches both.
- * - Discord: a webhook POST straight from the page. Discord answers webhook requests with CORS
- *   headers, so no proxy is needed.
+ * - Discord: a webhook POST through `ctx.http.fetch`. Only `discord.com` is in the manifest's
+ *   `hosts`, so that is the only webhook host accepted here.
  */
 
 import type { PluginContext, SettingsValues } from '@vrcnext/plugin-api';
@@ -29,7 +29,8 @@ export interface Report {
 
 type Ctx = PluginContext<Settings>;
 
-const DISCORD_WEBHOOK = /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+/** Matches the host declared in plugin.json; `ptb.`/`canary.` would need their own entries. */
+const DISCORD_WEBHOOK = /^https:\/\/discord\.com\/api\/webhooks\/\d+\/[\w-]+$/;
 
 function yesNo(value: boolean | undefined, unknown = 'Unknown'): string {
   if (value === undefined) return unknown;
@@ -83,9 +84,8 @@ function accentFor(report: Report): 'ok' | 'warn' | 'info' {
   return 'info';
 }
 
-/** Native companion targets: the VR overlay is the one whose name says so; the rest are desktop. */
-async function nativeSinks(ctx: Ctx, wantDesktop: boolean, wantVr: boolean): Promise<readonly string[]> {
-  const targets = await ctx.native.targets();
+/** Bridge targets: the VR overlay is the one whose name says so; the rest are desktop. */
+function pickSinks(targets: readonly { readonly name: string }[], wantDesktop: boolean, wantVr: boolean): readonly string[] {
   return targets
     .filter((t) => {
       const vr = /wayvr|openvr|steamvr|overlay|xso/i.test(t.name);
@@ -94,42 +94,56 @@ async function nativeSinks(ctx: Ctx, wantDesktop: boolean, wantVr: boolean): Pro
     .map((t) => t.name);
 }
 
-async function sendDesktopAndVr(ctx: Ctx, values: SettingsValues<Settings>, report: Report): Promise<void> {
-  const wantDesktop = values.notifyDesktop;
-  const wantVr = values.notifyVr;
-  if (!wantDesktop && !wantVr) return;
-  const title = `${report.joiner.name} joined`;
-  const lines = reportLines(report).slice(1);
-
-  if (await ctx.native.ready) {
-    const sinks = await nativeSinks(ctx, wantDesktop, wantVr);
-    if (sinks.length === 0) {
-      ctx.logger.debug('Native companion has no target for the enabled channels.');
-    } else {
-      const result = await ctx.native.notify({
-        title,
-        content: lines.join('\n'),
-        timeoutSecs: 8,
-        icon: 'security-high',
-        sinks,
-        urgency: accentFor(report) === 'warn' ? 'critical' : 'normal',
-      });
-      for (const failure of result.failed) ctx.logger.warn(`Native target ${failure.sink} failed: ${failure.error}`);
-      return;
-    }
+/**
+ * Through the bridge: `true` when at least one target accepted. `ok: false` with only the
+ * `bridge` pseudo-sink failing means the bridge is not reachable, which is a normal state, not
+ * an error; a target that refused is logged by name.
+ */
+async function sendNative(ctx: Ctx, wants: { readonly desktop: boolean; readonly vr: boolean }, report: Report): Promise<boolean> {
+  let targets: readonly { readonly name: string }[];
+  try {
+    targets = await ctx.native.targets();
+  } catch (error) {
+    ctx.logger.debug(`Bridge targets not available: ${String(error)}`);
+    return false;
   }
+  const sinks = pickSinks(targets, wants.desktop, wants.vr);
+  if (sinks.length === 0) {
+    ctx.logger.debug('The bridge has no target for the enabled channels.');
+    return false;
+  }
+  const lines = reportLines(report).slice(1);
+  const result = await ctx.native.notify({
+    title: `${report.joiner.name} joined`,
+    content: lines.join('\n'),
+    timeoutSecs: 8,
+    icon: 'security-high',
+    sinks,
+    urgency: accentFor(report) === 'warn' ? 'critical' : 'normal',
+  });
+  for (const failure of result.failed) {
+    if (failure.sink !== 'bridge') ctx.logger.warn(`Bridge target ${failure.sink} failed: ${failure.error}`);
+  }
+  if (!result.ok) ctx.logger.debug('Bridge not reachable or every target refused; falling back.');
+  return result.ok;
+}
 
-  // Windows without the companion: VRCNext's own tray toast and wrist overlay in one call.
+async function sendDesktopAndVr(ctx: Ctx, values: SettingsValues<Settings>, report: Report): Promise<void> {
+  const wants = { desktop: values.notifyDesktop, vr: values.notifyVr };
+  if (!wants.desktop && !wants.vr) return;
+  if (await sendNative(ctx, wants, report)) return;
+
+  // Windows without the bridge's targets: VRCNext's own tray toast and wrist overlay in one call.
   if (ctx.notifications.desktopAvailable) {
     ctx.notifications.desktop({
-      title,
-      subtitle: lines.join(' · '),
+      title: `${report.joiner.name} joined`,
+      subtitle: reportLines(report).slice(1).join(' · '),
       accent: accentFor(report),
       ...(report.joiner.userId === '' ? {} : { friendId: report.joiner.userId }),
     });
     return;
   }
-  ctx.logger.info('No desktop or VR channel is reachable: the native companion is not running and this platform has no tray toast.');
+  ctx.logger.info('No desktop or VR channel is reachable: the bridge delivered nothing and this platform has no tray toast.');
 }
 
 async function sendDiscord(ctx: Ctx, values: SettingsValues<Settings>, report: Report): Promise<void> {
@@ -152,11 +166,10 @@ async function sendDiscord(ctx: Ctx, values: SettingsValues<Settings>, report: R
     }],
     allowed_mentions: { parse: [] },
   };
-  const response = await fetch(url, {
+  const response = await ctx.http.fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-    signal: ctx.signal,
     credentials: 'omit',
     referrerPolicy: 'no-referrer',
   });
