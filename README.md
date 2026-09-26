@@ -8,30 +8,53 @@ VRCNext.**
 VRCNext ships no plugin API. This project adds one by installing itself as a VRCNext *custom
 theme* — a folder under `~/.config/VRCNext/custom-themes/` whose JavaScript VRCNext injects into
 its own page. That folder is in the config directory, not the install tree, so app updates leave
-it alone and a `git pull` on a VRCNext clone stays clean.
+it alone.
 
-Users install plugins by pasting a **repository URL** into the Plugins tab. One repository can
-house many plugins, and both plugins and the host auto-update.
+The page runs **one static bundle** containing the host and every installed plugin, produced by
+the **VRCNext Bridge**, a small native daemon: it clones plugin repositories, checks them, and
+runs a pinned `esbuild`. The page never evaluates code at runtime, never fetches manifests and
+keeps nothing in IndexedDB. Without the bridge there is no install, no state and no build.
 
----
+## Install
+
+**Linux / macOS**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vrcnext-plugins/vrcnext-plugin-system/main/install/install.sh | bash
+```
+
+**Windows** (PowerShell 5.1 or newer)
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/vrcnext-plugins/vrcnext-plugin-system/main/install/install.ps1 | iex
+```
+
+The installer fetches the bridge, a pinned `esbuild` and the host sources (every download is
+checked against a `SHA256SUMS`), registers autostart, builds the first bundle and prints a
+pairing token. Then, in VRCNext: enable the theme under **Settings → Design → Themes**, open the
+**Plugins** tab, paste the token. Re-running the installer is an upgrade. Flags, layout and
+uninstall steps are in [install/README.md](install/README.md).
 
 ## What plugins can do
 
-| Capability | API |
-| :--- | :--- |
-| **Host events** — ~310 VRCNext event types, verified payloads typed | `ctx.events` |
-| **Host actions** — ~474 backend actions, with request/response and outbound interception | `ctx.bridge` |
-| **OSC** — send and receive through VRCNext's sockets *(Windows only — see below)* | `ctx.osc` |
-| **VRChat game log** — live stream and 1000-entry backlog | `ctx.gameLog` |
-| **Sidebar tabs, dashboard cards, settings cards, custom CSS** | `ctx.ui` |
-| **Notifications** — in-app toasts and confirm modals everywhere; OS tray + **SteamVR wrist overlay** *(Windows only)* | `ctx.notifications` |
-| **Context menus** — items, dividers, submenus, entity-aware targeting | `ctx.contextMenu` |
-| **In-page HTTP routes** with path params | `ctx.router` |
-| **Deep links** — observe the `vrcn://` links VRCNext delivers | `ctx.deepLinks` |
-| **Typed persisted settings** with a rendered UI | `ctx.settings` |
-| **Levelled logging** — console + live in-app Logs panel + persisted + downloadable | `ctx.logger` |
-| **VR overlay + desktop notifications** — via the optional VRCNext Bridge, over one WebSocket, on any platform | `ctx.native` |
-| **Automatic teardown** | `ctx.disposables`, `ctx.signal` |
+| Capability | API | Permission |
+| :--- | :--- | :--- |
+| **Host events** — VRCNext's event stream, verified payloads typed | `ctx.events` | `host:events` |
+| **Host actions** — send actions, request/response | `ctx.bridge` | `host:actions` |
+| **Outbound interception** — observe or drop actions VRCNext sends | `ctx.bridge.interceptOutbound` | `host:intercept` |
+| **HTTP** — the only `fetch` a plugin has | `ctx.http` | `network` |
+| **VRCNext Bridge** — VR overlay + desktop notifications, any bridge service | `ctx.native` | `native` |
+| **OSC** — through VRCNext's sockets *(Windows only in VRCNext)* | `ctx.osc` | `osc` |
+| **VRChat game log** — live stream and backlog | `ctx.gameLog` | `gamelog` |
+| **Notifications** — toasts, confirm modals, tray/VR on Windows | `ctx.notifications` | `notifications` |
+| **Context menus** | `ctx.contextMenu` | `context-menu` |
+| **In-page HTTP routes** | `ctx.router` | `routes` |
+| **Clipboard** | `ctx.clipboard` | `clipboard` |
+| **Deep links** — the `vrcn://` links VRCNext delivers | `ctx.deepLinks` | `host:events` (`openDeepLink`) |
+| **Sidebar tabs, dashboard cards, settings cards, CSS, `ui.kit`** | `ctx.ui` | none |
+| **Typed persisted settings** with a rendered UI | `ctx.settings` | none |
+| **Logging** — in-app Logs panel, mirrored to the bridge's `plugins.log` | `ctx.logger` | none |
+| **Teardown** | `ctx.disposables`, `ctx.signal` | none |
 
 ```ts
 import { definePlugin, type PluginId } from '@vrcnext/plugin-api';
@@ -42,136 +65,183 @@ export default definePlugin({
     ctx.gameLog.onType('OnPlayerJoined', (entry) => {
       ctx.ui.toast({ message: `${entry.detail} joined.` });
     });
-    ctx.osc.send('VRCEmote', 'int', 3);
   },
 });
 ```
 
-Three limits are real and documented rather than papered over:
+Three limits are real and documented rather than papered over: plugin routes are **in-page
+only**; **custom `vrcn://` prefixes are impossible** (VRCNext drops unknown ones in C#); **OSC and
+VRCNext's own tray/VR notifications are Windows-only**, which is what the bridge's notification
+targets exist for. See [Limitations](https://vrcnext-plugins.github.io/limitations).
 
-1. Plugin HTTP routes are **in-page only** — VRCNext's C# listener has a fixed route table.
-2. **Custom `vrcn://` prefixes are impossible** — VRCNext validates the link type in C# and drops
-   unknown ones before the page sees them.
-3. **OSC, the VR overlay, the chatbox and several other features are Windows-only in VRCNext
-   itself.** `IsWindowsOnlyAction` filters those actions out on Linux before any handler runs, so
-   `ctx.osc.available` and `ctx.notifications.desktopAvailable` report it instead of failing
-   silently. For notifications there is a way around it: the optional
-   [vrcnext-bridge](https://github.com/vrcnext-plugins/vrcnext-bridge) companion is a separate
-   process, so it reaches VR overlays and the desktop on any platform via `ctx.native`.
+## A plugin repository
 
-See [Limitations](https://vrcnext-plugins.github.io/limitations) for the full platform matrix.
+One plugin per repository, flat, over `https://`:
+
+```
+plugin.json        the manifest below
+main.ts            default-exports definePlugin({...})
+src/**             optional, imported from main.ts
+README.md          optional
+```
+
+```jsonc
+{
+  "id": "friend-alerts",            // [a-z0-9][a-z0-9-]{1,39}; equals plugin.id in main.ts
+  "name": "Friend alerts",
+  "version": "1.2.0",               // semver
+  "apiVersion": "^0.2.0",           // range against @vrcnext/plugin-api
+  "description": "…",               // <= 200 chars
+  "author": "…", "homepage": "…",   // optional
+  "tags": ["notifications"],        // optional, <= 8
+  "permissions": ["host:events", "native"],   // categories it may ever use
+  "optionalPermissions": ["network"],         // asked for later via ctx.permissions.request
+  "actions": ["getFriends"],        // VRCNext actions granted at enable (host:actions)
+  "events": ["friendOnline"],       // host events granted at enable (host:events)
+  "hosts": ["api.example.com"]      // hosts granted at enable (network); no wildcards
+}
+```
+
+The bridge validates this at install and update, and the host validates it again at boot,
+through the same parser (`@vrcnext/plugin-api`'s `parsePluginManifest`).
+
+Start from [`examples/template`](examples/template): copy it into a new repository, rename the
+id, and run its `check` script — its ESLint config mirrors the host's rules and flags the source
+policy below before the bridge does. [`examples/hello-world`](examples/hello-world) is the
+smallest useful plugin; [`examples/kitchen-sink`](examples/kitchen-sink) exercises everything.
+To try a plugin, push it and paste its URL into the Plugins tab.
+
+### Source policy
+
+Plugins reach the world only through `ctx.*`. Before compiling, the bridge scans every `.ts`
+and `.js` file in the repository and refuses the install or update, naming the file, line and
+rule, on any of: `eval(`, `new Function`, `globalThis.`, `window.` (no exceptions, not even
+`window.location.href`), `document.cookie`, `localStorage`, `sessionStorage`, `indexedDB`,
+`XMLHttpRequest`, bare `fetch(`, `WebSocket(`, dynamic `import(`, `<script`, `.innerHTML =`,
+`insertAdjacentHTML`, `setTimeout(` with a string, `require(`, `process.`. At most 200 source
+files and 2 MiB in total.
+
+This is best-practice enforcement, not a sandbox: a plugin runs with the full authority of the
+VRCNext page. Install plugins you trust.
+
+## Permissions
+
+Two layers, both visible to the user.
+
+**At enable.** `permissions` in `plugin.json` is the ceiling: the categories a plugin may ever
+use. Enabling opens a modal listing each one with its description and risk tone, plus the exact
+`hosts`, `actions` and `events` it pre-declares. Enable grants those targets; Cancel leaves the
+plugin disabled. A category that is not declared is refused outright — the call throws
+`PermissionError`, nothing is asked, and the refusal is logged.
+
+**At first use.** Inside a declared category, each *concrete* target is confirmed the first
+time the plugin touches it, one modal at a time:
+
+| Category | Asked | Title |
+| :--- | :--- | :--- |
+| `network` | per host | *Plugin {name} ({id}) wants to request data from {host}* — or *send data to* for anything but GET/HEAD; details show method, URL, headers, body |
+| `host:actions` | per action name | *… wants to call VRCNext action {action}*, payload in details |
+| `host:events` | per event name | *… wants to listen to {event}* |
+| `host:intercept` | once per plugin | *… wants to observe and drop actions VRCNext sends to its backend* |
+| `native` | per `service/method` | *… wants to call the bridge: {service}/{method}*, parameters in details |
+| `osc`, `gamelog` | once per plugin | |
+| `clipboard` | read and write separately | |
+| `notifications`, `context-menu`, `routes` | never | the declared category suffices |
+
+Every prompt has four answers. **Confirm** allows it until VRCNext restarts. **Confirm & Save**
+remembers it through the bridge's state store. **Deny** rejects the call with a `PermissionError`
+naming the category and target, and is not asked again this session. **Uninstall** removes the
+plugin. Identical concurrent requests share one prompt, and the steady state is one map lookup
+per call. Under **Manage Plugins → Permissions** every saved grant is listed with a Revoke
+button and a Forget all; a revoked grant is simply asked about again next time, nothing restarts.
+
+`ctx.permissions.has(p)` says whether a category is available; `ctx.permissions.request(p)`
+asks for one listed in `optionalPermissions`.
+
+Installs, updates and uninstalls are confirmed by the bridge **on the desktop** (a notification
+with Confirm/Deny on Linux, a message box on Windows), not in the page.
+
+## How the build works
+
+```
+~/.vrcnext-plugins/                     Windows: %LOCALAPPDATA%\vrcnext-plugins\
+  bin/vrcnext-bridge  bin/esbuild  bin/esbuild.sha256
+  host/packages/{api,host}/src/         host sources, from a release tarball
+  plugins/<id>/                         one git clone per plugin
+  build/static-plugins.ts               generated import table
+  state.json  token  bridge.log
+```
+
+After every install, update or uninstall the bridge verifies `esbuild`'s checksum, writes
+`build/static-plugins.ts` —
+
+```ts
+import p0 from '../plugins/friend-alerts/main.ts';
+import m0 from '../plugins/friend-alerts/plugin.json';
+export const COMPILED_PLUGINS = [{ manifest: m0, plugin: p0 }] as const;
+```
+
+— and runs `esbuild host/packages/host/src/index.ts --bundle --format=iife --target=es2022
+--platform=browser --minify --sourcemap=linked --alias:@vrcnext/plugin-api=… --alias:@vrcnext/static-plugins=…`
+into the theme folder, then pushes `build` over the socket. The page shows **Rebuilt — reload to
+apply** with a Reload button; it never reloads on its own. The repository's own
+[`scripts/build.sh`](scripts/build.sh) runs the identical flag list with the alias pointed at
+[`packages/host/static-plugins.dev.ts`](packages/host/static-plugins.dev.ts), which lists the two
+examples, so `npm run check` bundles a host that runs plugins.
+
+At boot the host connects to the bridge (`ws://127.0.0.1:42081/v1/ws`, endpoint and token from
+`localStorage`), sends `hello`, and on `welcome` reads the host namespace of the state store —
+enabled flags and saved grants — then activates the enabled plugins from `COMPILED_PLUGINS` in
+dependency order. Until it is connected the Plugins tab shows only the Bridge card: not
+detected, running, unpaired (with the token field), or connected.
 
 ## The Plugins menu
 
-Once installed, VRCNext gains a **Plugins** group — a divider plus a puzzle-piece entry — in the
-sidebar, mirrored as a **Plugins** menu in the top bar. Both drive the same three tabs:
+VRCNext gains a **Plugins** group in the sidebar, mirrored in the top menu bar:
 
 | Entry | What it is |
 | :--- | :--- |
-| **Manage Plugins** | Add repositories by URL, install, enable/disable, refresh, remove. |
-| **Logs** | Live plugin + host log with level and plugin filters, copy, clear and download. |
-| **Plugin System** | Status, manual update check, platform support matrix, and about. |
-
-Both surfaces are built from one `NavEntry[]`; only the markup builders differ, since VRCNext's
-sidebar and taskbar use unrelated DOM.
-
-## Install
-
-```bash
-npm install && npm run build
-./scripts/install-into-vrcnext.sh --dry-run
-```
-
-Close VRCNext, then run it for real. The script refuses to run while VRCNext is open, because
-VRCNext rewrites `settings.json` on exit and would undo the change.
-
-```bash
-./scripts/install-into-vrcnext.sh --pin-port=51888
-```
-
-> [!IMPORTANT]
-> **Pin the port.** Installed plugins live in IndexedDB, scoped to the page origin
-> `http://localhost:<LocalHttpPort>`. VRCNext picks a *new random port* whenever its saved one is
-> unavailable, and a new origin silently orphans every installed plugin. `--pin-port` writes
-> `LocalHttpPort` into `settings.json` so the origin stays put. Pick a free port in 49152–65533.
-
-The script backs up `settings.json` first and needs `jq` for that step; without it, enable the
-theme manually under **Settings → Design → Themes**.
-
-## How it works
-
-```
-~/.config/VRCNext/custom-themes/vrcnext-plugin-system/
-└── vrcnext-plugin-host.js      ← IIFE bundle, injected by VRCNext as a classic <script>
-
-        │ boots
-        ▼
-   plugin host  ──── IndexedDB ────  installed plugins, repos, settings
-        │
-        ├── EventRouter      ← window.external.receiveMessage
-        ├── PhotinoBridge    → window.external.sendMessage
-        ├── Registry         ← manifests + bundles from plugin repositories
-        ├── PluginLoader     → evaluates bundles as real ES modules (blob URLs)
-        ├── RouteTable       → wraps fetch for /plugins/<id>/…
-        ├── ContextMenuHub   → appends into VRCNext's rendered menu
-        ├── PluginNav        → "Plugins" group in the sidebar *and* the top menu bar
-        ├── UiHost           → nav tabs, dashboard and settings cards
-        ├── LogSink          → console + ring buffer + IndexedDB + downloadable .log
-        └── Updater          → plugin auto-update; host update detection
-```
+| **Manage Plugins** | Bridge card; install by URL with progress; enable with consent; updates with a commits-behind badge and changelog; uninstall; saved permissions. |
+| **Logs** | Live plugin + host + bridge log with level and scope filters, copy, clear and download. |
+| **Plugin System** | Status, platform support matrix, diagnostics, about. |
 
 ## Repository layout
 
 | Path | Contents |
 | :--- | :--- |
-| `packages/api` | `@vrcnext/plugin-api` — the typed contract plus pure logic. No DOM. |
-| `packages/host` | The runtime injected into VRCNext. |
-| `examples/kitchen-sink` | Reference plugin exercising **every** capability, with custom CSS. |
-| `examples/hello-world` | Minimal plugin. |
-| `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh`. |
+| `packages/api` | `@vrcnext/plugin-api` — the typed contract plus pure logic (manifest parser, permission vocabulary). No DOM. |
+| `packages/host` | The runtime injected into VRCNext. `permissions/` is the prompt machinery, `plugins/` the manager and gated context, `state/` the bridge state client. |
+| `packages/host/static-plugins.dev.ts` | The plugin table for the repo's own build. |
+| `examples/template` | Starting point for a plugin repository. |
+| `examples/hello-world`, `examples/kitchen-sink` | Minimal and exhaustive example plugins. |
+| `install/` | The one-line installers and their README. |
+| `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh` (copies the dev bundle into the theme folder). |
 
 Documentation lives in its own repository:
 [vrcnext-plugins.github.io](https://github.com/vrcnext-plugins/vrcnext-plugins.github.io).
+The bridge is [vrcnext-bridge](https://github.com/vrcnext-plugins/vrcnext-bridge).
 
 ## Development
 
 ```bash
+npm ci
 npm run check      # typecheck → tooling typecheck → lint → tests → version agreement → build
-npm test
-npm run build
 ```
 
 Strict by policy: `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
-`typescript-eslint` `strictTypeChecked`, no `any`, no non-null assertions, no `enum`. There are
-**no lint suppressions** in the codebase.
+`typescript-eslint` `strictTypeChecked`, no `any`, no non-null assertions, no `enum`, no lint
+suppressions. Size limits are machine-enforced: 100 lines per function, 1000 per file, 4
+parameters, depth 3 (ESLint), with a 600-line soft warning from `size-limits.test.ts`.
 
-Size limits are machine-enforced, not eyeballed:
-
-| Limit | Enforced by | Behaviour |
-| :--- | :--- | :--- |
-| 100 lines per function | ESLint `max-lines-per-function` | Fails the gate |
-| 1000 lines per file | ESLint `max-lines` | Fails the gate |
-| 600 lines per file (soft) | `size-limits.test.ts` | Names the file, does not fail |
-| 4 parameters, depth 3 | ESLint `max-params`, `max-depth` | Fails the gate |
-
-`dist/` is minified with source maps — the host bundle is ~42 KB.
-
-## Compatibility and verification status
-
-Developed against **VRCNext 2026.60.5**. The host depends on VRCNext internals with no stability
-guarantee — the Photino bridge shape, CSS class names, `showTab()` indexing, and the
-`vrcnext:theme:unload:<id>` event. Selectors are centralised in
-`packages/host/src/ui/dom.ts` so a VRCNext update fails loudly in one place.
-
-Type check, lint, unit tests and build are green. **DOM injection, IndexedDB persistence and the
-installer have not yet been exercised inside a running VRCNext** — treat runtime UI behaviour as
-unverified until you have run it.
+The permission broker, the state client, the settings store, the compiled-table reader and the
+bridge socket are unit-tested without a DOM. The modals, the manager panel and the boot sequence
+are not, and neither has been exercised inside a running VRCNext against a real bridge yet.
 
 ## Security
 
 Plugins run with the **full authority of the VRCNext page**: the user's VRChat session, webhooks
-and settings. There is no sandbox. Installing a plugin is equivalent to running a binary from
-that repository, and the UI says so at the point of install. See
+and settings. The permission model makes each capability declared and each concrete use
+confirmed; the source policy keeps plugins on the `ctx.*` path. Neither is a sandbox. See
 [Security model](https://vrcnext-plugins.github.io/security).
 
 ## License

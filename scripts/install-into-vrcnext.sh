@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Installs the plugin host into VRCNext as a custom theme.
+# Installs the repository's own dev bundle into VRCNext as a custom theme.
 #
-# The theme folder lives in VRCNext's config directory, not its install directory, so a VRCNext
-# update does not remove it. Nothing in the VRCNext repository or install tree is modified.
+# For development only: it copies dist/vrcnext-plugin-host.js (host + the two example plugins)
+# into the theme folder the VRCNext Bridge would otherwise write. Users run install/install.sh
+# instead. The theme folder lives in VRCNext's config directory, not its install directory, so a
+# VRCNext update does not remove it. Nothing in the VRCNext repository or install tree is modified.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,10 +36,10 @@ Usage: install-into-vrcnext.sh [--dry-run] [--pin-port=PORT]
   --dry-run        Show what would change without writing anything.
   --pin-port=PORT  Pin VRCNext's LocalHttpPort (see below). Requires jq.
 
-Why pin the port: the host stores installed plugins in IndexedDB, which is scoped to the page
-origin — http://localhost:<LocalHttpPort>. VRCNext picks a new random port whenever its saved
-one is taken, and a new port is a new origin, which would orphan every installed plugin.
-Pinning a port VRCNext can reliably bind keeps that storage stable.
+Why pin the port: the bridge endpoint and pairing token live in the page's localStorage, which
+is scoped to the origin http://localhost:<LocalHttpPort>. VRCNext picks a new random port
+whenever its saved one is taken, and a new port is a new origin, so the token would have to be
+pasted again. Pinning a port VRCNext can reliably bind keeps it put.
 USAGE
       exit 0
       ;;
