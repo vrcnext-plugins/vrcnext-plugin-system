@@ -1,5 +1,5 @@
 /**
- * The "Plugin System" tab — host status, the native companion, and what fits nowhere else.
+ * The "Plugin System" tab — host status, the bridge, and what fits nowhere else.
  *
  * Built entirely from {@link widgets}, which are VRCNext's own markup. Nothing here invents a
  * style; the tab should be indistinguishable from a built-in settings section.
@@ -8,7 +8,7 @@
  * to discover the platform gates by watching a plugin silently do nothing.
  */
 
-import type { Logger } from '@vrcnext/plugin-api';
+import type { Logger, NativeStatus } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from '../api-version.js';
 import type { NativeClient } from '../capabilities/native.js';
@@ -31,6 +31,7 @@ import {
   textField,
   toggle,
   value,
+  type StatusTone,
 } from './widgets.js';
 
 const REPO_URL = 'https://github.com/vrcnext-plugins/vrcnext-plugin-system';
@@ -48,9 +49,17 @@ export interface AboutPanelDeps {
   readonly openUrl: (url: string) => void;
 }
 
+/** One vocabulary for the bridge's state, shared by every card that shows it. */
+const BRIDGE_STATE: Readonly<Record<NativeStatus, { tone: StatusTone; label: string }>> = {
+  not_detected: { tone: 'offline', label: 'Not detected' },
+  running_not_connected: { tone: 'warn', label: 'Running, not connected' },
+  connected: { tone: 'online', label: 'Connected' },
+};
+
 export class AboutPanel {
   readonly #deps: AboutPanelDeps;
   #root: HTMLElement | undefined;
+  #unsubscribe: (() => void) | undefined;
 
   constructor(deps: AboutPanelDeps) {
     this.#deps = deps;
@@ -60,7 +69,15 @@ export class AboutPanel {
     const layout = panelLayout();
     container.replaceChildren(layout);
     this.#root = layout;
+    // The socket connects on its own schedule, so the cards follow it rather than the user
+    // having to press Re-check to see the dot turn green.
+    this.#unsubscribe ??= this.#deps.native.onStatus(() => { this.refresh(); });
     this.refresh();
+  }
+
+  dispose(): void {
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
   }
 
   refresh(): void {
@@ -71,9 +88,9 @@ export class AboutPanel {
     //
     // A three-column auto-fit produced orphan cells (five cards do not divide into three) and
     // squeezed four paragraphs of prose into ~300px columns. Here the two compact key/value cards
-    // share row one, the companion owns row two because its target rows and endpoint field use
-    // the width, and the two prose cards share row three at a readable measure.
-    const companion = this.#buildCompanion(() => { this.refresh(); });
+    // share row one, the bridge owns row two because its target rows and endpoint field use the
+    // width, and the two prose cards share row three at a readable measure.
+    const companion = this.#buildBridge();
     companion.classList.add('vrcnx-full');
 
     root.replaceChildren(
@@ -111,72 +128,62 @@ export class AboutPanel {
   }
 
   /**
-   * The native companion.
+   * The bridge.
    *
    * Rendered whether or not it is installed: a user wondering why a plugin's VR notifications do
    * nothing should find the answer here rather than in a log file.
    */
-  #buildCompanion(onProbeChanged?: () => void): HTMLElement {
+  #buildBridge(): HTMLElement {
     const { native } = this.#deps;
     const panel = card('VRCNext Bridge', 'hub');
 
     panel.appendChild(
       description(
-        'vrcnext-bridge is an optional local daemon. It is the only way plugins can reach a VR ' +
-        'overlay or the desktop notification daemon, because the page itself cannot open a UDP ' +
-        'socket or talk to D-Bus. Without it those targets are unavailable — nothing else stops ' +
-        'working.',
+        'The bridge is an optional native companion daemon. It is the only way plugins can reach ' +
+        'a VR overlay or the desktop notification daemon, because the page itself cannot open a ' +
+        'UDP socket or talk to D-Bus. Without it those targets are unavailable — nothing else ' +
+        'stops working. Yellow means it answered a health check but the socket is not open; it ' +
+        'may have been stopped since. The page cannot tell "not installed" from "not started".',
       ),
     );
 
-    const status = element('div');
-    const targets = element('div');
-
-    const paint = (): void => {
-      status.replaceChildren(
-        statusCard({
-          online: native.available,
-          label: native.available ? 'Connected' : 'Not running',
-          action: button({
-            label: 'Re-check',
-            icon: 'refresh',
-            onClick: () => {
-              void native.probe().then(() => {
-                paint();
-                onProbeChanged?.();
-              });
-            },
-          }),
+    const state = BRIDGE_STATE[native.status];
+    panel.appendChild(
+      statusCard({
+        tone: state.tone,
+        label: state.label,
+        action: button({
+          label: 'Re-check',
+          icon: 'refresh',
+          onClick: () => { void native.probe().then(() => { this.refresh(); }); },
         }),
-      );
+      }),
+    );
 
+    const targets = element('div');
+    if (native.status === 'connected') {
       void native.targets().then((found) => {
         targets.replaceChildren();
         if (found.length === 0) {
-          if (native.available) targets.appendChild(description('No targets configured.'));
+          targets.appendChild(description('No targets configured.'));
           return;
         }
         targets.appendChild(sectionLabel('Targets'));
         for (const target of found) {
-          const tone = target.health === 'up' ? 'ok' : target.health === 'down' ? 'err' : 'hidden';
-          targets.appendChild(
-            row(target.name, badge(tone === 'hidden' ? 'neutral' : tone, target.health), target.description),
-          );
+          const tone = target.health === 'up' ? 'ok' : target.health === 'down' ? 'err' : 'neutral';
+          targets.appendChild(row(target.name, badge(tone, target.health), target.description));
         }
       });
-    };
+    }
 
-    panel.append(status, targets, sectionLabel('Endpoint'));
+    panel.append(targets, sectionLabel('Endpoint'));
     panel.appendChild(
       controlRow(
         textField({
           value: native.endpoint,
           placeholder: 'http://127.0.0.1:42081',
           onCommit: (next) => {
-            void native.setEndpoint(next).then(() => {
-              paint();
-              onProbeChanged?.();
-            });
+            void native.setEndpoint(next).then(() => { this.refresh(); });
           },
         }),
         button({
@@ -187,7 +194,6 @@ export class AboutPanel {
       ),
     );
 
-    paint();
     return panel;
   }
 
@@ -256,15 +262,18 @@ export class AboutPanel {
       description(linux ? 'Running on Linux.' : 'Running on Windows.'),
     );
 
-    const notificationsBadge = !linux
-      ? badge('ok', 'Available')
-      : native.available
-        ? badge('ok', 'Bridge')
-        : badge('neutral', 'Bridge');
+    // Anything only the bridge can do is coloured by the bridge's state, so this card answers
+    // "why does my VR notification do nothing" without a trip to the bridge card below.
+    const viaBridge = (): HTMLElement => {
+      const state = BRIDGE_STATE[native.status];
+      const tone = state.tone === 'online' ? 'ok' : state.tone === 'warn' ? 'warn' : 'neutral';
+      return badge(tone, `Bridge: ${state.label.toLowerCase()}`);
+    };
 
     for (const [label, badgeEl] of [
       ['OSC', !linux ? badge('ok', 'Available') : badge('warn', 'Windows only')],
-      ['Desktop & VR notifications', notificationsBadge],
+      ['Desktop notifications', !linux ? badge('ok', 'Available') : viaBridge()],
+      ['VR overlay notifications', viaBridge()],
       ['In-app toasts, modals', badge('ok', 'Available')],
       ['Host events, bridge actions', badge('ok', 'Available')],
       ['Game log', badge('ok', 'Available')],

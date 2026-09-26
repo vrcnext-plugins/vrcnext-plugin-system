@@ -30,7 +30,7 @@ house many plugins, and both plugins and the host auto-update.
 | **Deep links** — observe the `vrcn://` links VRCNext delivers | `ctx.deepLinks` |
 | **Typed persisted settings** with a rendered UI | `ctx.settings` |
 | **Levelled logging** — console + live in-app Logs panel + persisted + downloadable | `ctx.logger` |
-| **VR overlay + desktop notifications** — via an optional native companion, on any platform | `ctx.native` |
+| **VR overlay + desktop notifications** — via the optional VRCNext Bridge, over one WebSocket, on any platform | `ctx.native` |
 | **Automatic teardown** | `ctx.disposables`, `ctx.signal` |
 
 ```ts

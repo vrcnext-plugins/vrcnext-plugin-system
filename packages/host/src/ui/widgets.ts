@@ -52,6 +52,7 @@ const KIT_CSS = `
   grid-auto-flow: row dense;
 }
 .vrcnx-grid > .vrcnx-full { grid-column: 1 / -1; }
+.sf-dot.vrcnx-dot-warn { background: var(--warn); }
 .vrcnx-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; min-width: 0; }
 .vrcnx-stat-value {
   font-size: calc(20px + var(--fs-off, 0px));
@@ -168,16 +169,21 @@ export function card(title?: string, icon?: string, children?: readonly UiChild[
  * The compact status strip VRCNext uses at the top of its tool tabs: a coloured dot and a label on
  * the left, an action on the right.
  */
+/** The three colours a status dot can be. VRCNext's stylesheet only knows the first and last. */
+export type StatusTone = 'online' | 'warn' | 'offline';
+
 export function statusCard(options: {
-  readonly online: boolean;
+  readonly tone: StatusTone;
   readonly label: string;
   readonly action?: HTMLElement;
 }): HTMLElement {
+  ensureKitStyles();
   const root = element('div', 'vrcn-panel-card status');
   const strip = element('div', 'sf-status-row');
 
   const status = element('div', 'sf-status');
-  status.appendChild(element('span', `sf-dot ${options.online ? 'online' : 'offline'}`));
+  const dotClass = options.tone === 'warn' ? 'offline vrcnx-dot-warn' : options.tone;
+  status.appendChild(element('span', `sf-dot ${dotClass}`));
   status.appendChild(element('span', undefined, options.label));
 
   strip.appendChild(status);

@@ -1,17 +1,33 @@
 /**
  * The optional native companion: `vrcnext-bridge`.
  *
- * VRCNext's page can only speak HTTP. Anything needing a UDP socket, a D-Bus connection or a unix
- * socket has to happen in a native process, so a small loopback daemon supplies those. It is
- * **optional** — every method here degrades to a clean "unavailable" when the daemon is not
- * running, and no plugin should treat its absence as an error.
+ * VRCNext's page can only speak HTTP and WebSockets. Anything needing a UDP socket, a D-Bus
+ * connection or a unix socket has to happen in a native process, so a small loopback daemon
+ * supplies those. It is **optional** — every method here degrades to a clean "unavailable" when
+ * the daemon is not running, and no plugin should treat its absence as an error.
  *
  * The daemon is a *service host*, not a notification daemon. `notify` is the service that ships
  * today; {@link NativeApi.call} is the generic escape hatch so a plugin can use a service added
  * after this API was written, without waiting for a plugin-system release.
  *
+ * The host keeps one WebSocket to the daemon open for the life of the page and sends every call
+ * over it, so several can be in flight at once and the daemon's own log lines flow back into the
+ * Logs panel. A plain HTTP probe of `/v1/health` is what tells "running" from "not installed".
+ *
  * @see https://github.com/vrcnext-plugins/vrcnext-bridge
  */
+
+/**
+ * How far the host has got with the companion.
+ *
+ * - `not_detected` — nothing answered the health probe. Not installed, or not started.
+ * - `running_not_connected` — the daemon answered, but the socket is not open (yet, or any more).
+ * - `connected` — the socket is open; calls will go through.
+ *
+ * The page cannot tell an uninstalled daemon from an installed one that is stopped, so there is
+ * deliberately no fourth state claiming to.
+ */
+export type NativeStatus = 'not_detected' | 'running_not_connected' | 'connected';
 
 /** How urgently a native notification should be presented. */
 export type NativeUrgency = 'low' | 'normal' | 'critical';
@@ -124,12 +140,15 @@ export interface NativeDescription {
 
 export interface NativeApi {
   /**
-   * Whether the companion answered its health check at boot.
+   * Whether the companion has been detected: it answered the health probe, or the socket is open.
    *
    * Check this before offering a VR-notification toggle in a settings panel, so the user is not
    * shown a switch that silently does nothing.
    */
   readonly available: boolean;
+
+  /** The finer-grained answer, for a status indicator. */
+  readonly status: NativeStatus;
 
   /**
    * The boot-time probe, as a promise.
@@ -175,12 +194,13 @@ export interface NativeApi {
   notify(options: NativeNotifyOptions): Promise<NativeNotifyResult>;
 
   /**
-   * Call any service method on the companion.
+   * Call any service method on the companion, over the shared socket.
    *
    * The forward-compatible path: a companion that grows a new service is usable from a plugin
    * immediately, without a matching plugin-system release.
    *
-   * @throws If the companion is unreachable or answers with an error.
+   * @throws If the socket is not open within the call's timeout, or the daemon answers with an
+   *   error — the latter as a `NativeRequestError` carrying its `code`.
    */
   call(service: string, method: string, params?: unknown): Promise<unknown>;
 }

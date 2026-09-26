@@ -18,7 +18,6 @@ import { PluginLoader } from './loader/plugin-loader.js';
 import { createLogger } from './log/create-logger.js';
 import { DebugHub } from './log/debug-hub.js';
 import { LogSink } from './log/log-sink.js';
-import { LogStream } from './log/log-stream.js';
 import { PluginManager } from './plugin-manager.js';
 import { Registry } from './registry/registry.js';
 import { IdbStore } from './storage/idb-store.js';
@@ -71,7 +70,6 @@ interface Core {
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
   readonly native: NativeClient;
-  readonly logStream: LogStream;
   readonly debugHub: DebugHub;
   readonly isLinux: () => boolean;
 }
@@ -112,17 +110,16 @@ async function buildCore(): Promise<Core> {
   const contextMenu = new ContextMenuHub();
   contextMenu.install();
 
-  // Probed rather than awaited: the companion is optional, and boot must not wait on a daemon
-  // most users do not run.
+  // Probed rather than awaited: the bridge is optional, and boot must not wait on a daemon most
+  // users do not run. Constructing the client also opens its socket, which reconnects quietly in
+  // the background forever.
   const native = new NativeClient(createLogger(sink, 'native'));
   // Touch `ready` so the probe starts now; plugins await the same promise rather than racing it.
   void native.ready;
 
-  // Mirror everything logged here into the companion's log file, so plugin behaviour can be
+  // Mirror everything logged here into the bridge's log file, so plugin behaviour can be
   // followed with `tail -f` instead of by keeping the Logs panel open and copying text out.
-  // Entirely optional: with no daemon running this quietly retries in the background forever.
-  const logStream = new LogStream(native.endpoint);
-  logStream.start(sink);
+  native.mirrorLogs(sink);
   const debugHub = new DebugHub(sink);
 
   const loader = new PluginLoader({
@@ -150,7 +147,6 @@ async function buildCore(): Promise<Core> {
     routes,
     contextMenu,
     native,
-    logStream,
     debugHub,
     isLinux: () => isLinux,
   };
@@ -173,6 +169,7 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
 
   const logPanel = new LogPanel(core.sink);
   bag.add(() => { logPanel.dispose(); });
+  bag.add(() => { aboutPanel.dispose(); });
 
   const aboutPanel = new AboutPanel({
     manager: core.manager,
@@ -265,7 +262,7 @@ export async function boot(): Promise<HostHandle> {
         shutdown: async (): Promise<void> => {
           shutdownController.abort();
           core.debugHub.dispose();
-          core.logStream.stop();
+          core.native.dispose();
           await core.manager.shutdown();
           core.contextMenu.uninstall();
           core.routes.uninstall();

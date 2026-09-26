@@ -52,6 +52,7 @@ export type {
   NativeNotifyOptions,
   NativeNotifyOverride,
   NativeNotifyResult,
+  NativeStatus,
   NativeTarget,
   NativeUrgency,
 } from './native.js';
@@ -66,6 +67,7 @@ export type {
   UiRowOptions,
   UiStatOptions,
   UiStatusCardOptions,
+  UiStatusTone,
   UiTextFieldOptions,
   UiToggleRowOptions,
 } from './ui-kit.js';

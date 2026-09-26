@@ -56,9 +56,12 @@ export interface UiCardOptions {
   readonly span?: number | 'full';
 }
 
+/** The dot's colour: green, yellow, or grey. */
+export type UiStatusTone = 'online' | 'warn' | 'offline';
+
 export interface UiStatusCardOptions {
   /** Drives the dot's colour. */
-  readonly online: boolean;
+  readonly tone: UiStatusTone;
   readonly label: string;
   /** Usually a {@link UiKit.button}, shown on the right. */
   readonly action?: Node;

@@ -88,7 +88,7 @@ export default definePlugin({
     installRoutes(ctx, state);
     installContextMenu(ctx, state);
     installNotifications(ctx, state);
-    // Fire-and-forget: the companion probe must not hold up the rest of activation.
+    // Fire-and-forget: the bridge probe must not hold up the rest of activation.
     void installNative(ctx, state);
     installUi(ctx, state);
 
@@ -288,9 +288,9 @@ function installNotifications(ctx: Ctx, state: State): void {
 }
 
 /**
- * 10. The optional native companion — VR overlay and desktop notification targets.
+ * 10. The optional VRCNext Bridge — VR overlay and desktop notification targets.
  *
- * Everything here is written for the companion being absent, because for most users it is. Note
+ * Everything here is written for the bridge being absent, because for most users it is. Note
  * the two-step: ask what targets exist, then address them by name. Hard-coding `'wayvr'` would
  * work today and break the moment someone runs a different overlay.
  */
@@ -299,7 +299,7 @@ async function installNative(ctx: Ctx, state: State): Promise<void> {
   // when plugins activate, so reading the snapshot here is a race: on a fast answer it is true, on
   // a slow one false, and the plugin silently loses its VR notifications.
   if (!(await ctx.native.ready)) {
-    state.log(`[native] no companion at ${ctx.native.endpoint}; VR targets unavailable.`);
+    state.log(`[native] no bridge at ${ctx.native.endpoint}; VR targets unavailable.`);
     return;
   }
 
@@ -310,7 +310,7 @@ async function installNative(ctx: Ctx, state: State): Promise<void> {
     const who = entry.detail || entry.message;
 
     // One call, presented differently in each place: a tall translucent panel in VR, an ordinary
-    // toast on the monitor. Omitting `sinks` means "every target the companion has".
+    // toast on the monitor. Omitting `sinks` means "every target the bridge has".
     void ctx.native.notify({
       title: 'Player joined',
       content: who,
@@ -343,7 +343,7 @@ async function installNative(ctx: Ctx, state: State): Promise<void> {
   const description = await ctx.native.describe();
   if (description !== undefined) {
     state.log(
-      `[native] companion ${description.version}, services: ${Object.keys(description.services).join(', ')}`,
+      `[native] bridge ${description.version}, services: ${Object.keys(description.services).join(', ')}`,
     );
   }
 }
@@ -447,10 +447,12 @@ function installNavTab(ctx: Ctx, state: State): void {
                   detail: 'Sent through VRCNext’s own sockets.',
                 }),
                 k.row({
-                  label: 'Native companion',
-                  value: ctx.native.available
+                  label: 'VRCNext Bridge',
+                  value: ctx.native.status === 'connected'
                     ? k.badge('ok', 'Connected')
-                    : k.badge('neutral', 'Not running'),
+                    : ctx.native.status === 'running_not_connected'
+                      ? k.badge('warn', 'Running, not connected')
+                      : k.badge('neutral', 'Not detected'),
                   detail: ctx.native.endpoint,
                 }),
                 k.toggleRow({

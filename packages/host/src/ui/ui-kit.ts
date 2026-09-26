@@ -50,7 +50,7 @@ export class HostUiKit implements UiKit {
 
   statusCard(options: UiStatusCardOptions): HTMLElement {
     return widgets.statusCard({
-      online: options.online,
+      tone: options.tone,
       label: options.label,
       // `statusCard` types its action as HTMLElement; anything else has no place in that strip.
       ...(options.action instanceof HTMLElement ? { action: options.action } : {}),
