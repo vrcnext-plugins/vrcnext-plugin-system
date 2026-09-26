@@ -12,6 +12,9 @@
     },
     {
       "path": "./examples/kitchen-sink"
+    },
+    {
+      "path": "./examples/template"
     }
   ]
 }

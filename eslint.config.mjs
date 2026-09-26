@@ -18,7 +18,7 @@ export default defineConfig([
         projectService: {
           // Root tooling configs belong to no package project; type-check them against
           // tsconfig.tools.json rather than dropping type-aware rules for them.
-          allowDefaultProject: ['vitest.config.ts'],
+          allowDefaultProject: ['vitest.config.ts', 'packages/host/static-plugins.dev.ts'],
           defaultProject: 'tsconfig.tools.json',
         },
         tsconfigRootDir: import.meta.dirname,

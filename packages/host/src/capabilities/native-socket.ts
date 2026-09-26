@@ -3,18 +3,19 @@
  *
  * # Shape
  *
- * Every frame is a JSON envelope with a `type`. The page sends `request` frames, each with a
- * correlation id, and `logs` batches; the daemon answers requests under the same id and pushes
- * its own log lines unprompted. Several requests can be in flight, and they may be answered out
- * of order — a D-Bus round trip does not hold up a quick call.
+ * Every frame is a JSON envelope with a `type`. The first frame the page sends is `hello`,
+ * carrying the pairing token; the bridge answers `welcome` and only then accepts anything else.
+ * After that the page sends `request` frames, each with a correlation id, and `logs` batches;
+ * the bridge answers requests under the same id and pushes events unprompted. Several requests
+ * can be in flight, and they may be answered out of order.
  *
- * # Absence is the normal state
+ * # Two ways to be closed
  *
- * Most users do not run the daemon. So: no console noise, no warnings, and a reconnect loop that
- * backs off to a slow poll rather than giving up, so a daemon started an hour into the session is
- * still picked up. A request made while the socket is down does not fail at once either: it
- * triggers an immediate connection attempt and waits up to its timeout, which is what makes the
- * first call after starting the daemon succeed instead of being the one that tells you to retry.
+ * A socket that closes with code 1008 was *refused*: the token is wrong or the hello came too
+ * late. Reconnecting would burn the bridge's rate limit and never succeed, so this class stops
+ * and reports the reason; the client reconnects only when the user changes the token. Any other
+ * close is a bridge that is not running or went away, which is retried with backoff forever so a
+ * daemon started an hour into the session is still picked up.
  */
 
 /** Reconnect backoff, in milliseconds. Caps so a long-absent daemon is still picked up. */
@@ -22,6 +23,16 @@ const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000] as const;
 
 /** Per-request ceiling. The daemon is local; anything slower than this is hung, not busy. */
 export const REQUEST_TIMEOUT_MS = 4_000;
+
+/**
+ * Ceiling for a call made while the socket is down. Long enough for the reconnect backoff to
+ * fire once and the hello to be answered; the first call after starting the daemon should
+ * succeed instead of being the one that tells you to retry.
+ */
+const OPEN_TIMEOUT_MS = REQUEST_TIMEOUT_MS;
+
+/** WebSocket close code the bridge uses for a refused hello. */
+export const CLOSE_POLICY_VIOLATION = 1008;
 
 /** Longest correlation id the daemon accepts. Ours are short integers; this documents the bound. */
 const MAX_ID_CHARS = 128;
@@ -40,11 +51,14 @@ interface ErrorShape {
  */
 export class NativeRequestError extends Error {
   readonly code: string;
+  /** The bridge's message as sent, without the code prefix; its stable sub-code comes first. */
+  readonly detail: string;
 
   constructor(code: string, message: string) {
     super(`${code}: ${message}`);
     this.name = 'NativeRequestError';
     this.code = code;
+    this.detail = message;
   }
 }
 
@@ -56,6 +70,22 @@ export class NativeTransportError extends Error {
   }
 }
 
+/** What the bridge says about itself once the hello is accepted. */
+export interface Welcome {
+  readonly version: string;
+  /** Service names and their self-description. */
+  readonly services: Readonly<Record<string, unknown>>;
+}
+
+export interface CloseInfo {
+  readonly code: number;
+  readonly reason: string;
+  /** Whether the hello had been accepted before the close. */
+  readonly welcomed: boolean;
+  /** True for code 1008: the bridge refused the pairing, so no retry is scheduled. */
+  readonly refused: boolean;
+}
+
 interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
@@ -63,10 +93,28 @@ interface Pending {
 }
 
 export interface SocketHandlers {
-  /** The socket opened or closed. */
-  readonly onOpenChanged: (open: boolean) => void;
+  /** The TCP connection is up and the hello has been sent. Something is listening. */
+  readonly onOpen: () => void;
+  /** The hello was accepted; the socket is usable. */
+  readonly onWelcome: (welcome: Welcome) => void;
+  /** The socket closed, or the connection attempt failed. */
+  readonly onClose: (info: CloseInfo) => void;
   /** The daemon sent something unprompted. */
   readonly onPush: (event: string, data: unknown) => void;
+}
+
+export interface RequestOptions {
+  /** Ceiling for this one call. Defaults to {@link REQUEST_TIMEOUT_MS}. */
+  readonly timeoutMs?: number;
+}
+
+export interface SocketOptions {
+  /** The daemon's socket, e.g. `ws://127.0.0.1:42081/v1/ws`. */
+  readonly url: string;
+  /** Pairing token, sent in the hello. */
+  readonly token: string;
+  /** Client identification sent in the hello, `vrcnext-plugin-system/<version>`. */
+  readonly client: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,32 +129,41 @@ function errorFrom(value: unknown): NativeRequestError {
   );
 }
 
+function welcomeFrom(frame: Record<string, unknown>): Welcome {
+  const services = frame['services'];
+  return {
+    version: typeof frame['version'] === 'string' ? frame['version'] : 'unknown',
+    services: isRecord(services) ? services : {},
+  };
+}
+
 export class BridgeSocket {
-  readonly #url: string;
+  readonly #options: SocketOptions;
   readonly #handlers: SocketHandlers;
   readonly #pending = new Map<string, Pending>();
   #socket: WebSocket | undefined;
+  #welcomed = false;
   #retry: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
   #nextId = 0;
   #stopped = true;
-  /** Resolves when the socket next opens; replaced on close. */
+  /** Resolves when the hello is next accepted; replaced on close. */
   #opened: Promise<void>;
   #resolveOpened: () => void = () => undefined;
 
-  /** @param url the daemon's socket, e.g. `ws://127.0.0.1:42081/v1/ws`. */
-  constructor(url: string, handlers: SocketHandlers) {
-    this.#url = url;
+  constructor(options: SocketOptions, handlers: SocketHandlers) {
+    this.#options = options;
     this.#handlers = handlers;
     this.#opened = new Promise((resolve) => { this.#resolveOpened = resolve; });
   }
 
+  /** Whether the hello has been accepted on the current socket. */
   get open(): boolean {
-    return this.#socket?.readyState === WebSocket.OPEN;
+    return this.#welcomed && this.#socket?.readyState === WebSocket.OPEN;
   }
 
   get url(): string {
-    return this.#url;
+    return this.#options.url;
   }
 
   start(): void {
@@ -121,6 +178,7 @@ export class BridgeSocket {
     this.#retry = undefined;
     const socket = this.#socket;
     this.#socket = undefined;
+    this.#welcomed = false;
     socket?.close();
     this.#rejectAll(new NativeTransportError('the connection was closed'));
   }
@@ -128,15 +186,24 @@ export class BridgeSocket {
   /**
    * Call `service`/`method` and wait for the matching response.
    *
+   * `timeoutMs` is per call because the bridge confirms installs, updates and uninstalls on the
+   * desktop, and a user may take a while to click; the default suits a local round trip.
+   *
    * @throws {NativeRequestError} when the daemon answers with an error.
-   * @throws {NativeTransportError} when the socket does not open in time, or closes first.
+   * @throws {NativeTransportError} when the socket is not welcomed in time, or closes first.
    */
-  async request(service: string, method: string, params: unknown): Promise<unknown> {
+  async request(
+    service: string,
+    method: string,
+    params: unknown,
+    options?: RequestOptions,
+  ): Promise<unknown> {
+    const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
     if (!this.open) await this.#waitForOpen();
 
     const socket = this.#socket;
-    if (socket?.readyState !== WebSocket.OPEN) {
-      throw new NativeTransportError('the daemon is not connected');
+    if (!this.open || socket === undefined) {
+      throw new NativeTransportError('the bridge is not connected');
     }
 
     this.#nextId += 1;
@@ -147,7 +214,7 @@ export class BridgeSocket {
       const timer = globalThis.setTimeout(() => {
         this.#pending.delete(id);
         reject(new NativeTransportError(`${service}/${method} timed out`));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
       this.#pending.set(id, { resolve, reject, timer });
       try {
         socket.send(frame);
@@ -164,7 +231,7 @@ export class BridgeSocket {
    */
   sendLogs(records: readonly unknown[]): boolean {
     const socket = this.#socket;
-    if (socket?.readyState !== WebSocket.OPEN) return false;
+    if (!this.open || socket === undefined) return false;
     try {
       socket.send(JSON.stringify({ type: 'logs', records }));
       return true;
@@ -173,7 +240,7 @@ export class BridgeSocket {
     }
   }
 
-  /** Wait for the socket to open, connecting now rather than waiting out the backoff. */
+  /** Wait for the hello to be accepted, connecting now rather than waiting out the backoff. */
   async #waitForOpen(): Promise<void> {
     if (this.#stopped) return;
     if (this.#retry !== undefined) {
@@ -183,7 +250,7 @@ export class BridgeSocket {
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
-      timer = globalThis.setTimeout(resolve, REQUEST_TIMEOUT_MS);
+      timer = globalThis.setTimeout(resolve, OPEN_TIMEOUT_MS);
     });
     await Promise.race([this.#opened, timeout]);
     globalThis.clearTimeout(timer);
@@ -194,30 +261,40 @@ export class BridgeSocket {
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.#url);
+      socket = new WebSocket(this.#options.url);
     } catch {
       this.#scheduleRetry();
       return;
     }
     this.#socket = socket;
 
+    // The hello must be the first frame; nothing else is sent until the welcome arrives.
     socket.addEventListener('open', () => {
-      this.#attempt = 0;
-      this.#resolveOpened();
-      this.#handlers.onOpenChanged(true);
+      socket.send(
+        JSON.stringify({ type: 'hello', token: this.#options.token, client: this.#options.client }),
+      );
+      this.#handlers.onOpen();
     });
     socket.addEventListener('message', (event: MessageEvent<unknown>) => {
       this.#onFrame(event.data);
     });
     // `error` is always followed by `close`, so everything is driven from one place.
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event: CloseEvent) => {
       if (this.#socket !== socket) return;
-      this.#socket = undefined;
-      this.#opened = new Promise((resolve) => { this.#resolveOpened = resolve; });
-      this.#rejectAll(new NativeTransportError('the daemon went away'));
-      this.#handlers.onOpenChanged(false);
-      this.#scheduleRetry();
+      this.#onClose(event.code, event.reason);
     });
+  }
+
+  #onClose(code: number, reason: string): void {
+    const welcomed = this.#welcomed;
+    const refused = code === CLOSE_POLICY_VIOLATION;
+    this.#socket = undefined;
+    this.#welcomed = false;
+    this.#opened = new Promise((resolve) => { this.#resolveOpened = resolve; });
+    this.#rejectAll(new NativeTransportError('the bridge went away'));
+    this.#handlers.onClose({ code, reason, welcomed, refused });
+    // A refused pairing will be refused again; only a new token can change that.
+    if (!refused) this.#scheduleRetry();
   }
 
   #onFrame(data: unknown): void {
@@ -230,16 +307,30 @@ export class BridgeSocket {
     }
     if (!isRecord(frame)) return;
 
-    if (frame['type'] === 'response' && typeof frame['id'] === 'string') {
-      const pending = this.#settle(frame['id']);
-      if (pending === undefined) return;
-      if (frame['ok'] === true) pending.resolve(frame['result']);
-      else pending.reject(errorFrom(frame['error']));
-      return;
+    switch (frame['type']) {
+      case 'welcome':
+        this.#welcomed = true;
+        this.#attempt = 0;
+        this.#resolveOpened();
+        this.#handlers.onWelcome(welcomeFrom(frame));
+        return;
+      case 'response':
+        this.#onResponse(frame);
+        return;
+      case 'push':
+        if (typeof frame['event'] === 'string') this.#handlers.onPush(frame['event'], frame['data']);
+        return;
+      default:
+        return;
     }
-    if (frame['type'] === 'push' && typeof frame['event'] === 'string') {
-      this.#handlers.onPush(frame['event'], frame['data']);
-    }
+  }
+
+  #onResponse(frame: Record<string, unknown>): void {
+    if (typeof frame['id'] !== 'string') return;
+    const pending = this.#settle(frame['id']);
+    if (pending === undefined) return;
+    if (frame['ok'] === true) pending.resolve(frame['result']);
+    else pending.reject(errorFrom(frame['error']));
   }
 
   /** Take a pending request out of the table, clearing its timer. */
@@ -262,8 +353,8 @@ export class BridgeSocket {
   /**
    * Retry with backoff.
    *
-   * The daemon being absent is the common case, so this must stay quiet: no console noise, no
-   * warnings. It is a background nicety, not a dependency.
+   * A stopped daemon must stay quiet: no console noise, no warnings. The Bridge card is where the
+   * user learns about it.
    */
   #scheduleRetry(): void {
     if (this.#stopped || this.#retry !== undefined) return;

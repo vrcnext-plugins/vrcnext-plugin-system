@@ -2,7 +2,8 @@
  * Persisted, schema-validated plugin settings.
  *
  * Values are loaded once at activation so `values` can be a synchronous property — a plugin
- * reading a setting inside an event handler should not have to await IndexedDB.
+ * reading a setting inside an event handler should not have to await the bridge. Each key is its
+ * own entry in the plugin's state namespace, so the manager can show or clear them individually.
  */
 
 import {
@@ -13,42 +14,40 @@ import {
   type SettingsValues,
 } from '@vrcnext/plugin-api';
 
-import { STORES, type IdbStore } from '../storage/idb-store.js';
+import { DebouncedWriter } from '../state/debounced-writer.js';
+import type { StateService } from '../state/state-service.js';
 
 type ChangeListener<S extends SettingsSchema> = (values: SettingsValues<S>) => void;
 
 export class PluginSettingsStore<S extends SettingsSchema> implements SettingsStore<S> {
   readonly #schema: S;
-  readonly #storageKey: string;
-  readonly #storage: IdbStore;
+  readonly #writer: DebouncedWriter;
   readonly #listeners = new Set<ChangeListener<S>>();
   #values: SettingsValues<S>;
 
-  private constructor(schema: S, storageKey: string, storage: IdbStore, values: SettingsValues<S>) {
+  private constructor(schema: S, writer: DebouncedWriter, values: SettingsValues<S>) {
     this.#schema = schema;
-    this.#storageKey = storageKey;
-    this.#storage = storage;
+    this.#writer = writer;
     this.#values = values;
   }
 
   /** Loads persisted values, discarding anything that no longer matches the schema. */
   static async load<S extends SettingsSchema>(
     schema: S,
-    storageKey: string,
-    storage: IdbStore,
+    ns: string,
+    service: StateService,
+    onError: (error: unknown) => void,
   ): Promise<PluginSettingsStore<S>> {
-    const persisted = await storage.get<Record<string, unknown>>(STORES.settings, storageKey);
+    const persisted = await service.list(ns);
     const values = PluginSettingsStore.#merge(schema, persisted);
-    return new PluginSettingsStore(schema, storageKey, storage, values);
+    return new PluginSettingsStore(schema, new DebouncedWriter(service, ns, onError), values);
   }
 
   static #merge<S extends SettingsSchema>(
     schema: S,
-    persisted: Record<string, unknown> | undefined,
+    persisted: Readonly<Record<string, unknown>>,
   ): SettingsValues<S> {
     const merged: Record<string, unknown> = { ...defaultsFor(schema) };
-    if (persisted === undefined) return merged as SettingsValues<S>;
-
     for (const [key, spec] of Object.entries(schema)) {
       if (!Object.hasOwn(persisted, key)) continue;
       const coerced = coerceSetting(spec, persisted[key]);
@@ -76,16 +75,24 @@ export class PluginSettingsStore<S extends SettingsSchema> implements SettingsSt
     }
 
     this.#values = { ...this.#values, [key]: coerced };
-    await this.#persist();
+    this.#emit();
+    await this.#writer.set(String(key), coerced);
   }
 
   async reset(): Promise<void> {
     this.#values = defaultsFor(this.#schema);
-    await this.#persist();
+    this.#emit();
+    await Promise.all(
+      Object.entries(this.#values).map(([key, value]) => this.#writer.set(key, value)),
+    );
   }
 
-  async #persist(): Promise<void> {
-    await this.#storage.set(STORES.settings, this.#storageKey, this.#values);
+  /** Push anything still debounced. Called on deactivate so a last change is not lost. */
+  flush(): Promise<void> {
+    return this.#writer.flush();
+  }
+
+  #emit(): void {
     for (const listener of [...this.#listeners]) {
       try {
         listener(this.#values);

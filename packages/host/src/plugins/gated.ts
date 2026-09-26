@@ -1,0 +1,359 @@
+/**
+ * The capability wrappers a plugin actually holds.
+ *
+ * Each one checks the category ceiling on every call and asks the broker about the concrete
+ * target on first use. Async methods await the answer; sync methods (subscriptions, fire-and-
+ * forget sends) run their effect once the answer arrives and return at once, so a plugin's
+ * `activate` does not block on a modal.
+ */
+
+import {
+  type ActionArgs,
+  type ActionName,
+  type Bridge,
+  type ClipboardApi,
+  type DeepLinkApi,
+  type DeepLinkEvent,
+  type DeepLinkPrefix,
+  type DisposableBag,
+  type EventBus,
+  type EventListener,
+  type EventPayload,
+  type GameLogApi,
+  type GameLogEntry,
+  type HostEnvelope,
+  type HttpApi,
+  type NativeApi,
+  type NativeNotifyOptions,
+  type NativeNotifyResult,
+  type NativeTarget,
+  type OscApi,
+  type OscAvatarChangeEvent,
+  type OscParamEvent,
+  type Permission,
+  PermissionError,
+  type RequestOptions,
+} from '@vrcnext/plugin-api';
+
+import type { BridgeClient } from '../capabilities/native.js';
+import type { EventRouter } from '../events/event-router.js';
+import type { PluginGate } from '../permissions/plugin-gate.js';
+import {
+  actionPrompt,
+  bridgePrompt,
+  clipboardPrompt,
+  eventPrompt,
+  gamelogPrompt,
+  interceptPrompt,
+  networkPrompt,
+  oscPrompt,
+} from '../permissions/prompts.js';
+import { ANY_TARGET, type PromptRequest } from '../permissions/types.js';
+
+/**
+ * Subscribe once allowed. The returned unsubscribe works whether the answer is in or not: an
+ * unsubscribe before the allow simply cancels the pending subscription.
+ */
+function lazySubscribe(
+  gate: PluginGate,
+  request: PromptRequest,
+  bag: DisposableBag,
+  subscribe: () => () => void,
+): () => void {
+  let unsubscribe: (() => void) | undefined;
+  let cancelled = false;
+  gate.whenAllowed(request, () => {
+    if (cancelled) return;
+    unsubscribe = subscribe();
+    bag.add(unsubscribe);
+  });
+  return (): void => {
+    cancelled = true;
+    unsubscribe?.();
+  };
+}
+
+/**
+ * Wrap an object so every method call first checks the category ceiling. Non-function members
+ * (`available`, `base`, `desktopAvailable`) stay readable, so a plugin can branch on them.
+ */
+export function categoryGuarded<T extends object>(gate: PluginGate, permission: Permission, inner: T): T {
+  return new Proxy(inner, {
+    get(target, property, receiver): unknown {
+      const member: unknown = Reflect.get(target, property, receiver);
+      if (typeof member !== 'function') return member;
+      return (...args: unknown[]): unknown => {
+        gate.requireCategory(permission);
+        return Reflect.apply(member, target, args);
+      };
+    },
+  });
+}
+
+export class GatedEventBus implements EventBus {
+  readonly #router: EventRouter;
+  readonly #bag: DisposableBag;
+  readonly #gate: PluginGate;
+
+  constructor(router: EventRouter, bag: DisposableBag, gate: PluginGate) {
+    this.#router = router;
+    this.#bag = bag;
+    this.#gate = gate;
+  }
+
+  on<T extends string>(type: T, listener: EventListener<T>): () => void {
+    return lazySubscribe(this.#gate, eventPrompt(this.#gate.subject, type), this.#bag, () =>
+      this.#router.on(type, (payload) => { listener(payload as EventPayload<T>); }),
+    );
+  }
+
+  once<T extends string>(type: T, listener: EventListener<T>): () => void {
+    const unsubscribe = this.on(type, (payload) => {
+      unsubscribe();
+      listener(payload);
+    });
+    return unsubscribe;
+  }
+
+  onAny(listener: (envelope: HostEnvelope) => void): () => void {
+    return lazySubscribe(this.#gate, eventPrompt(this.#gate.subject, ANY_TARGET), this.#bag, () =>
+      this.#router.onAny(listener),
+    );
+  }
+
+  async next<T extends string>(type: T, signal?: AbortSignal): Promise<EventPayload<T>> {
+    await this.#gate.check(eventPrompt(this.#gate.subject, type));
+    return this.#router.next(type, signal);
+  }
+}
+
+export class GatedBridge implements Bridge {
+  readonly #inner: Bridge;
+  readonly #gate: PluginGate;
+  readonly #bag: DisposableBag;
+
+  constructor(inner: Bridge, gate: PluginGate, bag: DisposableBag) {
+    this.#inner = inner;
+    this.#gate = gate;
+    this.#bag = bag;
+  }
+
+  send(action: ActionName, args: ActionArgs = {}): void {
+    this.#gate.whenAllowed(actionPrompt(this.#gate.subject, action, args), () => {
+      this.#inner.send(action, args);
+    });
+  }
+
+  async request<T extends string>(
+    action: ActionName,
+    args: ActionArgs,
+    options: RequestOptions & { readonly expect: T },
+  ): Promise<EventPayload<T>> {
+    await this.#gate.check(actionPrompt(this.#gate.subject, action, args));
+    return this.#inner.request(action, args, options);
+  }
+
+  interceptOutbound(interceptor: (action: ActionName, raw: string) => boolean | undefined): () => void {
+    return lazySubscribe(this.#gate, interceptPrompt(this.#gate.subject), this.#bag, () =>
+      this.#inner.interceptOutbound(interceptor),
+    );
+  }
+}
+
+/** Deep links are the `openDeepLink` event under another name, and are gated as that event. */
+export class GatedDeepLinks implements DeepLinkApi {
+  readonly #inner: DeepLinkApi;
+  readonly #gate: PluginGate;
+  readonly #bag: DisposableBag;
+
+  constructor(inner: DeepLinkApi, gate: PluginGate, bag: DisposableBag) {
+    this.#inner = inner;
+    this.#gate = gate;
+    this.#bag = bag;
+  }
+
+  on(listener: (event: DeepLinkEvent) => boolean | undefined): () => void {
+    return lazySubscribe(
+      this.#gate,
+      eventPrompt(this.#gate.subject, 'openDeepLink'),
+      this.#bag,
+      () => this.#inner.on(listener),
+    );
+  }
+
+  onPrefix(prefix: DeepLinkPrefix, listener: (event: DeepLinkEvent) => boolean | undefined): () => void {
+    return this.on((event) => (event.prefix === prefix ? listener(event) : undefined));
+  }
+}
+
+export class GatedHttp implements HttpApi {
+  readonly #gate: PluginGate;
+  readonly #signal: AbortSignal;
+
+  constructor(gate: PluginGate, signal: AbortSignal) {
+    this.#gate = gate;
+    this.#signal = signal;
+  }
+
+  async fetch(url: string | URL, init?: RequestInit): Promise<Response> {
+    let parsed: URL;
+    try {
+      parsed = url instanceof URL ? url : new URL(url);
+    } catch {
+      throw new PermissionError('network', `"${String(url)}" is not an absolute URL`);
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new PermissionError('network', `${parsed.protocol} is not http(s)`, parsed.host);
+    }
+    await this.#gate.check(networkPrompt(this.#gate.subject, parsed, init));
+    // The plugin's lifetime signal is always attached; a caller's own signal is honoured too.
+    const signal =
+      init?.signal instanceof AbortSignal ? AbortSignal.any([this.#signal, init.signal]) : this.#signal;
+    return globalThis.fetch(parsed, { ...init, signal });
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+export class GatedNative implements NativeApi {
+  readonly #client: BridgeClient;
+  readonly #gate: PluginGate;
+
+  constructor(client: BridgeClient, gate: PluginGate) {
+    this.#client = client;
+    this.#gate = gate;
+  }
+
+  async targets(): Promise<readonly NativeTarget[]> {
+    const body = await this.call('notify', 'targets', {});
+    const targets = isRecord(body) ? body['targets'] : undefined;
+    return Array.isArray(targets) ? (targets as NativeTarget[]) : [];
+  }
+
+  /** Bridge and transport failures become `ok: false`; a permission refusal still rejects. */
+  async notify(options: NativeNotifyOptions): Promise<NativeNotifyResult> {
+    try {
+      return (await this.call('notify', 'send', options)) as NativeNotifyResult;
+    } catch (error) {
+      if (error instanceof PermissionError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, delivered: [], failed: [{ sink: 'bridge', error: message }] };
+    }
+  }
+
+  async call(service: string, method: string, params: unknown = {}): Promise<unknown> {
+    await this.#gate.check(bridgePrompt(this.#gate.subject, service, method, params));
+    return this.#client.call(service, method, params);
+  }
+}
+
+export class GatedClipboard implements ClipboardApi {
+  readonly #gate: PluginGate;
+
+  constructor(gate: PluginGate) {
+    this.#gate = gate;
+  }
+
+  async writeText(text: string): Promise<void> {
+    await this.#gate.check(clipboardPrompt(this.#gate.subject, 'write'));
+    await globalThis.navigator.clipboard.writeText(text);
+  }
+
+  async readText(): Promise<string> {
+    await this.#gate.check(clipboardPrompt(this.#gate.subject, 'read'));
+    return globalThis.navigator.clipboard.readText();
+  }
+}
+
+/** Asked once per plugin; every method waits for that one answer. */
+export class GatedOsc implements OscApi {
+  readonly #inner: OscApi;
+  readonly #gate: PluginGate;
+  readonly #bag: DisposableBag;
+
+  constructor(inner: OscApi, gate: PluginGate, bag: DisposableBag) {
+    this.#inner = inner;
+    this.#gate = gate;
+    this.#bag = bag;
+  }
+
+  get available(): boolean {
+    return this.#inner.available;
+  }
+
+  #when(effect: () => void): void {
+    this.#gate.whenAllowed(oscPrompt(this.#gate.subject), effect);
+  }
+
+  connect(): void {
+    this.#when(() => { this.#inner.connect(); });
+  }
+
+  disconnect(): void {
+    this.#when(() => { this.#inner.disconnect(); });
+  }
+
+  send(name: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
+    this.#when(() => { this.#sendAs(false, name, kind, value); });
+  }
+
+  sendRaw(address: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
+    this.#when(() => { this.#sendAs(true, address, kind, value); });
+  }
+
+  /** The overloads only exist for callers; forwarding needs one concrete shape. */
+  #sendAs(raw: boolean, name: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
+    const target = this.#inner;
+    if (kind === 'bool') {
+      if (raw) target.sendRaw(name, 'bool', value === true);
+      else target.send(name, 'bool', value === true);
+      return;
+    }
+    const number = typeof value === 'number' ? value : value ? 1 : 0;
+    if (raw) target.sendRaw(name, kind, number);
+    else target.send(name, kind, number);
+  }
+
+  onParam(listener: (event: OscParamEvent) => void): () => void {
+    return lazySubscribe(this.#gate, oscPrompt(this.#gate.subject), this.#bag, () =>
+      this.#inner.onParam(listener),
+    );
+  }
+
+  onAvatarChange(listener: (event: OscAvatarChangeEvent) => void): () => void {
+    return lazySubscribe(this.#gate, oscPrompt(this.#gate.subject), this.#bag, () =>
+      this.#inner.onAvatarChange(listener),
+    );
+  }
+}
+
+export class GatedGameLog implements GameLogApi {
+  readonly #inner: GameLogApi;
+  readonly #gate: PluginGate;
+  readonly #bag: DisposableBag;
+
+  constructor(inner: GameLogApi, gate: PluginGate, bag: DisposableBag) {
+    this.#inner = inner;
+    this.#gate = gate;
+    this.#bag = bag;
+  }
+
+  on(listener: (entry: GameLogEntry) => void): () => void {
+    return lazySubscribe(this.#gate, gamelogPrompt(this.#gate.subject), this.#bag, () =>
+      this.#inner.on(listener),
+    );
+  }
+
+  onType(type: string, listener: (entry: GameLogEntry) => void): () => void {
+    return this.on((entry) => {
+      if (entry.type === type) listener(entry);
+    });
+  }
+
+  async history(signal?: AbortSignal): Promise<readonly GameLogEntry[]> {
+    await this.#gate.check(gamelogPrompt(this.#gate.subject));
+    return this.#inner.history(signal);
+  }
+}

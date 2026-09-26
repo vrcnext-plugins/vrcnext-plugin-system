@@ -8,7 +8,7 @@
  * > doing without reading the browser console" is served three other ways instead:
  * >
  * > 1. A live **Logs panel** in the Plugins tab.
- * > 2. **Persistence to IndexedDB**, so logs survive a VRCNext restart.
+ * > 2. **Mirroring to the VRCNext Bridge**, which appends every record to its `plugins.log`.
  * > 3. **Download as a `.log` file**, which is a real file on disk.
  *
  * Records are kept in a ring buffer so a chatty plugin cannot exhaust page memory.
@@ -16,11 +16,7 @@
 
 import type { LogLevel } from '@vrcnext/plugin-api';
 
-import { STORES, type IdbStore } from '../storage/idb-store.js';
-
 const RING_CAPACITY = 2000;
-const PERSIST_DEBOUNCE_MS = 2000;
-const PERSIST_KEY = 'host-log';
 
 export interface LogRecord {
   readonly at: number;
@@ -67,8 +63,6 @@ export function formatRecord(record: LogRecord): string {
 export class LogSink {
   #records: LogRecord[] = [];
   #minLevel: LogLevel = 'debug';
-  #storage: IdbStore | undefined;
-  #persistTimer: ReturnType<typeof setTimeout> | undefined;
   readonly #subscribers = new Set<(record: LogRecord) => void>();
 
   get minLevel(): LogLevel {
@@ -81,15 +75,6 @@ export class LogSink {
 
   get records(): readonly LogRecord[] {
     return this.#records;
-  }
-
-  /** Attaches persistence and restores the previous session's tail. */
-  async attachStorage(storage: IdbStore): Promise<void> {
-    this.#storage = storage;
-    const persisted = await storage.get<LogRecord[]>(STORES.settings, PERSIST_KEY);
-    if (Array.isArray(persisted) && this.#records.length === 0) {
-      this.#records = persisted.slice(-RING_CAPACITY);
-    }
   }
 
   write(level: LogLevel, scope: string, message: string, detail: readonly unknown[]): void {
@@ -114,7 +99,6 @@ export class LogSink {
         // A broken log viewer must never break logging itself.
       }
     }
-    this.#schedulePersist();
   }
 
   #emitToConsole(record: LogRecord, detail: readonly unknown[]): void {
@@ -133,16 +117,6 @@ export class LogSink {
         globalThis.console.error(line, ...detail);
         return;
     }
-  }
-
-  #schedulePersist(): void {
-    if (this.#storage === undefined || this.#persistTimer !== undefined) return;
-    this.#persistTimer = setTimeout(() => {
-      this.#persistTimer = undefined;
-      void this.#storage?.set(STORES.settings, PERSIST_KEY, this.#records).catch(() => {
-        // Losing a persisted tail is not worth surfacing to the user.
-      });
-    }, PERSIST_DEBOUNCE_MS);
   }
 
   subscribe(listener: (record: LogRecord) => void): () => void {
@@ -167,12 +141,9 @@ export class LogSink {
 
   clear(): void {
     this.#records = [];
-    void this.#storage?.set(STORES.settings, PERSIST_KEY, []).catch(() => undefined);
   }
 
   dispose(): void {
-    if (this.#persistTimer !== undefined) clearTimeout(this.#persistTimer);
-    this.#persistTimer = undefined;
     this.#subscribers.clear();
   }
 }

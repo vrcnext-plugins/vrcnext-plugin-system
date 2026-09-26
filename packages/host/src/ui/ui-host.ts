@@ -19,7 +19,6 @@ import type {
   UiApi,
 } from '@vrcnext/plugin-api';
 
-import type { InstalledPlugin } from '../registry/registry.js';
 import {
   CLASSES,
   element,
@@ -50,12 +49,12 @@ export class UiHost {
   }
 
   forPlugin(
-    record: InstalledPlugin,
+    pluginId: string,
     bag: DisposableBag,
     settings?: SettingsStore<SettingsSchema>,
     schema?: SettingsSchema,
   ): PluginUi {
-    return new PluginUiImpl(record.manifest.id, this.#toast, bag, { settings, schema });
+    return new PluginUiImpl(pluginId, this.#toast, bag, { settings, schema });
   }
 
   /** UI owned by the host itself, such as the plugin manager tab. */

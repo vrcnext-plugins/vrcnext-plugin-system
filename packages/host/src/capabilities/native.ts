@@ -1,46 +1,59 @@
 /**
- * Client for the optional `vrcnext-bridge` daemon.
+ * Client for the VRCNext Bridge daemon.
  *
- * The daemon is the only way a plugin reaches a UDP socket, D-Bus or a unix socket, because the
- * page itself cannot. Everything here is written for the case where it is **not installed**: that
- * is the normal state for most users, and it must produce a clean "unavailable", never a rejected
- * promise a plugin forgot to catch.
+ * The bridge is mandatory: it owns the plugin clones, the state store and the build. The host
+ * therefore does nothing plugin-related until this client reports `connected`, and the Plugins
+ * tab shows the four states below so the user can see which step is missing.
  *
  * # Two channels
  *
- * - A plain HTTP `GET /v1/health` is the probe. It answers one question — is anything listening —
- *   and is what separates {@link NativeStatus} `not_detected` from the other two states.
+ * - A plain HTTP `GET /v1/health` is the probe. It needs no token and answers one question — is
+ *   anything listening — which separates `not_detected` from the other three states.
  * - One WebSocket, kept open for the life of the page, carries everything else: every service
  *   call, correlated by id so several can be in flight; the host's log records, mirrored to the
- *   daemon's log file so `tail -f` can follow plugin behaviour; and the daemon's own log lines,
- *   pushed back and shown in the Logs panel under the `bridge` scope.
+ *   daemon's log file; and the daemon's pushes (its own log lines, build results, progress).
  *
  * The probe deliberately sends `Content-Type: application/json`, which makes it non-simple and
  * forces a CORS preflight. That is half of the daemon's defence against arbitrary web pages
  * reaching it; the socket has no preflight, so the daemon checks its `Origin` header instead.
+ *
+ * # Pairing
+ *
+ * The socket's first frame is a `hello` carrying the pairing token from `localStorage`. A
+ * refused hello closes the socket with code 1008 and the client stops retrying — only a new
+ * token, or an explicit re-check, opens it again — because every failed hello costs one of the
+ * bridge's rate-limit tokens.
  */
 
-import type {
-  LogLevel,
-  Logger,
-  NativeApi,
-  NativeDescription,
-  NativeNotifyOptions,
-  NativeNotifyResult,
-  NativeStatus,
-  NativeTarget,
-} from '@vrcnext/plugin-api';
+import type { LogLevel, Logger } from '@vrcnext/plugin-api';
 
 import type { LogRecord, LogSink } from '../log/log-sink.js';
-import { BridgeSocket, NativeRequestError, REQUEST_TIMEOUT_MS } from './native-socket.js';
+import {
+  BridgeSocket,
+  REQUEST_TIMEOUT_MS,
+  type RequestOptions,
+  type Welcome,
+} from './native-socket.js';
 
 export { NativeRequestError, NativeTransportError } from './native-socket.js';
+export type { RequestOptions, Welcome } from './native-socket.js';
 
 /** Where the daemon listens unless the user moved it. */
 export const DEFAULT_NATIVE_ENDPOINT = 'http://127.0.0.1:42081';
 
 /** Where a user-chosen endpoint is remembered. */
-const ENDPOINT_KEY = 'vrcnext-plugins.native-endpoint';
+export const ENDPOINT_KEY = 'vrcnext-plugins.native-endpoint';
+
+/** Where the pairing token is remembered. */
+export const TOKEN_KEY = 'vrcnext-plugins.token';
+
+/**
+ * The bridge as the page sees it.
+ *
+ * `unpaired` means the daemon answered the probe but refused the hello: the token is missing or
+ * wrong. `running_not_connected` is the transient state while the socket is being (re)opened.
+ */
+export type BridgeStatus = 'not_detected' | 'running_not_connected' | 'unpaired' | 'connected';
 
 /** How long to gather log records before sending a frame. */
 const LOG_FLUSH_MS = 250;
@@ -54,21 +67,33 @@ const LOG_MAX_BATCH = 200;
 /** Scope the daemon's own lines are shown under, and the one never mirrored back to it. */
 const BRIDGE_SCOPE = 'bridge';
 
-/**
- * The stored endpoint, or the default.
- *
- * `localStorage` rather than the host's IndexedDB because this is needed synchronously, during
- * construction, before the async storage layer is ready.
- */
-export function storedEndpoint(): string {
+function readStored(key: string): string | undefined {
   try {
-    return globalThis.localStorage.getItem(ENDPOINT_KEY) ?? DEFAULT_NATIVE_ENDPOINT;
+    return globalThis.localStorage.getItem(key) ?? undefined;
   } catch {
-    return DEFAULT_NATIVE_ENDPOINT;
+    return undefined;
   }
 }
 
-const UNAVAILABLE: NativeNotifyResult = { ok: false, delivered: [], failed: [] };
+function writeStored(key: string, value: string | undefined): boolean {
+  try {
+    if (value === undefined) globalThis.localStorage.removeItem(key);
+    else globalThis.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The stored endpoint, or the default. */
+export function storedEndpoint(): string {
+  return readStored(ENDPOINT_KEY) ?? DEFAULT_NATIVE_ENDPOINT;
+}
+
+/** The stored pairing token, or empty. */
+export function storedToken(): string {
+  return readStored(TOKEN_KEY) ?? '';
+}
 
 interface WireRecord {
   readonly level: LogLevel;
@@ -89,23 +114,38 @@ function isWireRecord(value: unknown): value is WireRecord {
   return isRecord(value) && isLogLevel(value['level']) && typeof value['message'] === 'string';
 }
 
-export class NativeClient implements NativeApi {
+export interface BridgeClientOptions {
+  readonly endpoint?: string;
+  readonly token?: string;
+  /** Client identification for the hello, `vrcnext-plugin-system/<version>`. */
+  readonly client: string;
+}
+
+export type PushListener = (event: string, data: unknown) => void;
+
+export class BridgeClient {
   #endpoint: string;
+  #token: string;
+  readonly #client: string;
   readonly #logger: Logger;
-  #socket: BridgeSocket;
+  #socket: BridgeSocket | undefined;
+  #welcome: Welcome | undefined;
   #probed = false;
-  #ready: Promise<boolean> | undefined;
-  readonly #listeners = new Set<(status: NativeStatus) => void>();
+  #refused = false;
+  readonly #statusListeners = new Set<(status: BridgeStatus) => void>();
+  readonly #pushListeners = new Set<PushListener>();
 
   readonly #logQueue: WireRecord[] = [];
   #logTimer: ReturnType<typeof setTimeout> | undefined;
   #unsubscribeSink: (() => void) | undefined;
   #sink: LogSink | undefined;
 
-  constructor(logger: Logger, endpoint: string = storedEndpoint()) {
+  constructor(logger: Logger, options: BridgeClientOptions) {
     this.#logger = logger;
-    this.#endpoint = NativeClient.#normalise(endpoint);
-    this.#socket = this.#openSocket();
+    this.#client = options.client;
+    this.#endpoint = BridgeClient.#normalise(options.endpoint ?? storedEndpoint());
+    this.#token = (options.token ?? storedToken()).trim();
+    this.#openSocket();
   }
 
   static #normalise(endpoint: string): string {
@@ -117,79 +157,84 @@ export class NativeClient implements NativeApi {
     return `${endpoint.replace(/^http/, 'ws')}/v1/ws`;
   }
 
-  #openSocket(): BridgeSocket {
-    const socket = new BridgeSocket(NativeClient.socketUrl(this.#endpoint), {
-      onOpenChanged: (open) => {
-        if (open) {
+  /**
+   * Opens the socket, unless there is no token: a hello without one is refused and costs a
+   * rate-limit token, and the Bridge card already tells the user what to paste.
+   */
+  #openSocket(): void {
+    this.#socket?.stop();
+    this.#socket = undefined;
+    this.#refused = false;
+    if (this.#token === '') return;
+
+    const socket = new BridgeSocket(
+      { url: BridgeClient.socketUrl(this.#endpoint), token: this.#token, client: this.#client },
+      {
+        // A socket that opened proves a daemon is there, whatever it says next.
+        onOpen: () => {
           this.#probed = true;
-          this.#logger.info(`Bridge connected at ${this.#endpoint}.`);
+          this.#notify();
+        },
+        onWelcome: (welcome) => {
+          this.#welcome = welcome;
+          this.#probed = true;
+          this.#logger.info(`Bridge ${welcome.version} connected at ${this.#endpoint}.`);
           this.#flushLogs();
-        }
-        this.#notify();
+          this.#notify();
+        },
+        onClose: (info) => {
+          this.#refused = info.refused;
+          if (info.refused) {
+            this.#probed = true;
+            this.#logger.warn(`The bridge refused the pairing (${info.reason || 'no reason'}).`);
+          } else if (info.welcomed) {
+            this.#logger.info('The bridge went away; reconnecting in the background.');
+            // Re-probe so a stopped daemon reads as "not detected" rather than "running".
+            void this.probe();
+          }
+          this.#notify();
+        },
+        onPush: (event, data) => { this.#onPush(event, data); },
       },
-      onPush: (event, data) => { this.#onPush(event, data); },
-    });
+    );
+    this.#socket = socket;
     socket.start();
-    return socket;
   }
 
-  /**
-   * Point at a different daemon, persist the choice, and reconnect.
-   *
-   * The bridge's `--listen` is configurable, so this has to be too — otherwise a user who moves
-   * the daemon has no way to tell the host, short of editing the bundle.
-   *
-   * @returns whether the new endpoint answered the health probe.
-   */
-  async setEndpoint(endpoint: string): Promise<boolean> {
-    const next = NativeClient.#normalise(endpoint) || DEFAULT_NATIVE_ENDPOINT;
-    this.#endpoint = next;
-    this.#ready = undefined;
-    try {
-      if (next === DEFAULT_NATIVE_ENDPOINT) globalThis.localStorage.removeItem(ENDPOINT_KEY);
-      else globalThis.localStorage.setItem(ENDPOINT_KEY, next);
-    } catch {
-      this.#logger.warn('Could not persist the bridge endpoint; it will reset on reload.');
-    }
-    this.#socket.stop();
-    this.#socket = this.#openSocket();
-    return this.probe();
-  }
-
-  get available(): boolean {
-    return this.#probed || this.#socket.open;
-  }
-
-  get status(): NativeStatus {
-    if (this.#socket.open) return 'connected';
+  get status(): BridgeStatus {
+    if (this.#socket?.open === true) return 'connected';
+    if (this.#refused || (this.#probed && this.#token === '')) return 'unpaired';
     return this.#probed ? 'running_not_connected' : 'not_detected';
-  }
-
-  /**
-   * The boot-time probe, as a promise.
-   *
-   * {@link available} is a synchronous snapshot, and at the moment a plugin activates the probe
-   * may still be in flight — so branching on it directly is a race that resolves differently
-   * depending on how fast the daemon answers. Await this instead. Repeated reads share one probe.
-   */
-  get ready(): Promise<boolean> {
-    this.#ready ??= this.probe();
-    return this.#ready;
   }
 
   get endpoint(): string {
     return this.#endpoint;
   }
 
+  get token(): string {
+    return this.#token;
+  }
+
+  /** What the bridge said about itself in its welcome, or `undefined` before the first one. */
+  describe(): Welcome | undefined {
+    return this.#welcome;
+  }
+
   /** Be told whenever {@link status} changes. Returns the unsubscribe. */
-  onStatus(listener: (status: NativeStatus) => void): () => void {
-    this.#listeners.add(listener);
-    return (): void => { this.#listeners.delete(listener); };
+  onStatus(listener: (status: BridgeStatus) => void): () => void {
+    this.#statusListeners.add(listener);
+    return (): void => { this.#statusListeners.delete(listener); };
+  }
+
+  /** Be told about every push the bridge sends, except `log` and `error` which are handled here. */
+  onPush(listener: PushListener): () => void {
+    this.#pushListeners.add(listener);
+    return (): void => { this.#pushListeners.delete(listener); };
   }
 
   #notify(): void {
     const status = this.status;
-    for (const listener of [...this.#listeners]) {
+    for (const listener of [...this.#statusListeners]) {
       try {
         listener(status);
       } catch {
@@ -198,62 +243,72 @@ export class NativeClient implements NativeApi {
     }
   }
 
+  /**
+   * Point at a different daemon, persist the choice, and reconnect.
+   *
+   * The bridge's `--listen` is configurable, so this has to be too.
+   */
+  setEndpoint(endpoint: string): void {
+    const next = BridgeClient.#normalise(endpoint) || DEFAULT_NATIVE_ENDPOINT;
+    this.#endpoint = next;
+    this.#probed = false;
+    if (!writeStored(ENDPOINT_KEY, next === DEFAULT_NATIVE_ENDPOINT ? undefined : next)) {
+      this.#logger.warn('Could not persist the bridge endpoint; it will reset on reload.');
+    }
+    this.#openSocket();
+    void this.probe();
+  }
+
+  /** Store a new pairing token and try it at once. */
+  setToken(token: string): void {
+    this.#token = token.trim();
+    if (!writeStored(TOKEN_KEY, this.#token === '' ? undefined : this.#token)) {
+      this.#logger.warn('Could not persist the pairing token; it will be asked for again on reload.');
+    }
+    this.#openSocket();
+    this.#notify();
+  }
+
+  /** Probe again and, if the socket was refused or never opened, try the hello again. */
+  recheck(): Promise<boolean> {
+    if (this.#socket?.open !== true) this.#openSocket();
+    return this.probe();
+  }
+
   async probe(): Promise<boolean> {
     try {
       const health = await this.#get('/v1/health');
       this.#probed = (health as { ok?: unknown }).ok === true;
     } catch {
-      // Not running is the common case and not worth a warning on every boot.
+      // Not running is a normal state and not worth a warning on every boot.
       this.#probed = false;
     }
-    this.#logger.info(
-      this.#probed
-        ? `Bridge detected at ${this.#endpoint}.`
-        : `No bridge at ${this.#endpoint}; VR and desktop notification targets are unavailable.`,
+    this.#logger.debug(
+      this.#probed ? `Bridge detected at ${this.#endpoint}.` : `No bridge at ${this.#endpoint}.`,
     );
     this.#notify();
     return this.#probed;
   }
 
-  async describe(): Promise<NativeDescription | undefined> {
-    try {
-      return (await this.#get('/v1/describe')) as NativeDescription;
-    } catch (error) {
-      this.#logger.debug(`describe() failed: ${String(error)}`);
-      return undefined;
+  /**
+   * Call any service method over the shared socket.
+   *
+   * @throws {NativeRequestError} when the bridge answers with an error.
+   * @throws {NativeTransportError} when the socket is down or the call times out.
+   */
+  call(service: string, method: string, params: unknown = {}, options?: RequestOptions): Promise<unknown> {
+    const socket = this.#socket;
+    if (socket === undefined) {
+      return Promise.reject(new Error('The bridge is not paired.'));
     }
-  }
-
-  async targets(): Promise<readonly NativeTarget[]> {
-    try {
-      const body = await this.call('notify', 'targets');
-      const targets = (body as { targets?: unknown }).targets;
-      return Array.isArray(targets) ? (targets as NativeTarget[]) : [];
-    } catch (error) {
-      this.#logger.debug(`targets() failed: ${String(error)}`);
-      return [];
-    }
-  }
-
-  async notify(options: NativeNotifyOptions): Promise<NativeNotifyResult> {
-    try {
-      return (await this.call('notify', 'send', options)) as NativeNotifyResult;
-    } catch (error) {
-      this.#logger.warn(`Native notification failed: ${String(error)}`);
-      return UNAVAILABLE;
-    }
-  }
-
-  call(service: string, method: string, params: unknown = {}): Promise<unknown> {
-    return this.#socket.request(service, method, params);
+    return socket.request(service, method, params, options);
   }
 
   /**
    * Mirror a sink's records to the daemon's log file, for as long as this client lives.
    *
-   * Seeds from the sink's existing records first. The host logs several lines while booting —
-   * the API version, the detected platform — and those are exactly the ones worth having when
-   * diagnosing a broken start, so mirroring only *future* records would lose the best part.
+   * Seeds from the sink's existing records first: the host logs several lines while booting and
+   * those are exactly the ones worth having when diagnosing a broken start.
    */
   mirrorLogs(sink: LogSink): void {
     this.#unsubscribeSink?.();
@@ -270,8 +325,10 @@ export class NativeClient implements NativeApi {
     if (this.#logTimer !== undefined) globalThis.clearTimeout(this.#logTimer);
     this.#logTimer = undefined;
     this.#logQueue.length = 0;
-    this.#listeners.clear();
-    this.#socket.stop();
+    this.#statusListeners.clear();
+    this.#pushListeners.clear();
+    this.#socket?.stop();
+    this.#socket = undefined;
   }
 
   #enqueueLog(record: LogRecord): void {
@@ -295,9 +352,11 @@ export class NativeClient implements NativeApi {
   }
 
   #flushLogs(): void {
-    while (this.#logQueue.length > 0 && this.#socket.open) {
+    const socket = this.#socket;
+    if (socket === undefined) return;
+    while (this.#logQueue.length > 0 && socket.open) {
       const batch = this.#logQueue.slice(0, LOG_MAX_BATCH);
-      if (!this.#socket.sendLogs(batch)) return;
+      if (!socket.sendLogs(batch)) return;
       this.#logQueue.splice(0, batch.length);
     }
   }
@@ -309,10 +368,18 @@ export class NativeClient implements NativeApi {
     }
     if (event === 'error' && isRecord(data)) {
       this.#logger.warn(`The bridge rejected a frame: ${String(data['message'])}`);
+      return;
+    }
+    for (const listener of [...this.#pushListeners]) {
+      try {
+        listener(event, data);
+      } catch (error) {
+        this.#logger.error(`A push listener for "${event}" threw`, error);
+      }
     }
   }
 
-  /** One HTTP GET, with its own timeout. Only the probe and `describe` use HTTP. */
+  /** One HTTP GET, with its own timeout. Only the probe uses HTTP. */
   async #get(path: string): Promise<unknown> {
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => { controller.abort(); }, REQUEST_TIMEOUT_MS);
@@ -323,15 +390,8 @@ export class NativeClient implements NativeApi {
         headers: { 'Content-Type': 'application/json' },
       });
       const text = await response.text();
-      const parsed: unknown = text === '' ? {} : JSON.parse(text);
-      if (!response.ok) {
-        const details = parsed as { error?: { code?: string; message?: string } };
-        throw new NativeRequestError(
-          details.error?.code ?? 'error',
-          details.error?.message ?? `HTTP ${String(response.status)}`,
-        );
-      }
-      return parsed;
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+      return text === '' ? {} : (JSON.parse(text) as unknown);
     } finally {
       globalThis.clearTimeout(timer);
     }

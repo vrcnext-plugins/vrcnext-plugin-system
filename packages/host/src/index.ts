@@ -1,32 +1,42 @@
 /**
  * Host entry point.
  *
- * Loaded by the bootstrap theme VRCNext injects into its page. Boot is idempotent: VRCNext can
- * re-inject a theme script without a reload, and booting twice would double every listener.
+ * Loaded by the theme script VRCNext injects into its page; the same bundle carries every
+ * installed plugin (see `@vrcnext/static-plugins`). Boot is idempotent: VRCNext can re-inject a
+ * theme script without a reload, and booting twice would double every listener.
+ *
+ * Nothing plugin-related happens until the VRCNext Bridge is connected: it holds the enabled
+ * flags, the saved grants and every plugin's settings. Until then the Plugins tab shows only the
+ * Bridge card.
  */
 
+import { COMPILED_PLUGINS } from '@vrcnext/static-plugins';
 import { DisposableBag, type Logger, type ToastOptions } from '@vrcnext/plugin-api';
 
 import { API_VERSION } from './api-version.js';
 import { PhotinoBridge } from './bridge/photino-bridge.js';
 import { ContextMenuHub } from './capabilities/context-menu.js';
 import { DeepLinkHub } from './capabilities/deep-links.js';
-import { NativeClient } from './capabilities/native.js';
+import { BridgeClient } from './capabilities/native.js';
 import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
-import { PluginLoader } from './loader/plugin-loader.js';
 import { createLogger } from './log/create-logger.js';
 import { DebugHub } from './log/debug-hub.js';
 import { LogSink } from './log/log-sink.js';
-import { PluginManager } from './plugin-manager.js';
-import { Registry } from './registry/registry.js';
-import { IdbStore } from './storage/idb-store.js';
+import { PermissionBroker } from './permissions/broker.js';
+import { GrantStore } from './permissions/grant-store.js';
+import { readCompiledTable } from './plugins/compiled.js';
+import { PluginManager } from './plugins/plugin-manager.js';
+import { PluginsService, toBuildResult, toInstalledList } from './plugins/plugins-service.js';
+import { BridgeStateService } from './state/state-service.js';
 import { AboutPanel } from './ui/about-panel.js';
+import { EnableModal } from './ui/enable-modal.js';
 import { LogPanel } from './ui/log-panel.js';
 import { ManagerPanel } from './ui/manager-panel.js';
+import { PermissionModal } from './ui/permission-modal.js';
 import { PluginNav, type NavEntry } from './ui/plugin-nav.js';
+import { showReloadToast } from './ui/reload-toast.js';
 import { UiHost } from './ui/ui-host.js';
-import { Updater } from './update/updater.js';
 
 const GLOBAL_KEY = '__vrcnextPluginHost';
 const BOOT_KEY = '__vrcnextPluginHostBooting';
@@ -35,7 +45,6 @@ const THEME_ID = 'vrcnext-plugin-system';
 export interface HostHandle {
   readonly apiVersion: string;
   readonly manager: PluginManager;
-  readonly updater: Updater;
   shutdown(): Promise<void>;
 }
 
@@ -57,138 +66,131 @@ function createToast(sink: LogSink): (options: ToastOptions) => void {
   };
 }
 
-/** Wires the shared services every capability hangs off. */
 interface Core {
   readonly sink: LogSink;
   readonly logger: Logger;
-  readonly router: EventRouter;
   readonly bridge: PhotinoBridge;
-  readonly storage: IdbStore;
   readonly manager: PluginManager;
+  readonly broker: PermissionBroker;
+  readonly grants: GrantStore;
   readonly ui: UiHost;
   readonly toast: (options: ToastOptions) => void;
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
-  readonly native: NativeClient;
+  readonly native: BridgeClient;
   readonly debugHub: DebugHub;
   readonly isLinux: () => boolean;
 }
 
-async function buildCore(): Promise<Core> {
+/** VRCNext records the platform on the document before any theme script runs. */
+function detectLinux(router: EventRouter, logger: Logger): () => boolean {
+  let isLinux =
+    (globalThis as { _isLinuxUi?: unknown })._isLinuxUi === true ||
+    document.documentElement.classList.contains('linux-ui');
+  logger.debug(`Platform at boot: ${isLinux ? 'Linux' : 'Windows'}.`);
+  router.on('setPlatform', (payload) => {
+    if (typeof payload === 'object' && payload !== null) {
+      isLinux = (payload as { isLinux?: unknown }).isLinux === true;
+    }
+  });
+  return (): boolean => isLinux;
+}
+
+function buildCore(): Core {
   const sink = new LogSink();
   const logger = createLogger(sink, 'host');
   logger.info(`Starting plugin host, API ${API_VERSION}.`);
 
   const router = new EventRouter();
   const bridge = PhotinoBridge.attach(router);
-  const storage = new IdbStore();
-  await sink.attachStorage(storage);
-  const registry = new Registry(storage);
-  await registry.load();
-
-  // VRCNext sends `setPlatform` once, in response to the page's `ready` — which happens well
-  // before a custom theme's script runs, so listening alone always misses it. It also records the
-  // answer on the document, and that is still there when we boot. Seed from the DOM, then keep the
-  // listener for the case where this host somehow loads first.
-  let isLinux =
-    (globalThis as { _isLinuxUi?: unknown })._isLinuxUi === true ||
-    document.documentElement.classList.contains('linux-ui');
-  logger.debug(`Platform at boot: ${isLinux ? 'Linux' : 'Windows'}.`);
-
-  router.on('setPlatform', (payload) => {
-    if (typeof payload === 'object' && payload !== null) {
-      isLinux = (payload as { isLinux?: unknown }).isLinux === true;
-      logger.debug(`Platform reported: ${isLinux ? 'Linux' : 'Windows'}.`);
-    }
-  });
-
+  const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
   const ui = new UiHost(toast);
-
   const routes = new RouteTable(globalThis.location.href);
   routes.install();
   const contextMenu = new ContextMenuHub();
   contextMenu.install();
 
-  // Probed rather than awaited: the bridge is optional, and boot must not wait on a daemon most
-  // users do not run. Constructing the client also opens its socket, which reconnects quietly in
-  // the background forever.
-  const native = new NativeClient(createLogger(sink, 'native'));
-  // Touch `ready` so the probe starts now; plugins await the same promise rather than racing it.
-  void native.ready;
-
+  const native = new BridgeClient(createLogger(sink, 'native'), {
+    client: `vrcnext-plugin-system/${API_VERSION}`,
+  });
   // Mirror everything logged here into the bridge's log file, so plugin behaviour can be
   // followed with `tail -f` instead of by keeping the Logs panel open and copying text out.
   native.mirrorLogs(sink);
   const debugHub = new DebugHub(sink);
 
-  const loader = new PluginLoader({
-    router,
-    bridge,
-    storage,
-    sink,
-    ui,
-    routes,
-    deepLinks: new DeepLinkHub(router),
-    contextMenu,
-    native,
-    isLinux: () => isLinux,
+  const call = native.call.bind(native);
+  const state = new BridgeStateService(call);
+  const service = new PluginsService(call);
+  const grants = new GrantStore(state);
+  // The broker's Uninstall button needs the manager, which needs the broker: bind late.
+  const late: { manager?: PluginManager } = {};
+  const broker = new PermissionBroker({
+    grants,
+    prompt: new PermissionModal(),
+    onUninstall: async (id) => { await late.manager?.uninstall(id); },
+    log: (message) => { logger.info(message); },
   });
 
-  return {
-    sink,
+  const table = readCompiledTable(COMPILED_PLUGINS);
+  for (const error of table.errors) logger.error(`Compiled plugin table: ${error}`);
+  logger.info(`Bundle carries ${String(table.plugins.length)} plugin(s).`);
+
+  const manager = new PluginManager({
+    compiled: table.plugins,
+    context: {
+      router,
+      bridge,
+      state,
+      sink,
+      ui,
+      routes,
+      deepLinks: new DeepLinkHub(router),
+      contextMenu,
+      native,
+      broker,
+      isLinux,
+      origin: globalThis.location.origin,
+    },
+    state,
+    service,
+    broker,
+    consent: new EnableModal(),
     logger,
-    router,
-    bridge,
-    storage,
-    manager: new PluginManager(registry, loader),
-    ui,
-    toast,
-    routes,
-    contextMenu,
-    native,
-    debugHub,
-    isLinux: () => isLinux,
-  };
+  });
+  late.manager = manager;
+
+  return { sink, logger, bridge, manager, broker, grants, ui, toast, routes, contextMenu, native, debugHub, isLinux };
 }
 
-/**
- * Mounts the "Plugins" group in both the sidebar and the top menu bar.
- *
- * The three entries are declared once; {@link PluginNav} renders them into two different DOM
- * shapes and shares activation, lazy rendering and tab ownership between them.
- */
-function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
+/** Mounts the "Plugins" group in both the sidebar and the top menu bar. */
+function mountNav(core: Core, bag: DisposableBag): void {
+  const openUrl = (url: string): void => { core.bridge.send('openUrl', { url }); };
   const managerPanel = new ManagerPanel({
     manager: core.manager,
+    native: core.native,
+    broker: core.broker,
+    openUrl,
     onError: (message) => {
       core.logger.error(message);
       core.toast({ message, ok: false });
     },
   });
-
   const logPanel = new LogPanel(core.sink);
-  bag.add(() => { logPanel.dispose(); });
-  bag.add(() => { aboutPanel.dispose(); });
-
   const aboutPanel = new AboutPanel({
     manager: core.manager,
-    updater,
     sink: core.sink,
-    logger: core.logger,
     native: core.native,
     debugHub: core.debugHub,
     isLinux: core.isLinux,
-    openUrl: (url) => { core.bridge.send('openUrl', { url }); },
+    openUrl,
   });
+  bag.add(() => { managerPanel.dispose(); });
+  bag.add(() => { logPanel.dispose(); });
+  bag.add(() => { aboutPanel.dispose(); });
 
   const entries: readonly NavEntry[] = [
-    {
-      id: 'manage',
-      label: 'Manage Plugins',
-      icon: 'extension',
-      render: (container) => { managerPanel.render(container); },
-    },
+    { id: 'manage', label: 'Manage Plugins', icon: 'extension', render: (c) => { managerPanel.render(c); } },
     {
       id: 'logs',
       label: 'Logs',
@@ -202,12 +204,7 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
         container.replaceChildren(layout);
       },
     },
-    {
-      id: 'system',
-      label: 'Plugin System',
-      icon: 'tune',
-      render: (container) => { aboutPanel.render(container); },
-    },
+    { id: 'system', label: 'Plugin System', icon: 'tune', render: (c) => { aboutPanel.render(c); } },
   ];
 
   const nav = new PluginNav({
@@ -216,74 +213,93 @@ function mountNav(core: Core, updater: Updater, bag: DisposableBag): void {
     groupLabel: 'Plugins',
     groupIcon: 'extension',
     onError: (error, entry) => {
-      core.logger.error(
-        `Could not render "${entry.label}": ${error instanceof Error ? error.message : String(error)}`,
-      );
+      core.logger.error(`Could not render "${entry.label}": ${error instanceof Error ? error.message : String(error)}`);
     },
-    onUiEvent: (action, detail) => {
-      core.debugHub.logUi(action, detail);
-    },
+    onUiEvent: (action, detail) => { core.debugHub.logUi(action, detail); },
   });
   nav.mount();
   bag.add(nav);
 }
 
-export async function boot(): Promise<HostHandle> {
+/** Once the bridge is connected: read the host state, then activate the enabled plugins. */
+function gateOnBridge(core: Core, bag: DisposableBag): void {
+  let started = false;
+  const start = async (): Promise<void> => {
+    if (started) return;
+    started = true;
+    try {
+      await core.grants.load();
+      core.broker.loadSaved();
+      const failures = await core.manager.start();
+      for (const failure of failures) core.logger.error(failure.message);
+      if (failures.length > 0) {
+        core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
+      }
+      core.logger.info('Plugins started.');
+    } catch (error) {
+      started = false;
+      core.logger.error('Could not read host state from the bridge.', error);
+    }
+  };
+  bag.add(core.native.onStatus((status) => {
+    if (status === 'connected') void start();
+  }));
+  if (core.native.status === 'connected') void start();
+
+  bag.add(core.native.onPush((event, data) => {
+    if (event === 'build') {
+      const result = toBuildResult(data);
+      if (result.ok) {
+        showReloadToast('Rebuilt — reload to apply', () => { globalThis.location.reload(); });
+      } else {
+        core.logger.error(`The bridge could not rebuild the bundle: ${result.errors.join('\n')}`);
+        core.toast({ message: 'Plugin rebuild failed; see the Logs tab.', ok: false });
+      }
+      return;
+    }
+    if (event === 'plugins') core.manager.setInstalled(toInstalledList(data));
+  }));
+  void core.native.probe();
+}
+
+export function boot(): Promise<HostHandle> {
   const running = existingHost();
-  if (running !== undefined) return running;
+  if (running !== undefined) return Promise.resolve(running);
 
   const inFlight: unknown = (globalThis as Record<string, unknown>)[BOOT_KEY];
   if (inFlight instanceof Promise) return inFlight as Promise<HostHandle>;
 
   const bootPromise = (async (): Promise<HostHandle> => {
     try {
-      const core = await buildCore();
+      const core = buildCore();
       const bag = new DisposableBag();
-
-      const failures = await core.manager.activateEnabled();
-      for (const failure of failures) core.logger.error(failure.message);
-      if (failures.length > 0) {
-        core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
-      }
-
-      const shutdownController = new AbortController();
-      const updater = new Updater({
-        manager: core.manager,
-        logger: core.logger.scoped('update'),
-        notify: (message, ok) => { core.toast({ message, ok }); },
-      });
-      updater.start(shutdownController.signal);
-      mountNav(core, updater, bag);
+      mountNav(core, bag);
+      gateOnBridge(core, bag);
 
       const handle: HostHandle = {
         apiVersion: API_VERSION,
         manager: core.manager,
-        updater,
         shutdown: async (): Promise<void> => {
-          shutdownController.abort();
           core.debugHub.dispose();
-          core.native.dispose();
           await core.manager.shutdown();
+          core.native.dispose();
           core.contextMenu.uninstall();
           core.routes.uninstall();
           bag.dispose();
           core.sink.dispose();
-          core.storage.close();
           (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;
         },
       };
-
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
 
-      // VRCNext fires this when the user disables the bootstrap theme.
+      // VRCNext fires this when the user disables the theme.
       document.documentElement.addEventListener(
         `vrcnext:theme:unload:${THEME_ID}`,
         () => { void handle.shutdown(); },
         { once: true },
       );
-
-      core.logger.info('Plugin host ready.');
-      return handle;
+      core.logger.info('Plugin host ready; waiting for the VRCNext Bridge.');
+      return await Promise.resolve(handle);
     } finally {
       (globalThis as Record<string, unknown>)[BOOT_KEY] = undefined;
     }
@@ -293,5 +309,9 @@ export async function boot(): Promise<HostHandle> {
   return bootPromise;
 }
 
-export type { PluginManager } from './plugin-manager.js';
+export type { PluginManager } from './plugins/plugin-manager.js';
 export { API_VERSION } from './api-version.js';
+
+void boot().catch((error: unknown) => {
+  globalThis.console.error('[vrcnext-plugins] boot failed', error);
+});

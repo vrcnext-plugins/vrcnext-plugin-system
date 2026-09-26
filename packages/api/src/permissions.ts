@@ -80,16 +80,19 @@ export function permissionInfo(permission: Permission): PermissionInfo {
 }
 
 /**
- * Thrown by a gated capability when the plugin holds no grant for it, or when the call names an
- * action, event or host outside the plugin's manifest allowlist.
+ * Thrown by a gated capability when the plugin holds no grant for it: the category is not in
+ * `plugin.json`, or the user denied this concrete target (a host, an action name, an event name,
+ * a bridge method) when asked.
  *
- * It is a plain `Error` subclass so a plugin can `catch` it and fall back; the `permission` field
- * tells it which one to `ctx.permissions.request`.
+ * It is a plain `Error` subclass so a plugin can `catch` it and fall back; `permission` names the
+ * category and `target` the concrete thing that was refused, when there was one.
  */
 export class PermissionError extends Error {
   readonly permission: Permission;
+  /** The host, action, event or `service/method` that was refused; `undefined` for a category. */
+  readonly target: string | undefined;
 
-  constructor(permission: Permission, detail?: string) {
+  constructor(permission: Permission, detail?: string, target?: string) {
     super(
       detail === undefined
         ? `Permission "${permission}" is not granted.`
@@ -97,17 +100,24 @@ export class PermissionError extends Error {
     );
     this.name = 'PermissionError';
     this.permission = permission;
+    this.target = target;
   }
 }
 
 export interface PermissionsApi {
-  /** Whether the user has granted `permission` to this plugin. Cheap; safe to call per event. */
+  /**
+   * Whether this plugin may use the category at all: it is in `permissions`, or it is in
+   * `optionalPermissions` and the user said yes to {@link request}. Cheap; safe to call per event.
+   *
+   * A `true` here does not mean every concrete target is allowed — the user is still asked the
+   * first time a new host, action, event or bridge method is used.
+   */
   has(permission: Permission): boolean;
 
   /**
    * Ask the user for one of the plugin's `optionalPermissions`.
    *
-   * Opens the consent modal for that single permission and resolves with the decision. Resolves
+   * Opens the permission prompt for that category and resolves with the decision. Resolves
    * `true` at once when it is already granted. Rejects when the permission is not declared as
    * optional in `plugin.json` — a required permission is granted at enable time or the plugin does
    * not run, and an undeclared one can never be requested.
