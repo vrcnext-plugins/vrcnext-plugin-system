@@ -1,0 +1,39 @@
+# On a v* tag: pack the host + api sources the bridge compiles (spec §1: host/ holds
+# packages/api/src and packages/host/src; esbuild needs no package.json), publish them with a
+# SHA256SUMS the installer verifies against.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack host sources
+        run: |
+          set -euo pipefail
+          test -f packages/host/src/index.ts
+          test -f packages/api/src/index.ts
+          mkdir -p dist-release
+          # --sort/--mtime/--owner make the archive reproducible for a given commit.
+          tar --sort=name --mtime="@0" --owner=0 --group=0 --numeric-owner \
+            -czf dist-release/vrcnext-plugin-host-src.tar.gz \
+            packages/api/src packages/host/src
+          cd dist-release
+          sha256sum vrcnext-plugin-host-src.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/vrcnext-plugin-host-src.tar.gz
+            dist-release/SHA256SUMS
+          generate_release_notes: true
