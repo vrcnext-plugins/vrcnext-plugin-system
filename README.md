@@ -62,8 +62,8 @@ import { definePlugin, type PluginId } from '@vrcnext/plugin-api';
 export default definePlugin({
   id: 'my-plugin' as PluginId,
   activate(ctx) {
-    ctx.gameLog.onType('OnPlayerJoined', (entry) => {
-      ctx.ui.toast({ message: `${entry.detail} joined.` });
+    ctx.gameLog.onType('gl_player_join', (entry) => {
+      ctx.notifications.toast({ message: `${entry.message} joined.` });
     });
   },
 });
