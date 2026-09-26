@@ -17,6 +17,7 @@ import type {
 } from '@vrcnext/plugin-api';
 
 import { CLASSES, iconSpan } from '../ui/dom.js';
+import { resolveEntity } from './entity-resolver.js';
 
 const MENU_ID = 'vn-ctx-menu';
 const BODY_CLASS = 'vn-ctx-body';
@@ -26,24 +27,6 @@ interface Registration {
   readonly pluginId: PluginId;
   readonly selector: string | undefined;
   readonly provider: ContextMenuProvider;
-}
-
-/** Reads the VRChat entity VRCNext tags onto elements via `data-vrc-*`. */
-function entityOf(element: HTMLElement): ContextMenuTarget['entity'] {
-  const holder = element.closest<HTMLElement>('[data-vrc-type][data-vrc-id]');
-  const type = holder?.dataset['vrcType'];
-  const id = holder?.dataset['vrcId'];
-  if (type === undefined || id === undefined) return undefined;
-  if (
-    type !== 'user' &&
-    type !== 'avatar' &&
-    type !== 'world' &&
-    type !== 'group' &&
-    type !== 'instance'
-  ) {
-    return undefined;
-  }
-  return { type, id };
 }
 
 export class ContextMenuHub {
@@ -81,7 +64,7 @@ export class ContextMenuHub {
 
     const element = this.#lastTarget;
     if (element === undefined) return;
-    void this.#appendContributions(menu, { element, entity: entityOf(element) });
+    void this.#appendContributions(menu, { element, entity: resolveEntity(element) });
   }
 
   async #appendContributions(menu: HTMLElement, target: ContextMenuTarget): Promise<void> {
