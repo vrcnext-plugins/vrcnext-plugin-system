@@ -170,7 +170,7 @@ export class NativeClient implements NativeApi {
 
   async probe(): Promise<boolean> {
     try {
-      const health = await this.#request('GET', '/v1/health');
+      const health = await this.#health();
       this.#running = (health as { ok?: unknown }).ok === true;
     } catch {
       // Not running is the common case and not worth a warning on every boot.
@@ -214,6 +214,7 @@ export class NativeClient implements NativeApi {
     });
 
     socket.addEventListener('close', () => {
+      if (this.#socket !== socket) return;
       this.#socket = undefined;
       this.#rejectAllPending(new NativeRequestError('unavailable', 503, 'WebSocket connection closed'));
       this.#scheduleReconnect();
@@ -225,13 +226,16 @@ export class NativeClient implements NativeApi {
       globalThis.clearTimeout(this.#reconnectTimer);
       this.#reconnectTimer = undefined;
     }
-    if (this.#socket !== undefined) {
+    const socket = this.#socket;
+    if (socket !== undefined) {
+      // Detach first: `close()` may fire the close event synchronously in some implementations,
+      // and the close handler must see this socket as already replaced.
+      this.#socket = undefined;
       try {
-        this.#socket.close();
+        socket.close();
       } catch {
         // Socket already closing
       }
-      this.#socket = undefined;
     }
     this.#rejectAllPending(new NativeRequestError('unavailable', 503, 'WebSocket disconnected'));
   }
@@ -327,10 +331,7 @@ export class NativeClient implements NativeApi {
 
   async describe(): Promise<NativeDescription | undefined> {
     try {
-      if (this.connected) {
-        return (await this.call('describe', 'describe', {})) as NativeDescription;
-      }
-      return (await this.#request('GET', '/v1/describe')) as NativeDescription;
+      return (await this.call('describe', 'describe', {})) as NativeDescription;
     } catch (error) {
       this.#logger.debug(`describe() failed: ${String(error)}`);
       return undefined;
@@ -355,7 +356,7 @@ export class NativeClient implements NativeApi {
     } catch (error) {
       // Only a transport failure says anything about availability. A rejected request means the
       // companion is alive and the caller got it wrong.
-      if (!(error instanceof NativeRequestError)) {
+      if (NativeClient.#isTransportFailure(error)) {
         this.#running = false;
       }
       this.#logger.warn(`Native notification failed: ${String(error)}`);
@@ -364,15 +365,22 @@ export class NativeClient implements NativeApi {
   }
 
   /**
+   * Whether an error means the companion could not be reached at all.
+   *
+   * A closed socket and a request timeout are both raised as {@link NativeRequestError} with a
+   * 5xx status so plugins get one error type; anything with a 4xx status is the daemon answering.
+   */
+  static #isTransportFailure(error: unknown): boolean {
+    return !(error instanceof NativeRequestError) || error.status >= 500;
+  }
+
+  /**
    * Execute a service method with correlation ID multiplexing.
    *
-   * Uses WebSocket if connected; falls back to HTTP POST for legacy/offline environments.
+   * Uses WebSocket exclusively. Disconnection fails without replaying a side effect over HTTP.
    */
   async call(service: string, method: string, params: unknown = {}): Promise<unknown> {
-    if (this.connected) {
-      return this.#callWs(service, method, params);
-    }
-    return this.#request('POST', `/v1/${service}/${method}`, params);
+    return this.#callWs(service, method, params);
   }
 
   #callWs(service: string, method: string, params: unknown): Promise<unknown> {
@@ -407,21 +415,20 @@ export class NativeClient implements NativeApi {
   }
 
   /**
-   * One request, with its own timeout.
+   * The HTTP health probe, with its own timeout.
    *
-   * A non-2xx answer carries the companion's own error code and message; surfacing that verbatim
-   * is far more useful to a plugin author than "HTTP 400".
+   * This is the one remaining HTTP call: it answers even when the WebSocket is not up, which is
+   * what lets the host tell "running but not connected" from "not installed". A non-2xx answer
+   * still carries the companion's own error code and message, surfaced verbatim.
    */
-  async #request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  async #health(): Promise<unknown> {
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => { controller.abort(); }, TIMEOUT_MS);
 
     try {
-      const response = await globalThis.fetch(`${this.#endpoint}${path}`, {
-        method,
+      const response = await globalThis.fetch(`${this.#endpoint}/v1/health`, {
+        method: 'GET',
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
 
       const text = await response.text();

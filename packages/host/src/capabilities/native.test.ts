@@ -2,6 +2,9 @@
  * The companion's absence is the common case, so "degrades cleanly" is the property worth testing.
  * A rejected promise here would surface as an unhandled rejection inside whatever event handler a
  * plugin called `notify()` from.
+ *
+ * Health is the one HTTP call and is stubbed through `fetch`; everything else goes over the
+ * WebSocket, which is stubbed with {@link FakeSocket}.
  */
 
 import assert from 'node:assert/strict';
@@ -20,8 +23,10 @@ const silentLogger: Logger = {
 };
 
 const realFetch = globalThis.fetch;
+const realWs = globalThis.WebSocket;
 afterEach(() => {
   globalThis.fetch = realFetch;
+  globalThis.WebSocket = realWs;
 });
 
 function stubFetch(handler: (url: string, init: RequestInit) => Response): void {
@@ -32,6 +37,74 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response): void 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
+
+interface RequestFrame {
+  readonly type: string;
+  readonly id: string;
+  readonly service: string;
+  readonly method: string;
+  readonly params: unknown;
+}
+
+/** Answers every request frame with `respond(frame)`, or leaves it pending when it returns undefined. */
+class FakeSocket extends EventTarget {
+  static instances: FakeSocket[] = [];
+  static respond: (frame: RequestFrame) => Record<string, unknown> | undefined = () => undefined;
+
+  readyState = 1; // OPEN
+  readonly sent: string[] = [];
+  readonly url: string;
+
+  constructor(url: string) {
+    super();
+    this.url = url;
+    FakeSocket.instances.push(this);
+    setTimeout(() => { this.dispatchEvent(new Event('open')); }, 0);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+    const frame = JSON.parse(data) as RequestFrame;
+    if (frame.type !== 'request') return;
+    const reply = FakeSocket.respond(frame);
+    if (reply === undefined) return;
+    setTimeout(() => { this.reply({ type: 'response', id: frame.id, ...reply }); }, 0);
+  }
+
+  reply(message: Record<string, unknown>): void {
+    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(message) }));
+  }
+
+  close(): void {
+    this.readyState = 3;
+    this.dispatchEvent(new Event('close'));
+  }
+
+  requests(): RequestFrame[] {
+    return this.sent.map((s) => JSON.parse(s) as RequestFrame).filter((f) => f.type === 'request');
+  }
+}
+
+function installFakeSocket(
+  respond: (frame: RequestFrame) => Record<string, unknown> | undefined = () => undefined,
+): void {
+  FakeSocket.instances = [];
+  FakeSocket.respond = respond;
+  // @ts-expect-error Mock socket
+  globalThis.WebSocket = FakeSocket;
+}
+
+/** A client whose health answered and whose WebSocket is open. */
+function connectedClient(): { client: NativeClient; socket: FakeSocket } {
+  const client = new NativeClient(silentLogger);
+  client.connectWs();
+  const socket = FakeSocket.instances[0];
+  assert.ok(socket !== undefined);
+  return { client, socket };
+}
+
+const ok = { ok: true, result: { ok: true, delivered: ['wayvr'], failed: [] } };
+const badRequest = { ok: false, error: { code: 'bad_request', message: '`title` must not be empty' } };
 
 test('reports unavailable when nothing is listening', async () => {
   globalThis.fetch = () => Promise.reject(new Error('ECONNREFUSED'));
@@ -62,49 +135,46 @@ test('becomes available once health answers', async () => {
   assert.equal(client.available, true);
 });
 
-test('sends JSON content type, which is what forces the CORS preflight', async () => {
-  let seen: RequestInit | undefined;
-  stubFetch((_url, init) => {
-    seen = init;
-    return json({ ok: true, delivered: ['wayvr'], failed: [] });
-  });
+test('notify is a request frame for notify/send over the WebSocket', async () => {
+  installFakeSocket(() => ok);
+  const { client, socket } = connectedClient();
 
-  await new NativeClient(silentLogger).notify({ title: 'x', sinks: ['wayvr'] });
+  await client.notify({ title: 'x', sinks: ['wayvr'] });
 
-  const headers = seen?.headers as Record<string, string> | undefined;
-  assert.equal(headers?.['Content-Type'], 'application/json');
-  assert.equal(seen?.method, 'POST');
+  const [frame] = socket.requests();
+  assert.ok(frame !== undefined);
+  assert.equal(frame.service, 'notify');
+  assert.equal(frame.method, 'send');
+  client.dispose();
 });
 
 test('passes sinks and overrides through untouched', async () => {
-  let body: unknown;
-  stubFetch((_url, init) => {
-    body = JSON.parse(typeof init.body === 'string' ? init.body : '');
-    return json({ ok: true, delivered: ['wayvr'], failed: [] });
-  });
+  installFakeSocket(() => ok);
+  const { client, socket } = connectedClient();
 
-  await new NativeClient(silentLogger).notify({
+  await client.notify({
     title: 'Friend online',
     sinks: ['wayvr'],
     overrides: { wayvr: { height: 220, opacity: 0.85 } },
   });
 
-  assert.deepEqual(body, {
+  assert.deepEqual(socket.requests()[0]?.params, {
     title: 'Friend online',
     sinks: ['wayvr'],
     overrides: { wayvr: { height: 220, opacity: 0.85 } },
   });
+  client.dispose();
 });
 
 test('surfaces the companion’s own error code and message', async () => {
-  stubFetch(() =>
-    json({ ok: false, error: { code: 'bad_request', message: '`title` must not be empty' } }, 400),
-  );
+  installFakeSocket(() => badRequest);
+  const { client } = connectedClient();
 
   await assert.rejects(
-    () => new NativeClient(silentLogger).call('notify', 'send', { title: '' }),
+    () => client.call('notify', 'send', { title: '' }),
     /bad_request: `title` must not be empty/,
   );
+  client.dispose();
 });
 
 test('trims a trailing slash so the endpoint is not doubled', () => {
@@ -115,40 +185,63 @@ test('trims a trailing slash so the endpoint is not doubled', () => {
 });
 
 test('a rejected request does not mark a healthy companion as gone', async () => {
-  stubFetch(() =>
-    json({ ok: false, error: { code: 'bad_request', message: '`title` must not be empty' } }, 400),
-  );
+  stubFetch(() => json({ ok: true, version: '0.1.0', services: [] }));
+  installFakeSocket(() => badRequest);
   const client = new NativeClient(silentLogger);
+  await client.probe();
 
   const result = await client.notify({ title: '' });
   assert.equal(result.ok, false);
   assert.equal(
     client.available,
     true,
-    'a 400 means the daemon answered — it is running, the request was wrong',
+    'a rejected frame means the daemon answered — it is running, the request was wrong',
   );
+  client.dispose();
 });
 
 test('a transport failure does mark it gone', async () => {
-  const client = new NativeClient(silentLogger);
   stubFetch(() => json({ ok: true, version: '0.1.0', services: [] }));
+  installFakeSocket(() => ok);
+  const client = new NativeClient(silentLogger);
   await client.probe();
   assert.equal(client.available, true);
 
-  globalThis.fetch = () => Promise.reject(new Error('ECONNREFUSED'));
+  FakeSocket.instances[0]?.close();
   await client.notify({ title: 'x' });
   assert.equal(client.available, false);
+  client.dispose();
 });
 
-test('call() rejects with a typed error carrying the companion’s code and status', async () => {
-  stubFetch(() => json({ ok: false, error: { code: 'rate_limited', message: 'too many' } }, 429));
+test('a request timeout is a transport failure, not a companion refusal', () => {
+  const error = new NativeRequestError('timeout', 504, 'request timed out');
+  assert.ok(error.status >= 500);
+  assert.equal(error.message, 'timeout: request timed out');
+});
 
-  await new NativeClient(silentLogger).call('notify', 'send', {}).then(
+test('call() rejects with a typed error carrying the companion’s code', async () => {
+  installFakeSocket(() => ({ ok: false, error: { code: 'rate_limited', message: 'too many' } }));
+  const { client } = connectedClient();
+
+  await client.call('notify', 'send', {}).then(
     () => assert.fail('should have rejected'),
     (error: unknown) => {
       assert.ok(error instanceof NativeRequestError);
       assert.equal(error.code, 'rate_limited');
-      assert.equal(error.status, 429);
+      assert.equal(error.status, 400, 'the WebSocket protocol has no status; a refusal is a 400');
+    },
+  );
+  client.dispose();
+});
+
+test('call() rejects with unavailable while the socket is not open', async () => {
+  const client = new NativeClient(silentLogger);
+  await client.call('notify', 'send', {}).then(
+    () => assert.fail('should have rejected'),
+    (error: unknown) => {
+      assert.ok(error instanceof NativeRequestError);
+      assert.equal(error.code, 'unavailable');
+      assert.equal(error.status, 503);
     },
   );
 });
@@ -203,212 +296,93 @@ test('reports tri-state correctly for not_detected, running_not_connected, and c
 });
 
 test('multiplexes service calls over WebSocket with correlation IDs', async () => {
-  const realWs = globalThis.WebSocket;
-  try {
-    const sockets: FakeSocket[] = [];
-    class FakeSocket extends EventTarget {
-      readyState = 1; // OPEN
-      readonly sent: string[] = [];
-      url: string;
-      constructor(url: string) {
-        super();
-        this.url = url;
-        sockets.push(this);
-        setTimeout(() => { this.dispatchEvent(new Event('open')); }, 0);
-      }
-      send(data: string): void {
-        this.sent.push(data);
-        const parsed = JSON.parse(data) as { type: string; id: string; service: string; method: string };
-        if (parsed.type === 'request') {
-          setTimeout(() => {
-            this.dispatchEvent(
-              new MessageEvent('message', {
-                data: JSON.stringify({
-                  type: 'response',
-                  id: parsed.id,
-                  ok: true,
-                  result: { answer: 42 },
-                }),
-              }),
-            );
-          }, 0);
-        }
-      }
-      close(): void {
-        this.readyState = 3;
-        this.dispatchEvent(new Event('close'));
-      }
-    }
+  installFakeSocket(() => ({ ok: true, result: { answer: 42 } }));
+  const { client, socket } = connectedClient();
+  assert.equal(client.connected, true);
+  assert.equal(client.status, 'connected');
 
-    // @ts-expect-error Mock socket
-    globalThis.WebSocket = FakeSocket;
+  const result = await client.call('math', 'compute', { x: 1 });
+  assert.deepEqual(result, { answer: 42 });
 
-    const client = new NativeClient(silentLogger);
-    client.connectWs();
-    const activeSocket = sockets[0];
-    assert.ok(activeSocket !== undefined);
-    assert.equal(client.connected, true);
-    assert.equal(client.status, 'connected');
+  const [sent] = socket.requests();
+  assert.ok(sent !== undefined);
+  assert.equal(sent.type, 'request');
+  assert.equal(sent.service, 'math');
+  assert.equal(sent.method, 'compute');
+  assert.ok(sent.id.startsWith('req-'));
 
-    const result = await client.call('math', 'compute', { x: 1 });
-    assert.deepEqual(result, { answer: 42 });
-
-    const sent = JSON.parse(activeSocket.sent[0] ?? '{}') as Record<string, unknown>;
-    assert.equal(sent['type'], 'request');
-    assert.equal(sent['service'], 'math');
-    assert.equal(sent['method'], 'compute');
-    assert.ok(typeof sent['id'] === 'string' && sent['id'].startsWith('req-'));
-
-    client.dispose();
-  } finally {
-    globalThis.WebSocket = realWs;
-  }
+  client.dispose();
 });
 
 test('handles multiplexed concurrent calls and error responses over WebSocket', async () => {
-  const realWs = globalThis.WebSocket;
-  try {
-    const sockets: FakeSocket[] = [];
-    class FakeSocket extends EventTarget {
-      readyState = 1;
-      readonly sent: string[] = [];
-      url: string;
-      constructor(url: string) {
-        super();
-        this.url = url;
-        sockets.push(this);
-      }
-      send(data: string): void {
-        this.sent.push(data);
-      }
-      close(): void {
-        this.readyState = 3;
-        this.dispatchEvent(new Event('close'));
-      }
-    }
+  installFakeSocket();
+  const { client, socket } = connectedClient();
 
-    // @ts-expect-error Mock socket
-    globalThis.WebSocket = FakeSocket;
+  const call1 = client.call('svc', 'm1', {});
+  const call2 = client.call('svc', 'm2', {});
 
-    const client = new NativeClient(silentLogger);
-    client.connectWs();
-    const activeSocket = sockets[0];
-    assert.ok(activeSocket !== undefined);
+  const [req1, req2] = socket.requests();
+  assert.ok(req1 !== undefined && req2 !== undefined);
 
-    const call1 = client.call('svc', 'm1', {});
-    const call2 = client.call('svc', 'm2', {});
+  // Reply out of order: req2 fails first, then req1 succeeds.
+  socket.reply({ type: 'response', id: req2.id, ok: false, error: { code: 'bad_request', message: 'oops' } });
+  socket.reply({ type: 'response', id: req1.id, ok: true, result: 'ok1' });
 
-    assert.equal(activeSocket.sent.length, 2);
-    const req1 = JSON.parse(activeSocket.sent[0] ?? '{}') as { id: string };
-    const req2 = JSON.parse(activeSocket.sent[1] ?? '{}') as { id: string };
+  const [res1, err2] = await Promise.all([
+    call1,
+    call2.then(
+      () => { assert.fail('should reject'); },
+      (err: unknown) => err,
+    ),
+  ]);
 
-    // Reply to req2 with failure
-    activeSocket.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({
-          type: 'response',
-          id: req2.id,
-          ok: false,
-          error: { code: 'bad_request', message: 'oops' },
-        }),
-      }),
-    );
+  assert.equal(res1, 'ok1');
+  assert.ok(err2 instanceof NativeRequestError);
+  assert.equal(err2.code, 'bad_request');
+  assert.equal(err2.message, 'bad_request: oops');
 
-    // Reply to req1 with success
-    activeSocket.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({
-          type: 'response',
-          id: req1.id,
-          ok: true,
-          result: 'ok1',
-        }),
-      }),
-    );
-
-    const [res1, err2] = await Promise.all([
-      call1,
-      call2.then(
-        () => { assert.fail('should reject'); },
-        (err: unknown) => err,
-      ),
-    ]);
-
-    assert.equal(res1, 'ok1');
-    assert.ok(err2 instanceof NativeRequestError);
-    assert.equal(err2.code, 'bad_request');
-    assert.equal(err2.message, 'bad_request: oops');
-
-    client.dispose();
-  } finally {
-    globalThis.WebSocket = realWs;
-  }
+  client.dispose();
 });
 
 test('streams logs and dispatches log broadcasts over WebSocket', () => {
-  const realWs = globalThis.WebSocket;
-  try {
-    const sockets: FakeSocket[] = [];
-    class FakeSocket extends EventTarget {
-      readyState = 1;
-      readonly sent: string[] = [];
-      url: string;
-      constructor(url: string) {
-        super();
-        this.url = url;
-        sockets.push(this);
-      }
-      send(data: string): void {
-        this.sent.push(data);
-      }
-      close(): void {
-        this.readyState = 3;
-        this.dispatchEvent(new Event('close'));
-      }
-    }
+  installFakeSocket();
+  const { client, socket } = connectedClient();
 
-    // @ts-expect-error Mock socket
-    globalThis.WebSocket = FakeSocket;
+  const receivedBroadcasts: unknown[] = [];
+  const unsubscribe = client.onLogBroadcast((records) => {
+    receivedBroadcasts.push(...records);
+  });
 
-    const client = new NativeClient(silentLogger);
-    client.connectWs();
-    const activeSocket = sockets[0];
-    assert.ok(activeSocket !== undefined);
+  const sent = client.sendLogs([{ level: 'info', scope: 'app', message: 'hi' }]);
+  assert.equal(sent, true);
+  const sentMsg = JSON.parse(socket.sent[0] ?? '{}') as { type: string; records: unknown[] };
+  assert.equal(sentMsg.type, 'logs');
+  assert.equal(sentMsg.records.length, 1);
 
-    const receivedBroadcasts: unknown[] = [];
-    const unsubscribe = client.onLogBroadcast((records) => {
-      receivedBroadcasts.push(...records);
-    });
+  socket.reply({
+    type: 'push',
+    event: 'logBroadcast',
+    data: [{ level: 'warn', scope: 'bridge', message: 'daemon warning' }],
+  });
 
-    // Test sendLogs
-    const sent = client.sendLogs([{ level: 'info', scope: 'app', message: 'hi' }]);
-    assert.equal(sent, true);
-    const sentMsg = JSON.parse(activeSocket.sent[0] ?? '{}') as { type: string; records: unknown[] };
-    assert.equal(sentMsg.type, 'logs');
-    assert.equal(sentMsg.records.length, 1);
+  assert.deepEqual(receivedBroadcasts, [{ level: 'warn', scope: 'bridge', message: 'daemon warning' }]);
 
-    // Test broadcast push
-    activeSocket.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({
-          type: 'push',
-          event: 'logBroadcast',
-          data: [{ level: 'warn', scope: 'bridge', message: 'daemon warning' }],
-        }),
-      }),
-    );
-
-    assert.equal(receivedBroadcasts.length, 1);
-    assert.deepEqual(receivedBroadcasts[0], {
-      level: 'warn',
-      scope: 'bridge',
-      message: 'daemon warning',
-    });
-
-    unsubscribe();
-    client.dispose();
-  } finally {
-    globalThis.WebSocket = realWs;
-  }
+  unsubscribe();
+  client.dispose();
 });
 
+test('a stale socket closing after the endpoint moved does not tear down the live one', async () => {
+  stubFetch(() => json({ ok: true, version: '0.1.0', services: [] }));
+  installFakeSocket();
+  const { client, socket: first } = connectedClient();
+
+  await client.setEndpoint('http://127.0.0.1:9999');
+  const live = FakeSocket.instances[1];
+  assert.ok(live !== undefined && live !== first);
+  assert.equal(client.connected, true);
+
+  // A real socket reports its close asynchronously, so this arrives after the replacement.
+  first.close();
+  assert.equal(client.connected, true);
+  client.dispose();
+});
