@@ -9,8 +9,26 @@
  * `{ type, timestamp, message, detail }`.
  */
 
+/**
+ * Entry kinds VRCNext 2026.61.2 emits (`VRChatLogWatcher.EmitGameLog`). For autocomplete only:
+ * `GameLogEntry.type` stays `string` because VRCNext adds kinds between releases.
+ */
+export const GAME_LOG_TYPES = [
+  'gl_player_join',
+  'gl_player_left',
+  'gl_world_join',
+  'gl_instance_closed',
+  'gl_avatar_blocked',
+  'gl_portal',
+  'gl_video_url',
+  'gl_screenshot',
+  'gl_image_error',
+  'gl_connection_lost',
+] as const;
+export type GameLogType = (typeof GAME_LOG_TYPES)[number];
+
 export interface GameLogEntry {
-  /** VRCNext's parsed entry kind, e.g. `OnPlayerJoined`. Not an exhaustive closed set. */
+  /** VRCNext's parsed entry kind, e.g. `gl_player_join`. See {@link GAME_LOG_TYPES}; not a closed set. */
   readonly type: string;
   /** ISO-ish timestamp string exactly as VRCNext emitted it. */
   readonly timestamp: string;

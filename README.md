@@ -39,8 +39,8 @@ import { definePlugin, type PluginId } from '@vrcnext/plugin-api';
 export default definePlugin({
   id: 'my-plugin' as PluginId,
   activate(ctx) {
-    ctx.gameLog.onType('OnPlayerJoined', (entry) => {
-      ctx.ui.toast({ message: `${entry.detail} joined.` });
+    ctx.gameLog.onType('gl_player_join', (entry) => {
+      ctx.ui.toast({ message: `${entry.message} joined.` });
     });
     ctx.osc.send('VRCEmote', 'int', 3);
   },
@@ -128,6 +128,7 @@ theme manually under **Settings → Design → Themes**.
 | `packages/host` | The runtime injected into VRCNext. |
 | `examples/kitchen-sink` | Reference plugin exercising **every** capability, with custom CSS. |
 | `examples/hello-world` | Minimal plugin. |
+| `examples/club-security` | Practical plugin: reports each joiner's age verification, avatar performance ranks, group membership and rejoin history to toast, desktop, VR and a Discord webhook. |
 | `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh`. |
 
 Documentation lives in its own repository:
