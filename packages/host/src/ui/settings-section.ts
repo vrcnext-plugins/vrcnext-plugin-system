@@ -81,7 +81,9 @@ export class SettingsNav {
       open(block?: HTMLElement): void {
         showTab(tabIndexOf(requireElement(SELECTORS.settingsTab)));
         switchSection()?.(spec.sectionId, item);
-        block?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        // Guarded: `scrollIntoView` is missing in a plain DOM, and a card that cannot be
+        // scrolled to is still a card the section shows.
+        if (typeof block?.scrollIntoView === 'function') block.scrollIntoView({ block: 'start', behavior: 'smooth' });
       },
       remove(): void {
         const wasActive = isActive();

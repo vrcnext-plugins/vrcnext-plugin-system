@@ -87,7 +87,7 @@ export async function createContext(
   });
   bag.add(() => { void settings.flush(); });
 
-  const ui = deps.ui.forPlugin(manifest.id, bag, settings, schema);
+  const ui = deps.ui.forPlugin({ id: manifest.id, name: manifest.name, bag, settings, schema });
   bag.add(() => { ui.disposeAll(); });
 
   const osc = new HostOscApi({

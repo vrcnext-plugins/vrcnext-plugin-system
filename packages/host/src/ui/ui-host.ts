@@ -37,7 +37,7 @@ import { PluginNav } from './plugin-nav.js';
 import { storeBinding } from './settings/binding.js';
 import { openPicker } from './settings/entity-picker.js';
 import { renderForm } from './settings/form.js';
-import { PLUGINS_SECTION, SettingsNav } from './settings-section.js';
+import { SettingsNav } from './settings-section.js';
 import { HostUiKit } from './ui-kit.js';
 import * as widgets from './widgets.js';
 
@@ -48,6 +48,16 @@ const PLUGIN_ATTR = 'data-vrcnext-plugin';
 export interface PluginUi extends UiApi {
   /** Removes every panel this plugin injected. */
   disposeAll(): void;
+}
+
+/** Who a {@link UiHost.forPlugin} UI belongs to, and what its settings card draws. */
+export interface PluginUiOptions {
+  readonly id: string;
+  /** The plugin's display name, which is what its settings section is labelled. */
+  readonly name: string;
+  readonly bag: DisposableBag;
+  readonly settings?: SettingsStore<SettingsSchema> | undefined;
+  readonly schema?: SettingsSchema | undefined;
 }
 
 export interface UiHostOptions {
@@ -66,12 +76,20 @@ interface Shared {
   readonly settingsNav: SettingsNav;
   /** The host's Plugins section, once the host has created it. */
   readonly defaultSection: () => SettingsSectionHandle | undefined;
+  /** A plugin's settings card, so the Plugins list can jump to it. */
+  readonly registerCard: (pluginId: string, section: SettingsSectionHandle, card: HTMLElement) => () => void;
+  /** Counts the plugin sections below the divider, which is hidden while there are none. */
+  readonly noteSection: (delta: number) => void;
 }
 
 export class UiHost {
   readonly #shared: Shared;
+  readonly #cards = new Map<string, { section: SettingsSectionHandle; card: HTMLElement }>();
+  #divider: HTMLElement | undefined;
+  #sections = 0;
+
   /**
-   * The host's Plugins section, where plugin settings cards go by default. The host creates it
+   * The host's Plugins section, where the host's own manager panel lives. The host creates it
    * through the same API plugins use and sets it here once it exists.
    */
   pluginsSection: SettingsSectionHandle | undefined;
@@ -83,26 +101,48 @@ export class UiHost {
       onUiEvent: options.onUiEvent,
       settingsNav: new SettingsNav(),
       defaultSection: () => this.pluginsSection,
+      registerCard: (pluginId, section, card) => {
+        this.#cards.set(pluginId, { section, card });
+        return (): void => { this.#cards.delete(pluginId); };
+      },
+      noteSection: (delta) => {
+        this.#sections += delta;
+        if (this.#divider !== undefined) this.#divider.style.display = this.#sections > 0 ? '' : 'none';
+      },
     };
   }
 
-  forPlugin(
-    pluginId: string,
-    bag: DisposableBag,
-    settings?: SettingsStore<SettingsSchema>,
-    schema?: SettingsSchema,
-  ): PluginUi {
-    return new PluginUiImpl(pluginId, bag, { settings, schema, namespace: pluginId }, this.#shared);
+  /**
+   * The rule the nav follows below VRCNext's own sections: the host's two, a divider, then one
+   * section per plugin that has settings. The divider is the host's, so it survives a plugin
+   * being disabled, and it is hidden while no plugin is showing anything.
+   */
+  setPluginDivider(divider: HTMLElement): void {
+    this.#divider = divider;
+    divider.style.display = this.#sections > 0 ? '' : 'none';
+  }
+
+  forPlugin(options: PluginUiOptions): PluginUi {
+    const { id, name, bag, settings, schema } = options;
+    return new PluginUiImpl(id, bag, { settings, schema, namespace: id, name }, this.#shared);
   }
 
   /** UI owned by the host itself. Its ids are not namespaced: they are the page's own. */
   forHost(bag: DisposableBag): PluginUi {
-    return new PluginUiImpl('host', bag, { namespace: undefined }, this.#shared);
+    return new PluginUiImpl('host', bag, { namespace: undefined, name: 'Plugin System' }, this.#shared);
   }
 
   /** The settings card a plugin added, if any. */
-  static settingsCardOf(pluginId: string): HTMLElement | undefined {
-    return document.querySelector<HTMLElement>(`[${PLUGIN_ATTR}="${pluginId}"][data-section="${PLUGINS_SECTION}"]`) ?? undefined;
+  settingsCardOf(pluginId: string): HTMLElement | undefined {
+    return this.#cards.get(pluginId)?.card;
+  }
+
+  /** Opens VRCNext's Settings on a plugin's own section, scrolled to its card. */
+  openSettingsOf(pluginId: string): boolean {
+    const entry = this.#cards.get(pluginId);
+    if (entry === undefined) return false;
+    entry.section.open(entry.card);
+    return true;
   }
 }
 
@@ -111,6 +151,8 @@ interface PluginUiContext {
   readonly schema?: SettingsSchema | undefined;
   /** Prefix for ids that land in the page (`data-section`, element ids); none for the host. */
   readonly namespace: string | undefined;
+  /** What the plugin is called, which is what its settings section is labelled. */
+  readonly name: string;
 }
 
 class PluginUiImpl implements PluginUi {
@@ -119,8 +161,11 @@ class PluginUiImpl implements PluginUi {
   readonly #settings: SettingsStore<SettingsSchema> | undefined;
   readonly #schema: SettingsSchema | undefined;
   readonly #namespace: string | undefined;
+  readonly #name: string;
   readonly #shared: Shared;
   readonly #handles = new Set<PanelHandle>();
+  /** Created the first time this plugin files a settings card, and removed with the plugin. */
+  #ownSection: SettingsSectionHandle | undefined;
 
   constructor(pluginId: string, bag: DisposableBag, context: PluginUiContext, shared: Shared) {
     this.#pluginId = pluginId;
@@ -128,6 +173,7 @@ class PluginUiImpl implements PluginUi {
     this.#settings = context.settings;
     this.#schema = context.schema;
     this.#namespace = context.namespace;
+    this.#name = context.name;
     this.#shared = shared;
   }
 
@@ -249,14 +295,32 @@ class PluginUiImpl implements PluginUi {
     }
 
     options.render?.(card);
-    const section = options.section ?? this.#shared.defaultSection();
-    if (section === undefined) throw new Error('The host has no Plugins section to put the card in yet.');
+    const section = options.section ?? this.#settingsSection(options.icon);
     section.attach(card);
+    const forget = this.#shared.registerCard(this.#pluginId, section, card);
 
     return this.#track({
       element: card,
-      dispose: (): void => { card.remove(); },
+      dispose: (): void => {
+        forget();
+        card.remove();
+      },
     });
+  }
+
+  /**
+   * Where a card goes when the plugin does not say: the host's Plugins section for the host
+   * itself, and otherwise a section of the plugin's own, named after it, below the divider.
+   * A plugin with several cards gets one section carrying all of them.
+   */
+  #settingsSection(icon: string): SettingsSectionHandle {
+    if (this.#namespace === undefined) {
+      const section = this.#shared.defaultSection();
+      if (section === undefined) throw new Error('The host has no Plugins section to put the card in yet.');
+      return section;
+    }
+    this.#ownSection ??= this.addSettingsSection({ id: 'settings', label: this.#name, icon });
+    return this.#ownSection;
   }
 
   addSettingsSection(options: SettingsSectionOptions): SettingsSectionHandle {
@@ -266,6 +330,9 @@ class PluginUiImpl implements PluginUi {
       icon: options.icon,
     });
     binding.navItem.setAttribute(PLUGIN_ATTR, this.#pluginId);
+    // The host's own sections sit above the divider and do not count towards showing it.
+    let counted = this.#namespace !== undefined;
+    if (counted) this.#shared.noteSection(1);
     const handle: SettingsSectionHandle = {
       element: binding.navItem,
       sectionId: binding.sectionId,
@@ -276,7 +343,13 @@ class PluginUiImpl implements PluginUi {
         binding.attach(block);
       },
       open: (block): void => { binding.open(block); },
-      dispose: (): void => { binding.remove(); },
+      dispose: (): void => {
+        if (counted) {
+          counted = false;
+          this.#shared.noteSection(-1);
+        }
+        binding.remove();
+      },
     };
     this.#track(handle);
     return handle;

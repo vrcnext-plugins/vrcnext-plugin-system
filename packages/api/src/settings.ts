@@ -83,6 +83,8 @@ export interface NumberSetting extends SettingBase {
    */
   readonly markers?: readonly number[];
   readonly stickToMarkers?: boolean;
+  /** Whole numbers only: the control steps by one and a stored value is rounded. */
+  readonly integer?: boolean;
   /** Shown after the value, e.g. `s`, `%`, `px`. */
   readonly unit?: string;
 }
@@ -282,7 +284,7 @@ function coerceNumber(spec: NumberSetting, value: unknown): number | undefined {
   if (markers.length > 0 && spec.stickToMarkers !== false) {
     return markers.reduce((best, m) => (Math.abs(m - clamped) < Math.abs(best - clamped) ? m : best));
   }
-  return clamped;
+  return spec.integer === true ? Math.round(clamped) : clamped;
 }
 
 function coerceMultiSelect(spec: MultiSelectSetting, value: unknown): readonly string[] | undefined {

@@ -86,9 +86,10 @@ export type { EmbedField } from './settings-embed.js';
 export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
-export { PERFORMANCE_RANKS, rankIndex } from './vrchat.js';
+export { PERFORMANCE_RANKS, TRUST_RANKS, rankIndex, trustRank } from './vrchat.js';
 export type {
   PerformanceRank,
+  TrustRank,
   VrcAvatar,
   VrcAvatarSummary,
   VrcFavoriteGroup,
@@ -190,7 +191,7 @@ export type {
   UiApi,
 } from './ui.js';
 
-export { timeAgo } from './time.js';
+export { formatDuration, timeAgo } from './time.js';
 export type { TimeInput } from './time.js';
 export { INSTANCE_TYPES, isGroupInstance, parseLocation } from './location.js';
 export type { InstanceType, ParsedLocation } from './location.js';

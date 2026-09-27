@@ -454,6 +454,30 @@ export function dropdown(options: {
 /** A slider that can also be moved from outside, by whoever owns the value. */
 export type SliderElement = HTMLElement & { setValue(next: number): void };
 
+/** The `<datalist>` a range input points at, so the browser draws its own tick marks too. */
+function markerList(input: HTMLInputElement, markers: readonly number[]): HTMLElement {
+  const list = element('datalist');
+  list.id = `vrcnx-marks-${String(Math.random()).slice(2)}`;
+  for (const mark of markers) {
+    const option = element('option');
+    option.value = String(mark);
+    list.appendChild(option);
+  }
+  input.setAttribute('list', list.id);
+  return list;
+}
+
+/** The numbers under the track, each over its tick. */
+function markerLabels(markers: readonly number[], percent: (n: number) => number): HTMLElement {
+  const marks = element('div', 'vrcnx-slider-marks');
+  for (const mark of markers) {
+    const label = element('span', 'vrcnx-slider-mark', String(mark));
+    label.style.left = `${String(percent(mark))}%`;
+    marks.appendChild(label);
+  }
+  return marks;
+}
+
 /** VRCNext's slider (`.fs-slider`), with a value readout, a filled track and labelled markers. */
 export function slider(options: {
   readonly value: number;
@@ -462,6 +486,8 @@ export function slider(options: {
   /** `'any'` lets the thumb rest between markers only where the datalist has one. */
   readonly step?: number | 'any';
   readonly markers?: readonly number[];
+  /** The thumb rests only on markers, as Equicord's marker sliders do. */
+  readonly snapToMarkers?: boolean;
   readonly unit?: string;
   readonly disabled?: boolean;
   /** Fires while dragging. */
@@ -501,29 +527,10 @@ export function slider(options: {
   input.step = String(options.step ?? 1);
   input.value = String(options.value);
   if (options.disabled === true) input.disabled = true;
-  if (markers.length > 0) {
-    const list = element('datalist');
-    list.id = `vrcnx-marks-${String(Math.random()).slice(2)}`;
-    for (const mark of markers) {
-      const option = element('option');
-      option.value = String(mark);
-      list.appendChild(option);
-    }
-    input.setAttribute('list', list.id);
-    wrap.appendChild(list);
-  }
+  if (markers.length > 0) wrap.appendChild(markerList(input, markers));
   wrap.appendChild(input);
   block.appendChild(wrap);
-
-  if (markers.length > 0) {
-    const marks = element('div', 'vrcnx-slider-marks');
-    for (const mark of markers) {
-      const label = element('span', 'vrcnx-slider-mark', String(mark));
-      label.style.left = `${String(percent(mark))}%`;
-      marks.appendChild(label);
-    }
-    block.appendChild(marks);
-  }
+  if (markers.length > 0) block.appendChild(markerLabels(markers, percent));
 
   const unit = options.unit ?? '';
   const paint = (n: number): void => {
@@ -532,12 +539,24 @@ export function slider(options: {
   };
   paint(options.value);
 
+  // Snapping is done here rather than with `step`, because markers are rarely evenly spaced
+  // and a `list` attribute alone does not make a range input stop on its ticks.
+  const snap = (n: number): number => {
+    if (options.snapToMarkers !== true || markers.length === 0) return n;
+    return markers.reduce((best, m) => (Math.abs(m - n) < Math.abs(best - n) ? m : best));
+  };
+
   input.addEventListener('input', () => {
-    const n = Number(input.value);
+    const n = snap(Number(input.value));
     paint(n);
     options.onInput?.(n);
   });
-  input.addEventListener('change', () => { options.onChange(Number(input.value)); });
+  input.addEventListener('change', () => {
+    const n = snap(Number(input.value));
+    input.value = String(n);
+    paint(n);
+    options.onChange(n);
+  });
 
   // A write from elsewhere sets the value and repaints; assigning `input.value` alone would
   // leave the readout and the filled track behind, and a synthetic event would be a lie.

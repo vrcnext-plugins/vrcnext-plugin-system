@@ -191,6 +191,8 @@ function mountNav(core: Core, bag: DisposableBag): void {
   const plugins = ui.addSettingsSection({ id: PLUGINS_SECTION, label: 'Plugins', icon: 'extension' });
   core.ui.pluginsSection = plugins;
   bag.add(() => { core.ui.pluginsSection = undefined; });
+  // Everything below this rule is one plugin's own settings section.
+  core.ui.setPluginDivider(ui.addSettingsDivider().element);
 
   const openUrl = (url: string): void => { core.bridge.send('openUrl', { url }); };
   const managerPanel = new ManagerPanel({
@@ -198,12 +200,7 @@ function mountNav(core: Core, bag: DisposableBag): void {
     native: core.native,
     broker: core.broker,
     openUrl,
-    openSettings: (id) => {
-      const card = UiHost.settingsCardOf(id);
-      if (card === undefined) return false;
-      plugins.open(card);
-      return true;
-    },
+    openSettings: (id) => core.ui.openSettingsOf(id),
     onError: (message) => {
       core.logger.error(message);
       core.toast({ message, ok: false });
@@ -263,8 +260,21 @@ function gateOnBridge(core: Core, bag: DisposableBag): void {
       core.logger.error('Could not read host state from the bridge.', error);
     }
   };
+  // Whether the bridge is up is worth saying out loud: without it nothing is installed, no
+  // setting is saved and no plugin runs. The state on load is not a transition, so it is not
+  // announced — only losing the bridge, and getting it back.
+  let wasConnected = core.native.status === 'connected';
   bag.add(core.native.onStatus((status) => {
-    if (status === 'connected') void start();
+    const isConnected = status === 'connected';
+    if (isConnected !== wasConnected) {
+      wasConnected = isConnected;
+      core.toast(
+        isConnected
+          ? { message: 'VRCNext Bridge connected.', ok: true }
+          : { message: 'VRCNext Bridge disconnected — plugins and their settings are paused.', ok: false },
+      );
+    }
+    if (isConnected) void start();
   }));
   if (core.native.status === 'connected') void start();
 

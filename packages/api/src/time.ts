@@ -34,3 +34,20 @@ export function timeAgo(at: TimeInput, now = Date.now()): string {
   if (days < 365) return plural(Math.floor(days / 30), 'month');
   return plural(Math.floor(days / 365), 'year');
 }
+
+/**
+ * `45 minutes`, `3 hours`, `5 days`, `4 months`, `2 years` — the same coarse unit
+ * {@link timeAgo} picks, without the "ago", for a length of time rather than a point in it.
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const minutes = Math.floor(ms / 60_000);
+  const say = (count: number, unit: string): string => `${String(count)} ${unit}${count === 1 ? '' : 's'}`;
+  if (minutes < 60) return say(Math.max(minutes, 1), 'minute');
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return say(hours, 'hour');
+  const days = Math.floor(hours / 24);
+  if (days < 30) return say(days, 'day');
+  if (days < 365) return say(Math.floor(days / 30), 'month');
+  return say(Math.floor(days / 365), 'year');
+}

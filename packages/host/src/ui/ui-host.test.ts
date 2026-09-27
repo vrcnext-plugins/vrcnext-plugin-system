@@ -57,7 +57,7 @@ test('the host’s ids are the page’s own; a plugin’s are namespaced', () =>
   const ui = host();
   const hostBag = new DisposableBag();
   const plugins = ui.forHost(hostBag).addSettingsSection({ id: 'plugins', label: 'Plugins', icon: 'extension' });
-  const mine = ui.forPlugin('demo', new DisposableBag()).addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
+  const mine = ui.forPlugin({ id: 'demo', name: 'Demo', bag: new DisposableBag() }).addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
 
   assert.equal(plugins.sectionId, 'plugins');
   assert.equal(mine.sectionId, 'demo.main');
@@ -65,27 +65,46 @@ test('the host’s ids are the page’s own; a plugin’s are namespaced', () =>
   assert.equal(mine.element.getAttribute('onclick'), "switchSettingsSection('demo.main', this)");
 });
 
-test('settings cards go to the host’s Plugins section unless a section is given', () => {
+test('a plugin’s settings card goes into a section of its own, named after it', () => {
   const ui = host();
-  const hostUi = ui.forHost(new DisposableBag());
-  const pluginUi = ui.forPlugin('demo', new DisposableBag());
+  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', bag: new DisposableBag() });
 
-  assert.throws(() => pluginUi.addSettingsCard({ title: 'Early', icon: 'tune' }), /no Plugins section/);
-
-  ui.pluginsSection = hostUi.addSettingsSection({ id: 'plugins', label: 'Plugins', icon: 'extension' });
-  const own = pluginUi.addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
   const defaulted = pluginUi.addSettingsCard({ title: 'Default', icon: 'tune' });
-  const filed = pluginUi.addSettingsCard({ title: 'Filed', icon: 'tune', section: own });
+  assert.equal(defaulted.element.dataset['section'], 'demo.settings');
+  const nav = dom.window.document.querySelector('.settings-nav-item[onclick*="demo.settings"]');
+  assert.equal(nav?.textContent, 'tuneDemo', 'the nav item carries the plugin’s name and its card’s icon');
 
-  assert.equal(defaulted.element.dataset['section'], 'plugins');
+  // A second card joins the same section rather than making another.
+  const second = pluginUi.addSettingsCard({ title: 'More', icon: 'tune' });
+  assert.equal(second.element.dataset['section'], 'demo.settings');
+
+  const own = pluginUi.addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
+  const filed = pluginUi.addSettingsCard({ title: 'Filed', icon: 'tune', section: own });
   assert.equal(filed.element.dataset['section'], 'demo.main');
-  assert.equal(UiHost.settingsCardOf('demo'), defaulted.element, 'the Settings button finds the card under Plugins');
+
+  assert.equal(ui.settingsCardOf('demo'), filed.element, 'the Settings button finds the plugin’s newest card');
+  assert.equal(ui.openSettingsOf('demo'), true);
+  assert.equal(ui.openSettingsOf('absent'), false);
+});
+
+test('the divider above the plugin sections is hidden while no plugin has any', () => {
+  const ui = host();
+  const divider = ui.forHost(new DisposableBag()).addSettingsDivider();
+  ui.setPluginDivider(divider.element);
+  assert.equal(divider.element.style.display, 'none');
+
+  const bag = new DisposableBag();
+  ui.forPlugin({ id: 'demo', name: 'Demo', bag }).addSettingsCard({ title: 'Default', icon: 'tune' });
+  assert.equal(divider.element.style.display, '');
+
+  bag.dispose();
+  assert.equal(divider.element.style.display, 'none');
 });
 
 test('disposing the plugin’s bag removes its section, divider, blocks and sidebar group', () => {
   const ui = host();
   const bag = new DisposableBag();
-  const pluginUi = ui.forPlugin('demo', bag);
+  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', bag });
   pluginUi.addSettingsDivider();
   const section = pluginUi.addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
   const block = dom.window.document.createElement('div');

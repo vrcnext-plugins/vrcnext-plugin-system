@@ -24,6 +24,36 @@ export function rankIndex(rank: string): number | undefined {
   return index < 0 ? undefined : index;
 }
 
+/**
+ * VRChat's trust ranks as VRCNext names them, best first.
+ *
+ * The tags are offset by one from the label VRChat shows: someone carrying
+ * `system_trust_trusted` is displayed as a *Known* user. VRCNext's own profile badge applies
+ * that offset and so does this, so a plugin and the page never disagree about someone's rank.
+ */
+export const TRUST_RANKS = [
+  { tag: 'system_trust_legend', label: 'Trusted User', short: 'Trusted' },
+  { tag: 'system_trust_veteran', label: 'Trusted User', short: 'Trusted' },
+  { tag: 'system_trust_trusted', label: 'Known User', short: 'Known' },
+  { tag: 'system_trust_known', label: 'User', short: 'User' },
+  { tag: 'system_trust_basic', label: 'New User', short: 'New' },
+] as const;
+
+export interface TrustRank {
+  /** As VRChat's profile shows it: `Trusted User`, `Known User`, `User`, `New User`, `Visitor`. */
+  readonly label: string;
+  /** One word, for somewhere narrow. */
+  readonly short: string;
+}
+
+const VISITOR: TrustRank = { label: 'Visitor', short: 'Visitor' };
+
+/** The highest rank in `tags`; `Visitor` when none of them is a trust tag. */
+export function trustRank(tags: readonly string[]): TrustRank {
+  const found = TRUST_RANKS.find((rank) => tags.includes(rank.tag));
+  return found === undefined ? VISITOR : { label: found.label, short: found.short };
+}
+
 export interface VrcUserSummary {
   readonly id: string;
   readonly displayName: string;

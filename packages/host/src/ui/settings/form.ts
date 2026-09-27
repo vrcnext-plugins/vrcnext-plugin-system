@@ -68,8 +68,9 @@ function numberControl(spec: NumberSetting, binding: Binding, error: ReturnType<
       value: current,
       min,
       max,
-      step: spec.step ?? (markers.length > 0 && spec.stickToMarkers !== false ? 'any' : 1),
+      step: spec.step ?? 1,
       markers,
+      ...(markers.length > 0 && spec.stickToMarkers !== false ? { snapToMarkers: true } : {}),
       ...(spec.unit === undefined ? {} : { unit: spec.unit }),
       onChange: (next) => { commit(binding, next, error, ctx); },
     });
@@ -83,10 +84,11 @@ function numberControl(spec: NumberSetting, binding: Binding, error: ReturnType<
     onCommit: (next) => {
       const n = Number(next);
       if (Number.isNaN(n)) error.show('Not a number.');
+      else if (spec.integer === true && !Number.isInteger(n)) error.show('Whole numbers only.');
       else commit(binding, n, error, ctx);
     },
   });
-  input.inputMode = 'decimal';
+  input.inputMode = spec.integer === true ? 'numeric' : 'decimal';
   ctx.track(binding.onChange((value) => {
     if (document.activeElement !== input) input.value = String(value);
   }));

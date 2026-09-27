@@ -125,6 +125,8 @@ export interface UiSliderOptions {
   readonly step?: number | 'any';
   /** Labelled tick marks under the track. */
   readonly markers?: readonly number[];
+  /** The thumb rests only on the markers. */
+  readonly snapToMarkers?: boolean;
   /** Shown after the value readout, e.g. `s` or `%`. */
   readonly unit?: string;
   readonly disabled?: boolean;
