@@ -68,7 +68,8 @@ export interface UiStatusCardOptions {
 }
 
 export interface UiRowOptions {
-  readonly label: string;
+  /** A node instead of text when the label carries something of its own, e.g. a pill. */
+  readonly label: string | Node;
   /** Muted second line under the label. A node goes there instead, e.g. {@link UiKit.badges}. */
   readonly detail?: string | Node;
   /** Right-hand content. A string is rendered as muted value text. */
