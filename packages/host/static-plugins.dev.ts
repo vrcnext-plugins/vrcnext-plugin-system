@@ -10,11 +10,8 @@ import helloManifest from '../../examples/hello-world/plugin.json';
 import hello from '../../examples/hello-world/main.js';
 import kitchenSinkManifest from '../../examples/kitchen-sink/plugin.json';
 import kitchenSink from '../../examples/kitchen-sink/main.js';
-import clubSecurityManifest from '../../examples/club-security/plugin.json';
-import clubSecurity from '../../examples/club-security/main.js';
 
 export const COMPILED_PLUGINS = [
   { manifest: helloManifest, plugin: hello },
   { manifest: kitchenSinkManifest, plugin: kitchenSink },
-  { manifest: clubSecurityManifest, plugin: clubSecurity },
 ] as const;

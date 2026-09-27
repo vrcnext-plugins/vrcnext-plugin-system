@@ -217,7 +217,7 @@ sections and nothing else: sidebar tabs of their own are for plugins.
 | `packages/host/static-plugins.dev.ts` | The plugin table for the repo's own build. |
 | `examples/template` | Starting point for a plugin repository. |
 | `examples/hello-world`, `examples/kitchen-sink` | Minimal and exhaustive example plugins. |
-| `examples/club-security` | A complete plugin: game log, bridge actions, native and Discord notifications, tests. |
+| [`vrcnext-club-security-plugin`](https://github.com/vrcnext-plugins/vrcnext-club-security-plugin) | A complete plugin in its own repository: game log, VRChat data, presets, native and Discord notifications, tests. |
 | `install/` | The one-line installers and their README. |
 | `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh` (copies the dev bundle into the theme folder). |
 
