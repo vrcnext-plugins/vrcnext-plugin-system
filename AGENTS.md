@@ -20,7 +20,7 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 ## Where code goes
 
 - **Generic helpers belong in `packages/api`**, exported from `@vrcnext/plugin-api`, never
-  copied into a plugin. `timeAgo`, `fillTemplate` and friends are the pattern. Ask "would a
+  copied into a plugin. `timeAgo`, `renderTemplate` and friends are the pattern. Ask "would a
   second plugin want this?" before writing a utility under `examples/*/src`.
 - **Every way the host injects or changes VRCNext UI is a `ctx.ui` API**, and the host uses
   that same API for itself (`UiHost.forHost`). Settings sections, dividers, sidebar groups, tabs,
@@ -28,6 +28,10 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 - The host's own pages are Settings sections (Plugin System, Plugins). Sidebar entries from the
   host are shortcuts only; real sidebar tabs are for plugins.
 - Prefer reusable, flexible building blocks (kit widgets, options objects) over one-off markup.
+- **Third-party runtime dependencies are effectively unavailable**: the bridge builds from
+  `packages/*/src` with esbuild and no package manager, so anything not in those sources cannot
+  be resolved. Write the small thing (the template engine is 500 lines) rather than vendoring a
+  megabyte; user-facing templates must never go through `new Function` or `eval`.
 
 ## What ships
 
