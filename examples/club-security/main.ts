@@ -15,7 +15,7 @@ import { FactCollector, type Joiner } from './src/collector.js';
 import { filterFrom, instanceMatches } from './src/filters.js';
 import { notifyAll, type Report } from './src/notify.js';
 import { ReportPanel } from './src/panel.js';
-import { settings } from './src/settings.js';
+import { migrateTemplate, settings } from './src/settings.js';
 import { toSelf, type Self } from './src/vrcnext-data.js';
 
 type Ctx = PluginContext<typeof settings>;
@@ -138,6 +138,9 @@ export default definePlugin({
   settings,
 
   activate(ctx) {
+    const template = ctx.settings.get('template');
+    const migrated = migrateTemplate(template);
+    if (migrated !== template) void ctx.settings.set('template', migrated);
     new ClubSecurity(ctx).start();
   },
 

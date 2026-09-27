@@ -29,6 +29,15 @@ export const DEFAULT_TEMPLATE = [
   'Rejoin?: {rejoinText}',
 ].join('\n');
 
+/**
+ * The first version's variables were text; they are booleans now, with the wording under
+ * `…Text`. A stored template written against the old names is rewritten once on activation, so
+ * an edited format keeps rendering words rather than `true`.
+ */
+export function migrateTemplate(template: string): string {
+  return template.replace(/\{(ageVerified|pcRank|questRank|inGroup|rejoin)\}/g, '{$1Text}');
+}
+
 export const settings = {
   enabled: {
     kind: 'boolean',

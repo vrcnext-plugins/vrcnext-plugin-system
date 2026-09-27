@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import { reportLines, reportSummary, type Report } from './notify.js';
+import { migrateTemplate } from './settings.js';
 
 function report(overrides: Partial<Report> = {}): Report {
   return {
@@ -62,6 +63,11 @@ test('a template that does not parse falls back to the default and reports why',
   const lines = reportLines(report(), '{{ name', (e) => { errors.push(e.message); });
   assert.equal(lines[0], 'Player "Tupper" joined');
   assert.equal(errors.length, 1);
+});
+
+test('migrateTemplate renames the first version’s shorthand variables and nothing else', () => {
+  assert.equal(migrateTemplate('A: {ageVerified} {pcRank} {{ rejoin }} {name}'), 'A: {ageVerifiedText} {pcRankText} {{ rejoin }} {name}');
+  assert.equal(migrateTemplate('{rejoinText}'), '{rejoinText}');
 });
 
 test('reportSummary fits one line', () => {
