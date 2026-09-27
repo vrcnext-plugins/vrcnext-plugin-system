@@ -76,6 +76,13 @@ export function embedControl(spec: EmbedSetting, binding: Binding, error: Return
     rows.push(widgets.row('Timestamp', widgets.toggle(embed.timestamp, (next) => { write({ timestamp: next }); }), 'Stamp the embed with the time it is sent.'));
     rows.push(widgets.row('Fields', undefined, 'Name and value pairs; inline ones sit side by side.'));
     rows.push(fieldRows(embed.fields, (fields) => { write({ fields }); }));
+    // Without this there is no way back to the plugin's own embed: a stored one is kept across
+    // updates, so a plugin that improves its default cannot reach a preset that already exists.
+    rows.push(widgets.controlRow(widgets.button({
+      label: 'Restore default',
+      icon: 'restart_alt',
+      onClick: () => { commit(binding, completeEmbed(spec.default), error, ctx); },
+    })));
     if (spec.variables !== undefined && spec.variables.length > 0) {
       rows.push(widgets.description(`Variables: ${spec.variables.map((v) => `{${v}}`).join(' ')}`));
     }
