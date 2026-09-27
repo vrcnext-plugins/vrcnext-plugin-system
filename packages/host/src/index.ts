@@ -21,6 +21,7 @@ import { BridgeClient } from './capabilities/native.js';
 import { attachRemoteControl } from './capabilities/remote-control.js';
 import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
+import { mirrorToActivityLog } from './log/activity-log.js';
 import { createLogger } from './log/create-logger.js';
 import { DebugHub } from './log/debug-hub.js';
 import { LogSink } from './log/log-sink.js';
@@ -286,6 +287,9 @@ export function boot(): Promise<HostHandle> {
     try {
       const core = buildCore();
       const bag = new DisposableBag();
+      // VRCNext's own Activity Log gets every info+ line, so plugin activity reads in one place
+      // with the app's own.
+      bag.add(mirrorToActivityLog(core.sink));
       mountNav(core, bag);
       gateOnBridge(core, bag);
 

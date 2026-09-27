@@ -10,6 +10,7 @@
  * > 1. A live **Logs panel** under Plugin System in Settings.
  * > 2. **Mirroring to the VRCNext Bridge**, which appends every record to its `plugins.log`.
  * > 3. **Download as a `.log` file**, which is a real file on disk.
+ * > 4. **Mirroring into VRCNext's Activity Log** (info and above), through the page's `addLog`.
  *
  * Records are kept in a ring buffer so a chatty plugin cannot exhaust page memory.
  */
