@@ -73,6 +73,8 @@ export interface UiRowOptions {
   readonly detail?: string;
   /** Right-hand content. A string is rendered as muted value text. */
   readonly value?: UiChild;
+  /** Put the content on its own line under the label, full width. For text areas and lists. */
+  readonly stacked?: boolean;
 }
 
 export interface UiToggleRowOptions {
@@ -97,6 +99,15 @@ export interface UiTextFieldOptions {
   readonly value: string;
   readonly placeholder?: string;
   /** Fires on blur and on Enter — never per keystroke. */
+  readonly onCommit: (next: string) => void;
+}
+
+export interface UiTextAreaOptions {
+  readonly value: string;
+  readonly placeholder?: string;
+  /** Visible lines before it scrolls. Default 4; the user can drag it taller. */
+  readonly rows?: number;
+  /** Fires on blur — never per keystroke. */
   readonly onCommit: (next: string) => void;
 }
 
@@ -154,6 +165,8 @@ export interface UiKit {
 
   button(options: UiButtonOptions): HTMLButtonElement;
   textField(options: UiTextFieldOptions): HTMLInputElement;
+  /** A multi-line field. Pair it with `row({ stacked: true })` so it gets the full width. */
+  textArea(options: UiTextAreaOptions): HTMLTextAreaElement;
   dropdown(options: UiDropdownOptions): HTMLSelectElement;
 
   /** A small coloured pill. */

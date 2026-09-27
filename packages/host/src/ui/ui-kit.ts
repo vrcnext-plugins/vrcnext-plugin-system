@@ -18,6 +18,7 @@ import type {
   UiRowOptions,
   UiStatOptions,
   UiStatusCardOptions,
+  UiTextAreaOptions,
   UiTextFieldOptions,
   UiToggleRowOptions,
 } from '@vrcnext/plugin-api';
@@ -70,6 +71,7 @@ export class HostUiKit implements UiKit {
       options.label,
       control === false || control === null ? undefined : control,
       options.detail,
+      { stacked: options.stacked === true },
     );
   }
 
@@ -93,6 +95,10 @@ export class HostUiKit implements UiKit {
 
   textField(options: UiTextFieldOptions): HTMLInputElement {
     return widgets.textField(options);
+  }
+
+  textArea(options: UiTextAreaOptions): HTMLTextAreaElement {
+    return widgets.textArea(options);
   }
 
   dropdown(options: UiDropdownOptions): HTMLSelectElement {

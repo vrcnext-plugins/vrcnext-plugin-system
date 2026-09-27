@@ -305,6 +305,16 @@ class PluginUiImpl implements PluginUi {
       }
       case 'string': {
         const val = String(store.get(key));
+        if (spec.multiline === true) {
+          const area = widgets.textArea({
+            value: val,
+            rows: 6,
+            ...(spec.placeholder !== undefined ? { placeholder: spec.placeholder } : {}),
+            onCommit: (next) => { void store.set(key, next); },
+          });
+          if (spec.disabled === true) area.disabled = true;
+          return widgets.row(spec.label, area, spec.description, { stacked: true });
+        }
         const input = widgets.textField({
           value: val,
           ...(spec.placeholder !== undefined ? { placeholder: spec.placeholder } : {}),

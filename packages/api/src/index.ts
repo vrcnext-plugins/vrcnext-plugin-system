@@ -79,6 +79,7 @@ export type {
   UiStatOptions,
   UiStatusCardOptions,
   UiStatusTone,
+  UiTextAreaOptions,
   UiTextFieldOptions,
   UiToggleRowOptions,
 } from './ui-kit.js';
@@ -133,6 +134,8 @@ export type {
 } from './ui.js';
 
 export { timeAgo } from './time.js';
+export { fillTemplate, templatePlaceholders } from './template.js';
+export type { FillOptions } from './template.js';
 
 export { definePlugin } from './plugin.js';
 export type { PluginContext, VrcnextPlugin } from './plugin.js';

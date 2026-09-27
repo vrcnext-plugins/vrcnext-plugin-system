@@ -221,12 +221,25 @@ export function sectionLabel(text: string): HTMLElement {
  * `.sf-toggle-row` draws its own separator between consecutive siblings, so a run of these inside
  * one card reads as a proper list without any extra markup.
  */
-export function row(label: string | Node, control?: Node, detail?: string): HTMLElement {
+export function row(
+  label: string | Node,
+  control?: Node,
+  detail?: string,
+  options: { readonly stacked?: boolean } = {},
+): HTMLElement {
   const root = element('div', 'sf-toggle-row');
+  // VRCNext's row has no gap of its own: a wide control would sit flush against the label.
+  root.style.gap = '16px';
+  if (options.stacked === true) {
+    root.style.flexDirection = 'column';
+    root.style.alignItems = 'stretch';
+    root.style.gap = '8px';
+  }
 
   const renderLabel = (): Node => {
-    if (typeof label === 'string') return element('span', undefined, label);
-    return label;
+    const node = typeof label === 'string' ? element('span', undefined, label) : label;
+    if (node instanceof HTMLElement) node.style.flex = '1 1 auto';
+    return node;
   };
 
   if (detail === undefined) {
@@ -238,7 +251,7 @@ export function row(label: string | Node, control?: Node, detail?: string): HTML
     // frontend — it renders at full size there too. `.set-desc` is the real muted style; its
     // bottom margin is the only thing that has to go, since this one sits inside a row.
     const stack = element('div');
-    stack.style.minWidth = '0';
+    stack.style.cssText = 'min-width:0;flex:1 1 auto;';
     stack.appendChild(renderLabel());
 
     const note = element('div', 'set-desc', detail);
@@ -318,7 +331,8 @@ export function textField(options: {
 }): HTMLInputElement {
   const input = element('input', 'vrcn-edit-field');
   input.type = 'text';
-  input.style.flex = '1';
+  // A bounded width: in a row the label keeps the room, in a control strip it still shrinks.
+  input.style.cssText = 'flex:0 1 320px;min-width:160px;max-width:100%;';
   input.value = options.value;
   input.spellcheck = false;
   if (options.placeholder !== undefined) input.placeholder = options.placeholder;
@@ -330,6 +344,28 @@ export function textField(options: {
     if (event.key === 'Enter') input.blur();
   });
   return input;
+}
+
+/**
+ * A multi-line `.vrcn-edit-field`, for templates and lists. Commits on blur, like the text
+ * field; a template being typed should not be applied per keystroke.
+ */
+export function textArea(options: {
+  readonly value: string;
+  readonly placeholder?: string;
+  readonly rows?: number;
+  readonly onCommit: (next: string) => void;
+}): HTMLTextAreaElement {
+  const area = element('textarea', 'vrcn-edit-field');
+  area.rows = options.rows ?? 4;
+  area.style.cssText =
+    'width:100%;box-sizing:border-box;height:auto;min-height:72px;padding:8px 10px;resize:vertical;' +
+    'line-height:1.5;font-family:ui-monospace,monospace;white-space:pre;';
+  area.value = options.value;
+  area.spellcheck = false;
+  if (options.placeholder !== undefined) area.placeholder = options.placeholder;
+  area.addEventListener('change', () => { options.onCommit(area.value); });
+  return area;
 }
 
 /** VRCNext's select. */
