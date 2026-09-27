@@ -7,9 +7,12 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, test } from 'vitest';
 
-import { DisposableBag } from '@vrcnext/plugin-api';
+import { DisposableBag, type VrchatApi } from '@vrcnext/plugin-api';
 
 import { UiHost } from './ui-host.js';
+
+/** The pickers are not exercised here; nothing may reach VRChat data. */
+const noVrchat = new Proxy({}, { get: () => () => { throw new Error('no VRChat data in this test'); } }) as VrchatApi;
 
 const SHELL = `<!doctype html><html><body>
   <div class="sidebar" id="sidebarEl"><div class="nav" id="navEl"></div></div>
@@ -47,7 +50,7 @@ afterEach(() => {
 });
 
 function host(): UiHost {
-  return new UiHost({ toast: () => undefined });
+  return new UiHost({ toast: () => undefined, vrchat: noVrchat });
 }
 
 test('the host’s ids are the page’s own; a plugin’s are namespaced', () => {

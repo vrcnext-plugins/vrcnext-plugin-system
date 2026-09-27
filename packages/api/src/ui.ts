@@ -11,6 +11,7 @@
 
 import type { Disposable } from './disposable.js';
 import type { ToastOptions } from './notifications.js';
+import type { EntityKind } from './settings-entity.js';
 import type { UiKit } from './ui-kit.js';
 
 export type { ToastOptions };
@@ -92,6 +93,17 @@ export interface SidebarGroupOptions {
   readonly entries: readonly SidebarShortcut[];
 }
 
+/** What {@link UiApi.pickEntity} asks the user for. */
+export interface EntityPickOptions {
+  readonly kind: EntityKind;
+  readonly title?: string;
+  readonly multiple?: boolean;
+  /** Scope names for the kind (see the picker settings); omit for all of them. */
+  readonly scopes?: readonly string[];
+  /** Ids already chosen, shown as selected. */
+  readonly selected?: readonly string[];
+}
+
 export interface DashboardCardOptions {
   readonly title: string;
   readonly icon: IconName;
@@ -140,6 +152,13 @@ export interface UiApi {
 
   /** Shows a VRCNext toast. Routed through the host's own toast renderer. */
   toast(options: ToastOptions): void;
+
+  /**
+   * Opens the same picker the settings UI uses for `user`, `world`, `avatar`, `group` and
+   * `instance` settings, and resolves with the chosen ids — `undefined` when cancelled. The
+   * picker reads VRCNext's data on the user's behalf, so no permission is needed.
+   */
+  pickEntity(options: EntityPickOptions): Promise<readonly string[] | undefined>;
 
   /**
    * Creates an element using VRCNext's classes. Prefer this over `document.createElement` so

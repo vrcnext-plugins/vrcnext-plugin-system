@@ -11,6 +11,7 @@ import {
   type PluginContext,
   type PluginManifest,
   type SettingsSchema,
+  type VrchatApi,
   type VrcnextPlugin,
 } from '@vrcnext/plugin-api';
 
@@ -40,6 +41,7 @@ import {
   GatedHttp,
   GatedNative,
   GatedOsc,
+  gatedVrchat,
 } from './gated.js';
 
 export interface ContextDeps {
@@ -52,6 +54,7 @@ export interface ContextDeps {
   readonly deepLinks: DeepLinkHub;
   readonly contextMenu: ContextMenuHub;
   readonly native: BridgeClient;
+  readonly vrchat: VrchatApi;
   readonly broker: PermissionBroker;
   readonly isLinux: () => boolean;
   /** Page origin for the plugin router's base URL. */
@@ -113,6 +116,7 @@ export async function createContext(
     osc: new GatedOsc(osc, gate, bag),
     native: new GatedNative(deps.native, gate),
     gameLog: new GatedGameLog(new HostGameLogApi(deps.bridge, deps.router, bag), gate, bag),
+    vrchat: gatedVrchat(deps.vrchat, gate),
     deepLinks: new GatedDeepLinks(new PluginDeepLinkApi(deps.deepLinks, bag), gate, bag),
     router: categoryGuarded(gate, 'routes', router),
     contextMenu: categoryGuarded(

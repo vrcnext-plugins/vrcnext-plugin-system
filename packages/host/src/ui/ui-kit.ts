@@ -12,7 +12,11 @@ import type {
   UiButtonOptions,
   UiCardOptions,
   UiChild,
+  UiChipsOptions,
   UiDropdownOptions,
+  UiListItemOptions,
+  UiSliderOptions,
+  UiTypedFieldOptions,
   UiGridOptions,
   UiKit,
   UiRowOptions,
@@ -103,6 +107,26 @@ export class HostUiKit implements UiKit {
 
   dropdown(options: UiDropdownOptions): HTMLSelectElement {
     return widgets.dropdown(options);
+  }
+
+  slider(options: UiSliderOptions): HTMLElement {
+    return widgets.slider(options);
+  }
+
+  chips(options: UiChipsOptions): HTMLElement {
+    return widgets.chips(options);
+  }
+
+  timeField(options: UiTypedFieldOptions): HTMLInputElement {
+    return widgets.typedField('time', options);
+  }
+
+  colorField(options: UiTypedFieldOptions): HTMLInputElement {
+    return widgets.typedField('color', options);
+  }
+
+  listItem(options: UiListItemOptions): HTMLElement {
+    return widgets.listItem(options);
   }
 
   badge(tone: UiBadgeTone, text: string): HTMLElement {

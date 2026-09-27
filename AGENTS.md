@@ -17,6 +17,19 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
   `~/.vrcnext-plugins/host/packages/*/src` and `POST /v1/plugins/build` on the bridge. A plugin
   is updated by pushing its flat repo and `POST /v1/plugins/update`.
 
+## Reading VRChat data
+
+- **`ctx.vrchat` is the only way a plugin reads users, avatars, worlds, groups and instances.**
+  Never make a plugin send `vrcGetFriendDetail`-style actions itself: VRCNext's own dispatcher
+  paints (or opens) a modal for those replies. The host's `QuietChannel` wraps the callbacks
+  Photino registered before ours, so a reply the host asked for is withheld from VRCNext and the
+  screen does not change.
+- Lists VRCNext keeps anyway (friends, favourites, your groups, the current instance) are
+  mirrored from its pushes and asked for with `swallow: false`, because VRCNext handling those
+  replies is what keeps its own lists fresh.
+- Payload field names are read out of the VRCNext C# source, not guessed, and normalised in one
+  place (`capabilities/vrchat/normalise.ts`).
+
 ## Where code goes
 
 - **Generic helpers belong in `packages/api`**, exported from `@vrcnext/plugin-api`, never
@@ -28,6 +41,12 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 - The host's own pages are Settings sections (Plugin System, Plugins). Sidebar entries from the
   host are shortcuts only; real sidebar tabs are for plugins.
 - Prefer reusable, flexible building blocks (kit widgets, options objects) over one-off markup.
+- **A new kind of setting belongs in the schema, not in a plugin's own panel.** `packages/api/src/settings.ts`
+  declares the kind and how a stored value is repaired; `packages/host/src/ui/settings/` renders it.
+  Every control is fed a `Binding`, so the same code draws a top-level setting, a field of an
+  `object` and a field of a `list` item — and a nested edit still ends in one `store.set`.
+- Controls reuse VRCNext's own classes (`.fs-slider`, `.fd-profile-item-small`, `.vrcn-edit-field`).
+  If a control needs a look VRCNext has, find its class rather than writing CSS.
 - **Third-party runtime dependencies are effectively unavailable**: the bridge builds from
   `packages/*/src` with esbuild and no package manager, so anything not in those sources cannot
   be resolved. Write the small thing (the template engine is 500 lines) rather than vendoring a

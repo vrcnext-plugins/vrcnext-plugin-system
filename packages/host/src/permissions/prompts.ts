@@ -121,6 +121,15 @@ export function gamelogPrompt(plugin: PluginSubject): PromptRequest {
   return build(plugin, { kind: 'gamelog', target: ANY_TARGET, title: `${who(plugin)} read the VRChat game log` });
 }
 
+export function vrchatPrompt(plugin: PluginSubject): PromptRequest {
+  return build(plugin, {
+    kind: 'vrchat',
+    target: ANY_TARGET,
+    title: `${who(plugin)} read VRChat data through VRCNext`,
+    details: [{ label: 'What that allows', value: permissionInfo('vrchat').description }],
+  });
+}
+
 export function clipboardPrompt(plugin: PluginSubject, direction: 'read' | 'write'): PromptRequest {
   const verb = direction === 'read' ? 'read the clipboard' : 'write to the clipboard';
   return build(plugin, { kind: 'clipboard', target: direction, title: `${who(plugin)} ${verb}` });

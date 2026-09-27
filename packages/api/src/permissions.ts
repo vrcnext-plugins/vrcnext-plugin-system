@@ -53,6 +53,12 @@ export const PERMISSIONS = {
     description: 'Read the VRChat game log, live and its backlog.',
     tone: 'medium',
   },
+  vrchat: {
+    description:
+      'Read VRChat data through VRCNext: your friends, favourites, groups and instance, and look up ' +
+      'users, avatars, worlds and groups without opening their dialogs.',
+    tone: 'medium',
+  },
   'context-menu': {
     description: 'Add entries to right-click menus.',
     tone: 'low',

@@ -51,6 +51,8 @@ export interface ModalOptions<T> {
   readonly icon: string;
   readonly body: readonly UiChild[];
   readonly buttons: readonly ModalButton<T>[];
+  /** Filled in with a function that closes the modal with a value, for bodies that resolve themselves. */
+  readonly closer?: { close?: (value: T) => void };
 }
 
 /** Show a modal and resolve with the value of the button that was pressed. */
@@ -64,6 +66,11 @@ export function showModal<T>(options: ModalOptions<T>): Promise<T> {
     card.appendChild(header);
     appendChildren(card, options.body);
 
+    const close = (value: T): void => {
+      backdrop.remove();
+      resolve(value);
+    };
+    if (options.closer !== undefined) options.closer.close = close;
     const row = controlRow();
     row.classList.add('vrcnx-modal-buttons');
     for (const choice of options.buttons) {
@@ -71,10 +78,7 @@ export function showModal<T>(options: ModalOptions<T>): Promise<T> {
         button({
           label: choice.label,
           ...(choice.icon !== undefined ? { icon: choice.icon } : {}),
-          onClick: () => {
-            backdrop.remove();
-            resolve(choice.value);
-          },
+          onClick: () => { close(choice.value); },
         }),
       );
     }

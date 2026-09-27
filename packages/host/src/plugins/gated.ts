@@ -33,6 +33,7 @@ import {
   type Permission,
   PermissionError,
   type RequestOptions,
+  type VrchatApi,
 } from '@vrcnext/plugin-api';
 
 import type { BridgeClient } from '../capabilities/native.js';
@@ -47,6 +48,7 @@ import {
   interceptPrompt,
   networkPrompt,
   oscPrompt,
+  vrchatPrompt,
 } from '../permissions/prompts.js';
 import { ANY_TARGET, type PromptRequest } from '../permissions/types.js';
 
@@ -247,6 +249,30 @@ export class GatedNative implements NativeApi {
     await this.#gate.check(bridgePrompt(this.#gate.subject, service, method, params));
     return this.#client.call(service, method, params);
   }
+}
+
+/**
+ * Asked once per plugin. Every method awaits that one answer; `self()` is synchronous, so it
+ * answers `undefined` until the grant is in rather than prompting.
+ */
+export function gatedVrchat(inner: VrchatApi, gate: PluginGate): VrchatApi {
+  const request = vrchatPrompt(gate.subject);
+  return new Proxy(inner, {
+    get(target, property, receiver): unknown {
+      const member: unknown = Reflect.get(target, property, receiver);
+      if (typeof member !== 'function') return member;
+      if (property === 'self') {
+        return (): unknown => {
+          gate.requireCategory('vrchat');
+          return gate.isAllowed(request) ? Reflect.apply(member, target, []) : undefined;
+        };
+      }
+      return async (...args: unknown[]): Promise<unknown> => {
+        await gate.check(request);
+        return Reflect.apply(member, target, args) as unknown;
+      };
+    },
+  });
 }
 
 export class GatedClipboard implements ClipboardApi {

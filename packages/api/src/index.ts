@@ -44,19 +44,68 @@ export type { ActionArgs, ActionName, Bridge, RequestOptions } from './bridge.js
 export { LOG_LEVELS } from './logger.js';
 export type { Logger, LogLevel } from './logger.js';
 
-export { coerceSetting, defaultsFor } from './settings.js';
+export { coerceSetting, defaultOf, defaultsFor, defineCustomSetting, settingFlag } from './settings.js';
 export type {
+  AvatarScope,
+  AvatarSetting,
   BooleanSetting,
   ColorSetting,
+  CustomSetting,
+  CustomSettingHost,
+  EmbedSetting,
+  EmbedTemplate,
+  EntityKind,
+  EntitySetting,
+  GroupScope,
+  GroupSetting,
+  InferSetting,
+  InstanceScope,
+  InstanceSetting,
+  ListSetting,
+  MultiSelectSetting,
   NumberSetting,
+  ObjectSetting,
   SelectOption,
   SelectSetting,
+  SettingBase,
+  SettingPredicate,
   SettingSpec,
   SettingsSchema,
   SettingsStore,
   SettingsValues,
   StringSetting,
+  TimeSetting,
+  UserScope,
+  UserSetting,
+  WorldScope,
+  WorldSetting,
 } from './settings.js';
+export { ENTITY_SCOPES, coerceEntity, entityScopes, isEntityId } from './settings-entity.js';
+export { EMBED_COLORS, EMBED_LIMITS, EMPTY_EMBED, coerceEmbed, completeEmbed } from './settings-embed.js';
+export type { EmbedField } from './settings-embed.js';
+export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
+export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
+
+export { PERFORMANCE_RANKS, rankIndex } from './vrchat.js';
+export type {
+  PerformanceRank,
+  VrcAvatar,
+  VrcAvatarSummary,
+  VrcFriendInstance,
+  VrcGroup,
+  VrcGroupSummary,
+  VrcInstance,
+  VrcInstanceUser,
+  VrcLookupOptions,
+  VrcSearchOptions,
+  VrcSearchPage,
+  VrcTimelineEvent,
+  VrcUser,
+  VrcUserSummary,
+  VrcWorld,
+  VrcWorldSummary,
+  VrchatApi,
+} from './vrchat.js';
 
 export type {
   NativeApi,
@@ -72,16 +121,20 @@ export type {
   UiButtonOptions,
   UiCardOptions,
   UiChild,
+  UiChipsOptions,
   UiDropdownOptions,
   UiGridOptions,
   UiKit,
+  UiListItemOptions,
   UiRowOptions,
+  UiSliderOptions,
   UiStatOptions,
   UiStatusCardOptions,
   UiStatusTone,
   UiTextAreaOptions,
   UiTextFieldOptions,
   UiToggleRowOptions,
+  UiTypedFieldOptions,
 } from './ui-kit.js';
 export { OSC_VALUE_KINDS } from './osc.js';
 export type { OscApi, OscAvatarChangeEvent, OscParamEvent, OscValue, OscValueKind } from './osc.js';
@@ -121,6 +174,7 @@ export type {
 
 export type {
   DashboardCardOptions,
+  EntityPickOptions,
   IconName,
   NavTabOptions,
   PanelHandle,
@@ -134,6 +188,8 @@ export type {
 } from './ui.js';
 
 export { timeAgo } from './time.js';
+export { INSTANCE_TYPES, isGroupInstance, parseLocation } from './location.js';
+export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';
 export type { RenderOptions, TemplateValue, TemplateValues } from './template.js';
 

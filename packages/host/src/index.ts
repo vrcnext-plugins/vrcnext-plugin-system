@@ -20,6 +20,8 @@ import { DeepLinkHub } from './capabilities/deep-links.js';
 import { BridgeClient } from './capabilities/native.js';
 import { attachRemoteControl } from './capabilities/remote-control.js';
 import { RouteTable } from './capabilities/router.js';
+import { QuietChannel, photinoCallbacks } from './capabilities/vrchat/quiet-channel.js';
+import { HostVrchatApi } from './capabilities/vrchat/vrchat-api.js';
 import { EventRouter } from './events/event-router.js';
 import { mirrorToActivityLog } from './log/activity-log.js';
 import { createLogger } from './log/create-logger.js';
@@ -80,6 +82,8 @@ interface Core {
   readonly routes: RouteTable;
   readonly contextMenu: ContextMenuHub;
   readonly native: BridgeClient;
+  readonly vrchat: HostVrchatApi;
+  readonly quiet: QuietChannel;
   readonly debugHub: DebugHub;
   readonly isLinux: () => boolean;
 }
@@ -104,11 +108,20 @@ function buildCore(): Core {
   logger.info(`Starting plugin host, API ${API_VERSION}.`);
 
   const router = new EventRouter();
+  // Wrap VRCNext's own message handler before the host registers its own, so quiet lookups
+  // can withhold their replies from VRCNext without touching the host's stream.
+  const quiet = new QuietChannel({
+    send: (action, args) => { bridge.send(action, args); },
+    router,
+    callbacks: photinoCallbacks,
+  });
+  quiet.install();
   const bridge = PhotinoBridge.attach(router);
+  const vrchat = new HostVrchatApi({ router, channel: quiet });
   const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
   const debugHub = new DebugHub(sink);
-  const ui = new UiHost({ toast, onUiEvent: (action, detail) => { debugHub.logUi(action, detail); } });
+  const ui = new UiHost({ toast, vrchat, onUiEvent: (action, detail) => { debugHub.logUi(action, detail); } });
   const routes = new RouteTable(globalThis.location.href);
   routes.install();
   const contextMenu = new ContextMenuHub();
@@ -150,6 +163,7 @@ function buildCore(): Core {
       deepLinks: new DeepLinkHub(router),
       contextMenu,
       native,
+      vrchat,
       broker,
       isLinux,
       origin: globalThis.location.origin,
@@ -162,7 +176,7 @@ function buildCore(): Core {
   });
   late.manager = manager;
 
-  return { sink, logger, bridge, manager, broker, grants, ui, toast, routes, contextMenu, native, debugHub, isLinux };
+  return { sink, logger, bridge, manager, broker, grants, ui, toast, routes, contextMenu, native, vrchat, quiet, debugHub, isLinux };
 }
 
 /**
@@ -294,6 +308,8 @@ export function boot(): Promise<HostHandle> {
           core.debugHub.dispose();
           await core.manager.shutdown();
           core.native.dispose();
+          core.vrchat.dispose();
+          core.quiet.uninstall();
           core.contextMenu.uninstall();
           core.routes.uninstall();
           bag.dispose();

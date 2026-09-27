@@ -117,6 +117,47 @@ export interface UiDropdownOptions {
   readonly onChange: (next: string) => void;
 }
 
+export interface UiSliderOptions {
+  readonly value: number;
+  readonly min: number;
+  readonly max: number;
+  /** `'any'` snaps to the markers only. */
+  readonly step?: number | 'any';
+  /** Labelled tick marks under the track. */
+  readonly markers?: readonly number[];
+  /** Shown after the value readout, e.g. `s` or `%`. */
+  readonly unit?: string;
+  readonly disabled?: boolean;
+  /** Fires while dragging; `onChange` fires on release. */
+  readonly onInput?: (next: number) => void;
+  readonly onChange: (next: number) => void;
+}
+
+export interface UiChipsOptions {
+  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly selected: readonly string[];
+  /** Several may be pressed at once. */
+  readonly multiple: boolean;
+  readonly disabled?: boolean;
+  readonly onChange: (next: readonly string[]) => void;
+}
+
+export interface UiTypedFieldOptions {
+  readonly value: string;
+  readonly disabled?: boolean;
+  readonly onChange: (next: string) => void;
+}
+
+export interface UiListItemOptions {
+  readonly title: string;
+  readonly subtitle?: string;
+  /** Round picture on the left; a letter when empty. */
+  readonly imageUrl?: string;
+  /** Small green text on the right, like VRCNext's "Friend". */
+  readonly badge?: string;
+  readonly onClick?: () => void;
+}
+
 export interface UiGridOptions {
   /**
    * Minimum column width in pixels before the grid reflows to fewer columns. Default 280.
@@ -168,6 +209,17 @@ export interface UiKit {
   /** A multi-line field. Pair it with `row({ stacked: true })` so it gets the full width. */
   textArea(options: UiTextAreaOptions): HTMLTextAreaElement;
   dropdown(options: UiDropdownOptions): HTMLSelectElement;
+
+  /** VRCNext's slider with a value readout and optional labelled markers. */
+  slider(options: UiSliderOptions): HTMLElement;
+  /** Toggle buttons; the pressed ones are the chosen values. */
+  chips(options: UiChipsOptions): HTMLElement;
+  /** A time-of-day field, `HH:MM`. */
+  timeField(options: UiTypedFieldOptions): HTMLInputElement;
+  /** A colour swatch that opens the picker, `#rrggbb`. */
+  colorField(options: UiTypedFieldOptions): HTMLInputElement;
+  /** VRCNext's compact profile row: picture, name, muted line. For users, worlds, avatars, groups. */
+  listItem(options: UiListItemOptions): HTMLElement;
 
   /** A small coloured pill. */
   badge(tone: UiBadgeTone, text: string): HTMLElement;

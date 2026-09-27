@@ -69,6 +69,11 @@ export class PluginGate implements PermissionsApi {
     throw new PermissionError(permission);
   }
 
+  /** Whether the target is already allowed, without asking. */
+  isAllowed(request: PromptRequest): boolean {
+    return this.#broker.isAllowed(request.plugin.id, request.kind, request.target);
+  }
+
   /** For async APIs: resolves once the target is allowed. */
   async check(request: PromptRequest): Promise<void> {
     this.requireCategory(request.kind);

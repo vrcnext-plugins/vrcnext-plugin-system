@@ -80,6 +80,23 @@ const KIT_CSS = `
   text-transform: uppercase;
   letter-spacing: .5px;
 }
+.vrcnx-slider-marks { position: relative; height: 14px; margin: 0 7px; }
+.vrcnx-slider-mark {
+  position: absolute; transform: translateX(-50%); top: 0;
+  font-size: calc(10px + var(--fs-off, 0px)); color: var(--tx2); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.vrcnx-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.vrcnx-error { color: var(--err); font-size: calc(11px + var(--fs-off, 0px)); margin: 2px 0 0; }
+.vrcnx-nested { border-left: 2px solid var(--brd); padding-left: 12px; margin: 4px 0; }
+.vrcnx-list-item { border: 1px solid var(--brd); border-radius: 8px; padding: 4px 10px 8px; margin: 8px 0; }
+.vrcnx-list-head { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.vrcnx-list-title { flex: 1 1 auto; font-weight: 600; color: var(--tx0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrcnx-pick-list { max-height: 50vh; overflow: auto; border: 1px solid var(--brd); border-radius: 8px; margin-top: 8px; }
+.vrcnx-pick-list .fd-profile-item-small { cursor: pointer; }
+.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked { background: var(--bg-hover); }
+.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked .fd-pi-sm-name::after { content: 'check'; font-family: 'Material Symbols Rounded'; margin-left: auto; color: var(--accent); }
+.vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 320px; }
 `;
 
 const STYLE_ID = 'vrcnext-plugins-kit-style';
@@ -383,6 +400,174 @@ export function dropdown(options: {
   }
   select.addEventListener('change', () => { options.onChange(select.value); });
   return select;
+}
+
+/** VRCNext's slider (`.fs-slider`), with an optional value readout and labelled markers. */
+export function slider(options: {
+  readonly value: number;
+  readonly min: number;
+  readonly max: number;
+  /** `'any'` lets the thumb rest between markers only where the datalist has one. */
+  readonly step?: number | 'any';
+  readonly markers?: readonly number[];
+  readonly unit?: string;
+  readonly disabled?: boolean;
+  /** Fires while dragging. */
+  readonly onInput?: (next: number) => void;
+  /** Fires when the thumb is released. */
+  readonly onChange: (next: number) => void;
+}): HTMLElement {
+  ensureKitStyles();
+  const block = element('div', 'fs-slider-block');
+  block.style.cssText = 'flex:0 1 320px;min-width:160px;max-width:100%;';
+  const head = element('div', 'fs-slider-head');
+  const readout = element('span', 'fs-slider-val');
+  const unit = options.unit ?? '';
+  const show = (n: number): void => { readout.textContent = `${String(n)}${unit}`; };
+  show(options.value);
+  head.appendChild(readout);
+  block.appendChild(head);
+
+  const wrap = element('div', 'fs-slider-wrap');
+  const input = element('input', 'fs-slider');
+  input.type = 'range';
+  input.min = String(options.min);
+  input.max = String(options.max);
+  input.step = String(options.step ?? 1);
+  input.value = String(options.value);
+  if (options.disabled === true) input.disabled = true;
+  const markers = options.markers ?? [];
+  if (markers.length > 0) {
+    const list = element('datalist');
+    list.id = `vrcnx-marks-${String(Math.random()).slice(2)}`;
+    for (const mark of markers) {
+      const option = element('option');
+      option.value = String(mark);
+      list.appendChild(option);
+    }
+    input.setAttribute('list', list.id);
+    wrap.appendChild(list);
+  }
+  wrap.appendChild(input);
+  block.appendChild(wrap);
+
+  if (markers.length > 0) {
+    const marks = element('div', 'vrcnx-slider-marks');
+    const span = options.max - options.min || 1;
+    for (const mark of markers) {
+      const label = element('span', 'vrcnx-slider-mark', String(mark));
+      label.style.left = `${String(((mark - options.min) / span) * 100)}%`;
+      marks.appendChild(label);
+    }
+    block.appendChild(marks);
+  }
+
+  input.addEventListener('input', () => {
+    const n = Number(input.value);
+    show(n);
+    options.onInput?.(n);
+  });
+  input.addEventListener('change', () => { options.onChange(Number(input.value)); });
+  return block;
+}
+
+/** A row of toggle buttons; the pressed ones are the chosen values. */
+export function chips(options: {
+  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly selected: readonly string[];
+  readonly multiple: boolean;
+  readonly disabled?: boolean;
+  readonly onChange: (next: readonly string[]) => void;
+}): HTMLElement {
+  ensureKitStyles();
+  const root = element('div', 'vrcnx-chips');
+  let chosen = [...options.selected];
+  const buttons = new Map<string, HTMLButtonElement>();
+  const paint = (): void => {
+    for (const [value, node] of buttons) node.classList.toggle('active', chosen.includes(value));
+  };
+  for (const item of options.options) {
+    const node = button({
+      label: item.label,
+      onClick: () => {
+        if (options.multiple) {
+          chosen = chosen.includes(item.value) ? chosen.filter((v) => v !== item.value) : [...chosen, item.value];
+          chosen = options.options.map((o) => o.value).filter((v) => chosen.includes(v));
+        } else {
+          chosen = [item.value];
+        }
+        paint();
+        options.onChange(chosen);
+      },
+    });
+    if (options.disabled === true) node.disabled = true;
+    buttons.set(item.value, node);
+    root.appendChild(node);
+  }
+  paint();
+  return root;
+}
+
+/** A native input styled as VRCNext's edit field; `type` is `time`, `color`, `url`, `password`, … */
+export function typedField(type: string, options: {
+  readonly value: string;
+  readonly disabled?: boolean;
+  readonly onChange: (next: string) => void;
+}): HTMLInputElement {
+  const input = element('input', 'vrcn-edit-field');
+  input.type = type;
+  input.value = options.value;
+  if (options.disabled === true) input.disabled = true;
+  if (type === 'color') {
+    input.style.cssText = 'width:44px;height:28px;padding:2px;border-radius:6px;cursor:pointer;';
+  } else {
+    input.style.cssText = 'flex:0 1 200px;min-width:120px;max-width:100%;';
+  }
+  input.addEventListener('change', () => { options.onChange(input.value); });
+  return input;
+}
+
+/** VRCNext's compact profile row (`.fd-profile-item-small`): a round picture, a name, a muted line. */
+export function listItem(options: {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly imageUrl?: string;
+  readonly badge?: string;
+  readonly onClick?: () => void;
+}): HTMLElement {
+  const root = element('div', 'fd-profile-item-small');
+  const picture = element('div', 'fd-pi-sm-av');
+  if (options.imageUrl !== undefined && options.imageUrl !== '') {
+    picture.style.backgroundImage = `url("${options.imageUrl.replace(/"/g, '%22')}")`;
+  } else {
+    picture.classList.add('fd-pi-sm-av-letter');
+    picture.textContent = (options.title[0] ?? '?').toUpperCase();
+  }
+  const info = element('div', 'fd-pi-sm-info');
+  info.style.minWidth = '0';
+  const name = element('div', 'fd-pi-sm-name', options.title);
+  if (options.badge !== undefined) name.appendChild(element('span', 'fd-pi-sm-badge', options.badge));
+  info.appendChild(name);
+  if (options.subtitle !== undefined && options.subtitle !== '') info.appendChild(element('div', 'fd-pi-sm-sub', options.subtitle));
+  root.append(picture, info);
+  if (options.onClick !== undefined) {
+    root.style.cursor = 'pointer';
+    root.addEventListener('click', options.onClick);
+  }
+  return root;
+}
+
+/** A red line under a control. Hidden while empty. */
+export function errorLine(): HTMLElement & { show(message: string | undefined): void } {
+  ensureKitStyles();
+  const node = element('div', 'vrcnx-error');
+  node.style.display = 'none';
+  return Object.assign(node, {
+    show(message: string | undefined): void {
+      node.textContent = message ?? '';
+      node.style.display = message === undefined ? 'none' : '';
+    },
+  });
 }
 
 /** An empty-state line, matching the muted tone VRCNext uses for "nothing here yet". */

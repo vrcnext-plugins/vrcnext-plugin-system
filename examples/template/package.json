@@ -9,6 +9,6 @@
     "check": "tsc --noEmit -p tsconfig.json && eslint ."
   },
   "dependencies": {
-    "@vrcnext/plugin-api": "0.2.0"
+    "@vrcnext/plugin-api": "0.3.0"
   }
 }
