@@ -133,6 +133,12 @@ export class HostUiKit implements UiKit {
     return widgets.badge(tone, text);
   }
 
+  badges(...children: readonly UiChild[]): HTMLElement {
+    const root = widgets.badgeStrip();
+    widgets.appendChildren(root, children);
+    return root;
+  }
+
   stat(options: UiStatOptions): HTMLElement {
     return widgets.stat(options.label, options.value, options.tone);
   }

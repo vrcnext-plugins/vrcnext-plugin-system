@@ -231,6 +231,13 @@ export function badge(tone: UiBadgeTone, text: string): HTMLElement {
   return element('span', `vrcn-badge ${cls}`, text);
 }
 
+/** A wrapping strip of pills, spaced so a row of them reads as one line. */
+export function badgeStrip(): HTMLElement {
+  const root = element('div');
+  root.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;';
+  return root;
+}
+
 /** A big number with a caption. */
 export function stat(label: string, text: string, tone?: UiBadgeTone): HTMLElement {
   ensureKitStyles();
@@ -317,7 +324,7 @@ export function sectionLabel(text: string): HTMLElement {
 export function row(
   label: string | Node,
   control?: Node,
-  detail?: string,
+  detail?: string | Node,
   options: { readonly stacked?: boolean } = {},
 ): HTMLElement {
   const root = element('div', 'sf-toggle-row');
@@ -350,7 +357,10 @@ export function row(
   // It spells this `.sf-desc` in settings.html, but that class has no CSS rule anywhere in the
   // frontend — it renders at full size there too. `.set-desc` is the real muted style; its
   // bottom margin is the only thing that has to go, since this one sits inside a row.
-  const note = detail === undefined ? undefined : element('div', 'set-desc', detail);
+  const note = detail === undefined
+    ? undefined
+    : element('div', 'set-desc', typeof detail === 'string' ? detail : undefined);
+  if (note !== undefined && detail !== undefined && typeof detail !== 'string') note.appendChild(detail);
   if (note !== undefined) {
     note.style.margin = stacked ? '-4px 0 0' : '4px 0 0';
     note.style.flexBasis = '100%';

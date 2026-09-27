@@ -69,8 +69,8 @@ export interface UiStatusCardOptions {
 
 export interface UiRowOptions {
   readonly label: string;
-  /** Muted second line under the label. */
-  readonly detail?: string;
+  /** Muted second line under the label. A node goes there instead, e.g. {@link UiKit.badges}. */
+  readonly detail?: string | Node;
   /** Right-hand content. A string is rendered as muted value text. */
   readonly value?: UiChild;
   /** Put the content on its own line under the label, full width. For text areas and lists. */
@@ -225,6 +225,12 @@ export interface UiKit {
 
   /** A small coloured pill. */
   badge(tone: UiBadgeTone, text: string): HTMLElement;
+
+  /**
+   * A wrapping strip of pills, for a row's `detail`: several facts at a glance, each carrying
+   * its own colour, rather than one sentence the reader has to parse.
+   */
+  badges(...children: readonly UiChild[]): HTMLElement;
 
   /** A big number with a caption, for dashboard-style summaries. */
   stat(options: UiStatOptions): HTMLElement;

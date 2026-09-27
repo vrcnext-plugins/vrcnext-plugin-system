@@ -1,6 +1,6 @@
 {
   "name": "@vrcnext/plugin-api",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Typed contract between VRCNext plugins and the plugin host.",
   "license": "Unlicense",
   "type": "module",
