@@ -76,3 +76,28 @@ export function parseLocation(location: string): ParsedLocation {
 export function isGroupInstance(type: string): boolean {
   return type.startsWith('group');
 }
+
+/**
+ * What VRCNext calls each instance type on screen.
+ *
+ * A port of the label map inside its `getInstanceBadge`, with the two collisions resolved: the
+ * app shows `hidden` as "Friends+" and `group-members` as "Group" because a badge only ever
+ * names one instance, while a list of every type has to tell them apart.
+ */
+export const INSTANCE_TYPE_LABELS: Readonly<Record<InstanceType, string>> = {
+  'public': 'Public',
+  'friends+': 'Friends+',
+  'friends': 'Friends',
+  'hidden': 'Friends+ (legacy)',
+  'private': 'Invite',
+  'invite_plus': 'Invite+',
+  'group-public': 'Group Public',
+  'group-plus': 'Group+',
+  'group-members': 'Group Members',
+};
+
+/** {@link INSTANCE_TYPE_LABELS}, falling back to the raw type for anything unknown. */
+export function instanceTypeLabel(type: string): string {
+  const labels: Readonly<Record<string, string | undefined>> = INSTANCE_TYPE_LABELS;
+  return labels[type] ?? type;
+}

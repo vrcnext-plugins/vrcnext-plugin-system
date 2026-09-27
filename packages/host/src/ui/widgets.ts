@@ -160,6 +160,19 @@ const KIT_CSS = `
   content: 'check'; font-family: 'Material Symbols Rounded'; margin-left: auto; color: var(--accent);
 }
 .vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
+
+/* A settings form ------------------------------------------------------------------------- */
+.vrcnx-form { min-width: 0; }
+/* A control under its label is a block, and a block needs room: without this the last line of
+   one sits directly on the separator of the next row. */
+.vrcnx-form > .vrcnx-row-stacked { padding: 9px 0 12px; }
+.vrcnx-form > .vrcnx-row-inline { padding: 9px 0; }
+/* Dropdowns down a column line up instead of ending wherever their longest option does. */
+.vrcnx-form .vn-select { min-width: 160px; }
+/* VRCNext's pills are meant for a bare panel; on a card their unselected background is all but
+   invisible, so give them an edge. The selected state already carries an accent tint. */
+.vrcnx-chip-grid .theme-chip { border: 1px solid var(--brd); }
+.vrcnx-chip-grid .theme-chip.active { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 `;
 
 const STYLE_ID = 'vrcnext-plugins-kit-style';
@@ -310,37 +323,46 @@ export function row(
   const root = element('div', 'sf-toggle-row');
   // VRCNext's row has no gap of its own: a wide control would sit flush against the label.
   root.style.gap = '16px';
-  if (options.stacked === true) {
+  const stacked = options.stacked === true;
+  if (stacked) {
     root.style.flexDirection = 'column';
     root.style.alignItems = 'stretch';
     root.style.gap = '8px';
-  }
-
-  const renderLabel = (): Node => {
-    const node = typeof label === 'string' ? element('span', undefined, label) : label;
-    if (node instanceof HTMLElement) node.style.flex = '1 1 auto';
-    return node;
-  };
-
-  if (detail === undefined) {
-    root.appendChild(renderLabel());
   } else {
-    // VRCNext's two-line variant: the label with a muted explanation stacked under it.
-    //
-    // It spells this `.sf-desc` in settings.html, but that class has no CSS rule anywhere in the
-    // frontend — it renders at full size there too. `.set-desc` is the real muted style; its
-    // bottom margin is the only thing that has to go, since this one sits inside a row.
-    const stack = element('div');
-    stack.style.cssText = 'min-width:0;flex:1 1 auto;';
-    stack.appendChild(renderLabel());
-
-    const note = element('div', 'set-desc', detail);
-    note.style.margin = '2px 0 0';
-    stack.appendChild(note);
-    root.appendChild(stack);
+    // The description goes on a line of its own below, which is how VRCNext writes every row in
+    // its own General and Appearance panels. Wrapping is what puts it there — and the row gap
+    // has to go back to zero, or the 16px meant to keep the control off the label is also
+    // pushed between the label and its own explanation.
+    root.style.flexWrap = 'wrap';
+    root.style.gap = '0 16px';
   }
 
-  if (control !== undefined) root.appendChild(control);
+  const name = typeof label === 'string' ? element('span', undefined, label) : label;
+  if (name instanceof HTMLElement) {
+    name.style.flex = '1 1 auto';
+    name.style.minWidth = '0';
+  }
+  root.appendChild(name);
+
+  // It spells this `.sf-desc` in settings.html, but that class has no CSS rule anywhere in the
+  // frontend — it renders at full size there too. `.set-desc` is the real muted style; its
+  // bottom margin is the only thing that has to go, since this one sits inside a row.
+  const note = detail === undefined ? undefined : element('div', 'set-desc', detail);
+  if (note !== undefined) {
+    note.style.margin = stacked ? '-4px 0 0' : '4px 0 0';
+    note.style.flexBasis = '100%';
+    note.style.minWidth = '0';
+  }
+
+  // Stacked: label, explanation, then the control across the full width. Inline: label and
+  // control share the first line and the explanation takes the second.
+  if (stacked) {
+    if (note !== undefined) root.appendChild(note);
+    if (control !== undefined) root.appendChild(control);
+  } else {
+    if (control !== undefined) root.appendChild(control);
+    if (note !== undefined) root.appendChild(note);
+  }
   return root;
 }
 
@@ -447,7 +469,7 @@ export function textArea(options: {
   area.rows = options.rows ?? 4;
   area.style.cssText =
     'width:100%;box-sizing:border-box;height:auto;min-height:72px;padding:8px 10px;resize:vertical;' +
-    'line-height:1.5;font-family:ui-monospace,monospace;white-space:pre;';
+    'line-height:1.5;font-family:ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;';
   area.value = options.value;
   area.spellcheck = false;
   if (options.placeholder !== undefined) area.placeholder = options.placeholder;
@@ -555,11 +577,16 @@ export function slider(options: {
   const block = element('div', 'fs-slider-block');
   block.style.cssText = 'width:320px;max-width:100%;min-width:0;';
 
-  const head = element('div', 'fs-slider-head');
-  head.style.justifyContent = 'flex-end';
+  // The readout sits beside the track, not on a line above it: a settings row that is one line
+  // of label should not become four lines of control.
+  const line = element('div');
+  line.style.cssText = 'display:flex;align-items:center;gap:10px;min-width:0;';
+  const column = element('div');
+  column.style.cssText = 'flex:1 1 auto;min-width:0;';
   const readout = element('span', 'fs-slider-val');
-  head.appendChild(readout);
-  block.appendChild(head);
+  readout.style.cssText = 'flex:0 0 auto;min-width:34px;text-align:right;';
+  line.append(column, readout);
+  block.appendChild(line);
 
   const span = options.max - options.min || 1;
   const percent = (n: number): number => Math.min(100, Math.max(0, ((n - options.min) / span) * 100));
@@ -585,8 +612,8 @@ export function slider(options: {
   if (options.disabled === true) input.disabled = true;
   if (markers.length > 0) wrap.appendChild(markerList(input, markers));
   wrap.appendChild(input);
-  block.appendChild(wrap);
-  if (markers.length > 0) block.appendChild(markerLabels(markers, percent));
+  column.appendChild(wrap);
+  if (markers.length > 0) column.appendChild(markerLabels(markers, percent));
 
   const unit = options.unit ?? '';
   const paint = (n: number): void => {

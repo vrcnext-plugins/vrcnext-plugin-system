@@ -193,8 +193,7 @@ function objectControl(spec: ObjectSetting, binding: Binding, ctx: FormContext):
 
 /** A schema's rows, in a container that re-evaluates `hidden`/`disabled` after every change. */
 export function renderForm(schema: SettingsSchema, binding: Binding, ctx: FormContext): HTMLElement {
-  const root = element('div');
-  root.style.minWidth = '0';
+  const root = element('div', 'vrcnx-form');
   const rows: { readonly spec: SettingSpec; readonly row: HTMLElement; readonly fieldset: HTMLFieldSetElement }[] = [];
   for (const [key, spec] of Object.entries(schema)) {
     const built = renderSetting(key, spec, fieldBinding(binding, key), ctx);
@@ -268,10 +267,17 @@ export function renderSetting(
   const error = widgets.errorLine();
   const control = buildControl(spec, binding, error, ctx);
   const fieldset = element('fieldset');
-  fieldset.style.cssText = 'border:0;padding:0;margin:0;min-width:0;max-width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:2px;';
-  if (control.stacked === true) fieldset.style.alignItems = 'stretch';
+  // `min-width: min-content` rather than 0: a fieldset is not subject to the automatic minimum
+  // size flex gives every other item, so with 0 the row happily squeezes a fixed-width control
+  // — a switch is 36px wide and was being cut to 21 by a long label beside it.
+  fieldset.style.cssText = 'border:0;padding:0;margin:0;min-width:min-content;max-width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:2px;';
+  if (control.stacked === true) {
+    fieldset.style.alignItems = 'stretch';
+    fieldset.style.minWidth = '0';
+  }
   fieldset.append(control.element, error);
   const row = widgets.row(spec.label, fieldset, spec.description, { stacked: control.stacked === true });
+  row.classList.add(control.stacked === true ? 'vrcnx-row-stacked' : 'vrcnx-row-inline');
   row.dataset['setting'] = key;
   return { row, fieldset };
 }

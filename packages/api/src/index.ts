@@ -193,7 +193,7 @@ export type {
 
 export { formatDuration, timeAgo } from './time.js';
 export type { TimeInput } from './time.js';
-export { INSTANCE_TYPES, isGroupInstance, parseLocation } from './location.js';
+export { INSTANCE_TYPES, INSTANCE_TYPE_LABELS, instanceTypeLabel, isGroupInstance, parseLocation } from './location.js';
 export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';
 export type { RenderOptions, TemplateValue, TemplateValues } from './template.js';
