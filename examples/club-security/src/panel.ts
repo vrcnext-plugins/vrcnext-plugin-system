@@ -6,7 +6,6 @@
 import type { PluginContext } from '@vrcnext/plugin-api';
 
 import { describeFilter, filterFrom, instanceMatches } from './filters.js';
-import type { JoinMemory } from './memory.js';
 import { reportLines, type Report } from './notify.js';
 import type { Settings } from './settings.js';
 import type { CurrentInstance } from './vrcnext-data.js';
@@ -16,7 +15,6 @@ type Ctx = PluginContext<Settings>;
 const MAX_SHOWN = 25;
 
 export interface PanelDeps {
-  readonly memory: JoinMemory;
   readonly currentInstance: () => CurrentInstance | undefined;
   readonly sendTest: () => Promise<void>;
 }
@@ -73,13 +71,9 @@ export class ReportPanel {
       icon: 'build',
       children: [
         k.description('A test report uses the current instance and your own name, and goes to every enabled channel.'),
+        k.description('Rejoin history comes from VRCNext’s own timeline, so there is nothing to clear here.'),
         k.buttonRow(
           k.button({ label: 'Send test notification', icon: 'send', onClick: () => { void this.#deps.sendTest(); } }),
-          k.button({
-            label: 'Forget who joined before',
-            icon: 'delete_sweep',
-            onClick: () => { void this.#clearMemory(); },
-          }),
         ),
       ],
     });
@@ -108,7 +102,6 @@ export class ReportPanel {
         value: instance === undefined ? undefined : k.badge(matches ? 'ok' : 'neutral', matches ? 'Matches' : 'Filtered out'),
       }),
       k.row({ label: 'Channels', detail: channels.length === 0 ? 'none enabled' : channels.join(', ') }),
-      k.row({ label: 'Players remembered', value: k.valueText(String(this.#deps.memory.size)) }),
     ];
   }
 
@@ -121,21 +114,9 @@ export class ReportPanel {
       return k.row({
         label: `${time} · ${report.joiner.name}`,
         detail: lines.slice(1).join(' · '),
-        value: report.previous === undefined ? k.badge('accent', 'New') : k.badge('warn', 'Rejoin'),
+        value: report.facts.history.metBefore === true ? k.badge('warn', 'Rejoin') : k.badge('accent', report.facts.history.metBefore === false ? 'New' : 'History ?'),
       });
     });
   }
 
-  async #clearMemory(): Promise<void> {
-    const ok = await this.#ctx.notifications.confirm({
-      title: 'Forget join history',
-      message: 'Every player will count as a first-time joiner again. Continue?',
-      confirmLabel: 'Forget',
-      icon: 'delete_sweep',
-    });
-    if (!ok) return;
-    await this.#deps.memory.clear();
-    this.#ctx.notifications.toast({ message: 'Join history cleared.' });
-    this.refresh();
-  }
 }

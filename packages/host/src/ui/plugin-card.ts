@@ -18,6 +18,8 @@ import { badge, button, card, controlRow, description, emptyState, row, sectionL
 export interface PluginCardDeps {
   readonly manager: PluginManager;
   readonly broker: PermissionBroker;
+  /** Opens the plugin's settings card in VRCNext's Settings tab, when it has one. */
+  readonly openSettings: (id: PluginId) => boolean;
   /** Runs an async action, reporting failure and redrawing afterwards. */
   readonly run: (work: () => Promise<unknown>) => void;
   /** Whether a changelog is expanded; survives redraws. */
@@ -150,6 +152,17 @@ export function buildPluginCard(view: PluginView, deps: PluginCardDeps): HTMLEle
   const actions = controlRow();
   if (view.installed !== undefined) {
     actions.appendChild(value(view.installed.url));
+    if (deps.manager.isActive(view.id)) {
+      actions.appendChild(
+        button({
+          label: 'Settings',
+          icon: 'tune',
+          onClick: () => {
+            if (!deps.openSettings(view.id)) deps.run(() => Promise.reject(new Error('This plugin has no settings card.')));
+          },
+        }),
+      );
+    }
     actions.appendChild(
       button({
         label: 'Uninstall',

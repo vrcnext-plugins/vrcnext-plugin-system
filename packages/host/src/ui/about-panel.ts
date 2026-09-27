@@ -11,6 +11,7 @@ import type { BridgeClient } from '../capabilities/native.js';
 import type { DebugHub } from '../log/debug-hub.js';
 import type { LogSink } from '../log/log-sink.js';
 import type { PluginManager } from '../plugins/plugin-manager.js';
+import { buildBridgeCard } from './bridge-card.js';
 import { badge, button, card, controlRow, description, grid, panelLayout, row, toggle, value } from './widgets.js';
 
 const REPO_URL = 'https://github.com/vrcnext-plugins/vrcnext-plugin-system';
@@ -51,6 +52,7 @@ export class AboutPanel {
     const root = this.#root;
     if (root === undefined) return;
     root.replaceChildren(
+      buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }),
       grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 460),
     );
   }

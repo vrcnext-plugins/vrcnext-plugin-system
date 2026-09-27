@@ -29,6 +29,7 @@ import {
   tabContainer,
   tabIndexOf,
 } from './dom.js';
+import { SettingsSection } from './settings-section.js';
 import { HostUiKit } from './ui-kit.js';
 import * as widgets from './widgets.js';
 
@@ -43,6 +44,8 @@ export interface PluginUi extends UiApi {
 
 export class UiHost {
   readonly #toast: (options: ToastOptions) => void;
+  /** One "Plugins" section in VRCNext's Settings tab, shared by every plugin's settings card. */
+  readonly settingsSection = new SettingsSection();
 
   constructor(toast: (options: ToastOptions) => void) {
     this.#toast = toast;
@@ -54,18 +57,24 @@ export class UiHost {
     settings?: SettingsStore<SettingsSchema>,
     schema?: SettingsSchema,
   ): PluginUi {
-    return new PluginUiImpl(pluginId, this.#toast, bag, { settings, schema });
+    return new PluginUiImpl(pluginId, this.#toast, bag, { settings, schema, section: this.settingsSection });
   }
 
   /** UI owned by the host itself, such as the plugin manager tab. */
   forHost(bag: DisposableBag): PluginUi {
-    return new PluginUiImpl('host', this.#toast, bag);
+    return new PluginUiImpl('host', this.#toast, bag, { section: this.settingsSection });
+  }
+
+  /** The settings card a plugin added, if any. */
+  static settingsCardOf(pluginId: string): HTMLElement | undefined {
+    return document.querySelector<HTMLElement>(`[${PLUGIN_ATTR}="${pluginId}"][data-section]`) ?? undefined;
   }
 }
 
 interface PluginUiContext {
   readonly settings?: SettingsStore<SettingsSchema> | undefined;
   readonly schema?: SettingsSchema | undefined;
+  readonly section: SettingsSection;
 }
 
 class PluginUiImpl implements PluginUi {
@@ -74,19 +83,21 @@ class PluginUiImpl implements PluginUi {
   readonly #bag: DisposableBag;
   readonly #settings: SettingsStore<SettingsSchema> | undefined;
   readonly #schema: SettingsSchema | undefined;
+  readonly #section: SettingsSection;
   readonly #handles = new Set<PanelHandle>();
 
   constructor(
     pluginId: string,
     toast: (options: ToastOptions) => void,
     bag: DisposableBag,
-    context?: PluginUiContext,
+    context: PluginUiContext,
   ) {
     this.#pluginId = pluginId;
     this.#toast = toast;
     this.#bag = bag;
-    this.#settings = context?.settings;
-    this.#schema = context?.schema;
+    this.#settings = context.settings;
+    this.#schema = context.schema;
+    this.#section = context.section;
   }
 
   #track(handle: PanelHandle): PanelHandle {
@@ -184,7 +195,6 @@ class PluginUiImpl implements PluginUi {
   }
 
   addSettingsCard(options: SettingsCardOptions): PanelHandle {
-    const settingsTab = requireElement(SELECTORS.settingsTab);
     const card = this.createCard(options.title, options.icon);
     card.setAttribute(PLUGIN_ATTR, this.#pluginId);
 
@@ -197,7 +207,7 @@ class PluginUiImpl implements PluginUi {
     }
 
     options.render?.(card);
-    settingsTab.appendChild(card);
+    this.#section.attach(card);
 
     return this.#track({
       element: card,

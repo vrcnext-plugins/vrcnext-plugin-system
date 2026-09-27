@@ -4,8 +4,40 @@
 
 import type { SettingsValues } from '@vrcnext/plugin-api';
 
-import type { CurrentInstance } from './vrcnext-data.js';
+import { groupIdOf } from './vrcnext-data.js';
 import type { Settings } from './settings.js';
+
+/** The three things a filter looks at; both a live instance and a past location provide them. */
+export interface InstanceShape {
+  readonly worldId: string;
+  readonly instanceType: string;
+  readonly groupId: string;
+}
+
+/**
+ * VRCNext's `ParseLocation`, ported: the instance type a location string encodes. Needed for
+ * past locations from the timeline, which carry no parsed type.
+ */
+export function instanceTypeOf(location: string): string {
+  const instance = location.split(':')[1] ?? '';
+  if (instance.includes('~private(')) return instance.includes('~canRequestInvite') ? 'invite_plus' : 'private';
+  if (instance.includes('~friends+(')) return 'friends+';
+  if (instance.includes('~friends(')) return 'friends';
+  if (instance.includes('~hidden(')) return 'hidden';
+  if (instance.includes('~group(')) {
+    const access = /groupAccessType\(([^)]+)\)/.exec(instance)?.[1] ?? '';
+    if (access === 'public') return 'group-public';
+    if (access === 'plus') return 'group-plus';
+    if (access === 'members') return 'group-members';
+    return 'group';
+  }
+  return 'public';
+}
+
+export function shapeOfLocation(location: string): InstanceShape {
+  const worldId = location.split(':')[0] ?? '';
+  return { worldId: worldId.startsWith('wrld_') ? worldId : '', instanceType: instanceTypeOf(location), groupId: groupIdOf(location) };
+}
 
 export interface InstanceFilter {
   readonly instanceTypes: readonly string[];
@@ -34,7 +66,7 @@ function typeMatches(wanted: readonly string[], actual: string): boolean {
   return wanted.some((w) => w === type || (w === 'group' && type.startsWith('group')));
 }
 
-export function instanceMatches(filter: InstanceFilter, instance: CurrentInstance): boolean {
+export function instanceMatches(filter: InstanceFilter, instance: InstanceShape): boolean {
   if (!typeMatches(filter.instanceTypes, instance.instanceType)) return false;
   const groupId = filter.groupId.toLowerCase();
   if (groupId !== '' && instance.groupId.toLowerCase() !== groupId) return false;

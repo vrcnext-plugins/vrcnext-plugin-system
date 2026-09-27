@@ -13,7 +13,7 @@
 import type { PluginContext, SettingsValues } from '@vrcnext/plugin-api';
 
 import type { Facts, Joiner } from './collector.js';
-import type { SeenEntry } from './memory.js';
+import type { MeetHistory } from './history.js';
 import type { Settings } from './settings.js';
 import type { CurrentInstance } from './vrcnext-data.js';
 
@@ -24,7 +24,8 @@ export interface Report {
   readonly facts: Facts;
   /** Whether a group filter was active, so the "In Group" line is only shown when it means something. */
   readonly groupFilter: string;
-  readonly previous: SeenEntry | undefined;
+  /** Whether any filter was active, so the matching-instance count is only shown when it means something. */
+  readonly filtered: boolean;
 }
 
 type Ctx = PluginContext<Settings>;
@@ -41,10 +42,24 @@ function rank(value: string): string {
   return value === '' ? 'Unknown' : value;
 }
 
-function rejoinText(previous: SeenEntry | undefined): string {
-  if (previous === undefined) return 'No (first time)';
-  const when = new Date(previous.lastSeen).toLocaleString();
-  return `Yes (${String(previous.joins)}× before, last ${when})`;
+/**
+ * `Yes (met 3× before, last 26/09/2026, 21:40 in Club X; 2 of the last 3 in matching instances)`.
+ * Counts come from VRCNext: `meetCount` from its meet_again event, the rest from the ten most
+ * recent timeline events it returned, which is why the matching count says how many events it looked at.
+ */
+function rejoinText(history: MeetHistory, filtered: boolean): string {
+  if (history.metBefore === undefined) return 'Unknown';
+  if (!history.metBefore) return 'No (first time)';
+  const bits: string[] = [];
+  if (history.meetCount > 0) bits.push(`met ${String(history.meetCount)}× before`);
+  if (history.lastMet !== undefined) {
+    const when = new Date(history.lastMet.at).toLocaleString();
+    bits.push(`last ${when}${history.lastMet.worldName === '' ? '' : ` in ${history.lastMet.worldName}`}`);
+  }
+  if (filtered && history.matchingBefore !== undefined && history.windowSize > 0) {
+    bits.push(`${String(history.matchingBefore)} of the last ${String(history.windowSize)} in matching instances`);
+  }
+  return bits.length === 0 ? 'Yes' : `Yes (${bits.join('; ')})`;
 }
 
 /** The report as the spec lays it out, one fact per line. */
@@ -60,7 +75,7 @@ export function reportLines(report: Report): readonly string[] {
     `Avatar Quest Performance Rank: ${rank(facts.avatar?.quest ?? '')}`,
   ];
   if (report.groupFilter !== '') lines.push(`In Group: ${yesNo(facts.inGroup, 'Unknown (only visible memberships count)')}`);
-  lines.push(`Rejoin?: ${rejoinText(report.previous)}`);
+  lines.push(`Rejoin?: ${rejoinText(report.facts.history, report.filtered)}`);
   return lines;
 }
 
@@ -73,7 +88,7 @@ export function reportSummary(report: Report): string {
     `Quest ${rank(facts.avatar?.quest ?? '').replace('Unknown', '?')}`,
   ];
   if (report.groupFilter !== '') bits.push(`group: ${yesNo(facts.inGroup, '?')}`);
-  bits.push(report.previous === undefined ? 'new' : 'rejoin');
+  bits.push(report.facts.history.metBefore === undefined ? 'history ?' : (report.facts.history.metBefore ? 'rejoin' : 'new'));
   return `${report.joiner.name} joined · ${bits.join(' · ')}`;
 }
 

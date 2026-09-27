@@ -28,6 +28,7 @@ export interface ManagerPanelDeps {
   readonly manager: PluginManager;
   readonly native: BridgeClient;
   readonly broker: PermissionBroker;
+  readonly openSettings: (id: PluginId) => boolean;
   readonly onError: (message: string) => void;
   readonly openUrl: (url: string) => void;
 }
@@ -72,12 +73,13 @@ export class ManagerPanel {
   refresh(): void {
     const root = this.#root;
     if (root === undefined) return;
-    const bridge = buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl });
+    // Until the bridge is paired there is nothing else to show, so the pairing card lives here;
+    // once connected it moves to the Plugin System tab, where the rest of the status is.
     if (this.#deps.native.status !== 'connected') {
-      root.replaceChildren(bridge);
+      root.replaceChildren(buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }));
       return;
     }
-    root.replaceChildren(bridge, this.#buildInstallCard(), this.#buildUpdatesCard(), this.#buildList());
+    root.replaceChildren(this.#buildInstallCard(), this.#buildUpdatesCard(), this.#buildList());
   }
 
   #onPush(event: string, data: unknown): void {
@@ -235,6 +237,7 @@ export class ManagerPanel {
       buildPluginCard(view, {
         manager: this.#deps.manager,
         broker: this.#deps.broker,
+        openSettings: this.#deps.openSettings,
         run: (work) => { this.#run(work); },
         openChangelogs: this.#openChangelogs,
       }),

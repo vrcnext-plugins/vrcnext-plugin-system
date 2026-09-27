@@ -15,6 +15,8 @@
 
 import type { EventBus, PluginContext } from '@vrcnext/plugin-api';
 
+import type { InstanceFilter } from './filters.js';
+import { summarise, toMeetEvent, toTimelineEntries, type MeetEvent, type MeetHistory } from './history.js';
 import type { Settings } from './settings.js';
 import {
   profileLoaded,
@@ -45,6 +47,7 @@ export interface Facts {
   readonly avatar: AvatarFacts | undefined;
   /** `undefined` when no group filter is configured. */
   readonly inGroup: boolean | undefined;
+  readonly history: MeetHistory;
 }
 
 type Ctx = PluginContext<Settings>;
@@ -92,12 +95,18 @@ export class FactCollector {
   #latest: CurrentInstance | undefined;
   /** Performance ranks by avatar id, so a popular avatar is only fetched once. */
   readonly #perfCache = new Map<string, AvatarFacts>();
+  /** The latest first_meet / meet_again VRCNext pushed per user; it can arrive before the join line. */
+  readonly #meets = new Map<string, MeetEvent>();
 
   constructor(ctx: Ctx) {
     this.#ctx = ctx;
     ctx.events.on('vrcCurrentInstance', (payload) => {
       const instance = toCurrentInstance(payload);
       if (instance !== undefined) this.#latest = instance;
+    });
+    ctx.events.on('timelineEvent', (payload) => {
+      const meet = toMeetEvent(payload);
+      if (meet !== undefined) this.#meets.set(meet.userId, meet);
     });
     ctx.events.on('vrcAvatarDetail', (payload) => {
       const perf = toAvatarPerformance(payload);
@@ -112,12 +121,14 @@ export class FactCollector {
   }
 
   /** Runs every lookup in parallel and returns whatever arrived before the deadline. */
-  async collect(joiner: Joiner, groupId: string, deadlineMs: number): Promise<Facts> {
+  async collect(joiner: Joiner, filter: InstanceFilter, deadlineMs: number): Promise<Facts> {
     const signal = this.#ctx.signal;
-    const [profile, inGroup, avatar] = await Promise.all([
+    const joinedAt = Date.now();
+    const [profile, inGroup, avatar, history] = await Promise.all([
       this.#profile(joiner, deadlineMs, signal),
-      groupId === '' ? Promise.resolve(undefined) : this.#membership(joiner, groupId, deadlineMs, signal),
+      filter.groupId === '' ? Promise.resolve(undefined) : this.#membership(joiner, filter.groupId, deadlineMs, signal),
       this.#avatar(joiner, deadlineMs, signal),
+      this.#history(joiner, filter, joinedAt, { ms: deadlineMs, signal }),
     ]);
     return {
       ageVerified: profile === undefined ? undefined : profile.ageVerified,
@@ -125,7 +136,37 @@ export class FactCollector {
       platform: profile?.platform ?? '',
       avatar,
       inGroup,
+      history,
     };
+  }
+
+  /**
+   * VRCNext's own record of earlier meetings: the live meet event for this join, plus the user's
+   * recent timeline. Legacy accounts without a `usr_` id have neither.
+   */
+  async #history(
+    joiner: Joiner,
+    filter: InstanceFilter,
+    joinedAt: number,
+    window: { readonly ms: number; readonly signal: AbortSignal },
+  ): Promise<MeetHistory> {
+    const { ms, signal } = window;
+    if (joiner.userId === '') return summarise(undefined, undefined, filter, joinedAt);
+    const meetPending = this.#meets.get(joiner.userId) !== undefined
+      ? Promise.resolve(this.#meets.get(joiner.userId))
+      : waitFor(this.#ctx.events, 'timelineEvent', (payload) => {
+          const meet = toMeetEvent(payload);
+          return meet?.userId === joiner.userId ? meet : undefined;
+        }, { ms: Math.min(ms, 8_000), signal });
+    const timelinePending = waitFor(
+      this.#ctx.events,
+      'timelineForUser',
+      (payload) => toTimelineEntries(payload, joiner.userId),
+      { ms, signal },
+    );
+    this.#ctx.bridge.send('getTimelineForUser', { userId: joiner.userId });
+    const [meet, entries] = await Promise.all([meetPending, timelinePending]);
+    return summarise(meet, entries, filter, joinedAt);
   }
 
   async #profile(joiner: Joiner, ms: number, signal: AbortSignal): Promise<InstanceUser | undefined> {

@@ -16,6 +16,9 @@ export const SELECTORS = {
   tabs: '.tab',
   content: '.content',
   settingsTab: '#tab9',
+  /** VRCNext's settings page: the section nav and the column its section cards live in. */
+  settingsNav: '#tab9 .settings-nav',
+  settingsContent: '#tab9 .settings-content',
   // Tab 0 is the dashboard; VRCNext fills these empty divs lazily from JS.
   dashboard: '#tab0',
 } as const;
@@ -25,6 +28,8 @@ export const CLASSES = {
   navIcon: 'ni msi',
   navLabel: 'nl',
   navGroup: 'nav-group',
+  settingsNavItem: 'settings-nav-item',
+  settingsNavActive: 'active',
   tab: 'tab',
   tabActive: 'active',
   icon: 'msi',

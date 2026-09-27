@@ -12,8 +12,7 @@
 import { definePlugin, type PluginContext, type PluginId } from '@vrcnext/plugin-api';
 
 import { FactCollector, type Joiner } from './src/collector.js';
-import { filterFrom, instanceMatches } from './src/filters.js';
-import { JoinMemory } from './src/memory.js';
+import { filterFrom, instanceMatches, type InstanceFilter } from './src/filters.js';
 import { notifyAll, type Report } from './src/notify.js';
 import { ReportPanel } from './src/panel.js';
 import { settings } from './src/settings.js';
@@ -25,10 +24,13 @@ type Ctx = PluginContext<typeof settings>;
 const JOIN_EVENT = 'gl_player_join';
 const WORLD_JOIN_EVENT = 'gl_world_join';
 
+function isFiltered(filter: InstanceFilter): boolean {
+  return filter.instanceTypes.length > 0 || filter.groupId !== '' || filter.worldIds.length > 0;
+}
+
 class ClubSecurity {
   readonly #ctx: Ctx;
   readonly #collector: FactCollector;
-  readonly #memory: JoinMemory;
   readonly #panel: ReportPanel;
   /**
    * The signed-in account, from the `vrcUser` event VRCNext pushes after login and whenever the
@@ -47,9 +49,7 @@ class ClubSecurity {
   constructor(ctx: Ctx) {
     this.#ctx = ctx;
     this.#collector = new FactCollector(ctx);
-    this.#memory = new JoinMemory(ctx.settings);
     this.#panel = new ReportPanel(ctx, {
-      memory: this.#memory,
       currentInstance: () => this.#collector.instance,
       sendTest: () => this.#sendTest(),
     });
@@ -94,14 +94,13 @@ class ClubSecurity {
     if (this.#inFlight.has(key)) return;
     this.#inFlight.add(key);
     try {
-      const previous = await this.#memory.record(key, joiner.name, instance.location);
       if (Date.now() < this.#settledAt) {
-        this.#ctx.logger.debug(`${joiner.name} was already here when you joined; remembered, not reported.`);
-        this.#panel.refresh();
+        // VRCNext records the meeting itself, so nothing is lost by not reporting it.
+        this.#ctx.logger.debug(`${joiner.name} was already here when you joined; not reported.`);
         return;
       }
-      const facts = await this.#collector.collect(joiner, filter.groupId, values.collectTimeoutSecs * 1000);
-      const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId, previous };
+      const facts = await this.#collector.collect(joiner, filter, values.collectTimeoutSecs * 1000);
+      const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId, filtered: isFiltered(filter) };
       this.#panel.push(report);
       this.#ctx.logger.info(`Reported ${joiner.name}: 18+ ${String(facts.ageVerified ?? '?')}, PC ${facts.avatar?.pc ?? '?'}, Quest ${facts.avatar?.quest ?? '?'}.`);
       await notifyAll(this.#ctx, report);
@@ -130,15 +129,8 @@ class ClubSecurity {
     const name = me?.displayName ?? self.name;
     const joiner: Joiner = { name: name === '' ? 'Test player' : name, userId: me?.id ?? '' };
     const filter = filterFrom(this.#ctx.settings.values);
-    const facts = await this.#collector.collect(joiner, filter.groupId, 10_000);
-    const report: Report = {
-      at: Date.now(),
-      joiner,
-      instance,
-      facts,
-      groupFilter: filter.groupId,
-      previous: this.#memory.previous(joiner.userId === '' ? `name:${joiner.name}` : joiner.userId),
-    };
+    const facts = await this.#collector.collect(joiner, filter, 10_000);
+    const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId, filtered: isFiltered(filter) };
     await notifyAll(this.#ctx, report);
     this.#ctx.notifications.toast({ message: 'Test report sent to every enabled channel.' });
   }

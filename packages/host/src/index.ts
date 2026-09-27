@@ -171,6 +171,12 @@ function mountNav(core: Core, bag: DisposableBag): void {
     native: core.native,
     broker: core.broker,
     openUrl,
+    openSettings: (id) => {
+      const card = UiHost.settingsCardOf(id);
+      if (card === undefined) return false;
+      core.ui.settingsSection.open(card);
+      return true;
+    },
     onError: (message) => {
       core.logger.error(message);
       core.toast({ message, ok: false });
@@ -188,6 +194,7 @@ function mountNav(core: Core, bag: DisposableBag): void {
   bag.add(() => { managerPanel.dispose(); });
   bag.add(() => { logPanel.dispose(); });
   bag.add(() => { aboutPanel.dispose(); });
+  bag.add(() => { core.ui.settingsSection.unmount(); });
 
   const entries: readonly NavEntry[] = [
     { id: 'manage', label: 'Manage Plugins', icon: 'extension', render: (c) => { managerPanel.render(c); } },

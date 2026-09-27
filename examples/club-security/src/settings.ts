@@ -97,13 +97,6 @@ export const settings = {
     default: '',
     placeholder: 'https://discord.com/api/webhooks/…',
   },
-  memory: {
-    kind: 'string',
-    label: 'Join memory',
-    description: 'Internal: who has joined a matching instance before.',
-    default: '{}',
-    hidden: true,
-  },
 } as const satisfies SettingsSchema;
 
 export type Settings = typeof settings;
