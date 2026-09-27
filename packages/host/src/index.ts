@@ -18,6 +18,7 @@ import { PhotinoBridge } from './bridge/photino-bridge.js';
 import { ContextMenuHub } from './capabilities/context-menu.js';
 import { DeepLinkHub } from './capabilities/deep-links.js';
 import { BridgeClient } from './capabilities/native.js';
+import { attachRemoteControl } from './capabilities/remote-control.js';
 import { RouteTable } from './capabilities/router.js';
 import { EventRouter } from './events/event-router.js';
 import { createLogger } from './log/create-logger.js';
@@ -298,6 +299,8 @@ export function boot(): Promise<HostHandle> {
         },
       };
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
+      // Only reachable when the bridge runs with `--remote`; otherwise no push ever arrives.
+      bag.add(attachRemoteControl({ native: core.native, logger: core.logger, scope: { host: handle } }));
 
       // VRCNext fires this when the user disables the theme.
       document.documentElement.addEventListener(
