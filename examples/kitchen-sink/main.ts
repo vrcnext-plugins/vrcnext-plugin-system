@@ -347,6 +347,35 @@ async function fetchStars(ctx: Ctx): Promise<string> {
     : `HTTP ${String(response.status)}`;
 }
 
+/**
+ * 13. UI: a Settings section of the plugin's own, after a divider, and a sidebar group of
+ * shortcuts to it. Same mechanism the host uses for Plugin System and Plugins; everything is
+ * removed again when the plugin is disabled.
+ */
+function installSettingsSection(ctx: Ctx, state: State): void {
+  const k = ctx.ui.kit;
+  ctx.ui.addSettingsDivider();
+  const section = ctx.ui.addSettingsSection({ id: 'counters', label: 'Kitchen Sink', icon: 'auto_awesome' });
+  section.attach(
+    k.card({ title: 'Counters', icon: 'monitoring', children: [
+      k.row({ label: 'Game log events', value: String(state.gameLogCount) }),
+      k.row({ label: 'OSC parameters', value: String(state.oscParamCount) }),
+      k.description('A section of the plugin\'s own in VRCNext\'s Settings tab. Cards here are ordinary cards.'),
+    ]}),
+  );
+  // A settings card can be filed under the plugin's section instead of the host's Plugins one.
+  ctx.ui.addSettingsCard({ title: 'Kitchen Sink (mirror)', icon: 'auto_awesome', section });
+  ctx.ui.addSidebarGroup({
+    id: 'shortcuts',
+    label: 'Kitchen Sink',
+    icon: 'auto_awesome',
+    entries: [
+      { id: 'counters', label: 'Counters', icon: 'monitoring', activate: () => { section.open(); } },
+      { id: 'toast', label: 'Say hi', icon: 'waving_hand', activate: () => { ctx.ui.toast({ message: 'Hi from a shortcut.' }); } },
+    ],
+  });
+}
+
 /** 12. UI: a dashboard card, a sidebar tab and a settings card. No permission needed. */
 function installUi(ctx: Ctx, state: State): void {
   ctx.ui.addDashboardCard({
@@ -372,6 +401,7 @@ function installUi(ctx: Ctx, state: State): void {
   });
 
   installNavTab(ctx, state);
+  installSettingsSection(ctx, state);
 
   ctx.ui.addSettingsCard({
     title: 'Kitchen Sink',

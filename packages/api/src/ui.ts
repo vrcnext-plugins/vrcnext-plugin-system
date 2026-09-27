@@ -44,6 +44,52 @@ export interface SettingsCardOptions {
   readonly icon: IconName;
   /** Renders extra controls below the schema-derived ones. */
   render?(container: HTMLElement): void;
+  /**
+   * Where the card goes. Defaults to the host's **Plugins** section, below its install-and-manage
+   * cards; pass a section from {@link UiApi.addSettingsSection} to file it under your own.
+   */
+  readonly section?: SettingsSectionHandle;
+}
+
+export interface SettingsSectionOptions {
+  /** Unique within the plugin. Becomes the section's `data-section`, namespaced by plugin id. */
+  readonly id: string;
+  readonly label: string;
+  readonly icon: IconName;
+}
+
+/**
+ * A section in VRCNext's own Settings tab: one nav item on the left, and whatever blocks were
+ * attached shown on the right while it is active. Disposing it removes the nav item and every
+ * attached block; if it was on screen, VRCNext falls back to General.
+ */
+export interface SettingsSectionHandle extends PanelHandle {
+  /** The `data-section` value VRCNext switches on. */
+  readonly sectionId: string;
+  /** Whether this is the section on screen. */
+  readonly active: boolean;
+  /** Files a card or container under the section. Hidden until the section is shown. */
+  attach(block: HTMLElement): void;
+  /** Opens the Settings tab on this section, scrolled to `block` when given. */
+  open(block?: HTMLElement): void;
+}
+
+export interface SidebarShortcut {
+  /** Unique within the group. */
+  readonly id: string;
+  readonly label: string;
+  readonly icon: IconName;
+  /** Runs on click. Open a section, a tab, a modal — whatever the entry stands for. */
+  activate(): void;
+}
+
+export interface SidebarGroupOptions {
+  /** Unique within the plugin. Becomes the group element's id, namespaced by plugin id. */
+  readonly id: string;
+  readonly label: string;
+  readonly icon: IconName;
+  /** In order. */
+  readonly entries: readonly SidebarShortcut[];
 }
 
 export interface DashboardCardOptions {
@@ -75,6 +121,22 @@ export interface UiApi {
 
   /** Adds a card to VRCNext's own settings page, below the plugin's generated settings rows. */
   addSettingsCard(options: SettingsCardOptions): PanelHandle;
+
+  /**
+   * Adds a section to VRCNext's Settings tab, after the host's own. The same mechanism the host
+   * uses for its Plugin System and Plugins sections; nothing stays behind on dispose.
+   */
+  addSettingsSection(options: SettingsSectionOptions): SettingsSectionHandle;
+
+  /** Adds a thin divider to the Settings nav, for grouping several sections. */
+  addSettingsDivider(): PanelHandle;
+
+  /**
+   * Adds a collapsible group of shortcuts to the sidebar, mirrored as a menu in the top bar.
+   * Shortcuts are for reaching things that live elsewhere — a Settings section, a modal. A page
+   * of its own belongs in {@link UiApi.addNavTab}.
+   */
+  addSidebarGroup(options: SidebarGroupOptions): PanelHandle;
 
   /** Shows a VRCNext toast. Routed through the host's own toast renderer. */
   toast(options: ToastOptions): void;

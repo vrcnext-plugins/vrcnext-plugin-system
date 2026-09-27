@@ -36,7 +36,6 @@ import { EnableModal } from './ui/enable-modal.js';
 import { LogPanel } from './ui/log-panel.js';
 import { ManagerPanel } from './ui/manager-panel.js';
 import { PermissionModal } from './ui/permission-modal.js';
-import { PluginNav, type NavEntry } from './ui/plugin-nav.js';
 import { showReloadToast } from './ui/reload-toast.js';
 import { PLUGINS_SECTION, SYSTEM_SECTION } from './ui/settings-section.js';
 import { UiHost } from './ui/ui-host.js';
@@ -108,7 +107,8 @@ function buildCore(): Core {
   const bridge = PhotinoBridge.attach(router);
   const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
-  const ui = new UiHost(toast);
+  const debugHub = new DebugHub(sink);
+  const ui = new UiHost({ toast, onUiEvent: (action, detail) => { debugHub.logUi(action, detail); } });
   const routes = new RouteTable(globalThis.location.href);
   routes.install();
   const contextMenu = new ContextMenuHub();
@@ -120,7 +120,6 @@ function buildCore(): Core {
   // Mirror everything logged here into the bridge's log file, so plugin behaviour can be
   // followed with `tail -f` instead of by keeping the Logs panel open and copying text out.
   native.mirrorLogs(sink);
-  const debugHub = new DebugHub(sink);
 
   const call = native.call.bind(native);
   const state = new BridgeStateService(call);
@@ -167,11 +166,18 @@ function buildCore(): Core {
 }
 
 /**
- * Files the host's pages under its Settings sections and mounts the "Plugins" shortcut group in
- * the sidebar and the top menu bar. Plugin System: bridge, status, logs. Plugins: install and
- * manage, followed by every plugin's settings card as plugins add them.
+ * The host's own UI, built with the same API plugins get: a divider and two Settings sections —
+ * Plugin System (bridge, status, logs) and Plugins (install and manage, then every plugin's
+ * settings card) — and a "Plugins" shortcut group in the sidebar and the top menu bar.
  */
 function mountNav(core: Core, bag: DisposableBag): void {
+  const ui = core.ui.forHost(bag);
+  ui.addSettingsDivider();
+  const system = ui.addSettingsSection({ id: SYSTEM_SECTION, label: 'Plugin System', icon: 'tune' });
+  const plugins = ui.addSettingsSection({ id: PLUGINS_SECTION, label: 'Plugins', icon: 'extension' });
+  core.ui.pluginsSection = plugins;
+  bag.add(() => { core.ui.pluginsSection = undefined; });
+
   const openUrl = (url: string): void => { core.bridge.send('openUrl', { url }); };
   const managerPanel = new ManagerPanel({
     manager: core.manager,
@@ -181,7 +187,7 @@ function mountNav(core: Core, bag: DisposableBag): void {
     openSettings: (id) => {
       const card = UiHost.settingsCardOf(id);
       if (card === undefined) return false;
-      core.ui.settingsSections.open(PLUGINS_SECTION, card);
+      plugins.open(card);
       return true;
     },
     onError: (message) => {
@@ -201,38 +207,26 @@ function mountNav(core: Core, bag: DisposableBag): void {
   bag.add(() => { managerPanel.dispose(); });
   bag.add(() => { logPanel.dispose(); });
   bag.add(() => { aboutPanel.dispose(); });
-  bag.add(() => { core.ui.settingsSections.unmount(); });
 
-  const sections = core.ui.settingsSections;
-  const block = (): HTMLElement => document.createElement('div');
-  const systemBlock = block();
+  const systemBlock = document.createElement('div');
   aboutPanel.render(systemBlock);
-  sections.attach(SYSTEM_SECTION, systemBlock);
-  const logCard = core.ui.forHost(bag).createCard('Plugin logs', 'article');
+  system.attach(systemBlock);
+  const logCard = ui.createCard('Plugin logs', 'article');
   logPanel.render(logCard);
-  sections.attach(SYSTEM_SECTION, logCard);
-  const pluginsBlock = block();
+  system.attach(logCard);
+  const pluginsBlock = document.createElement('div');
   managerPanel.render(pluginsBlock);
-  sections.attach(PLUGINS_SECTION, pluginsBlock);
-  bag.add(() => { systemBlock.remove(); logCard.remove(); pluginsBlock.remove(); });
+  plugins.attach(pluginsBlock);
 
-  const entries: readonly NavEntry[] = [
-    { id: 'system', label: 'Plugin System', icon: 'tune', activate: () => { sections.open(SYSTEM_SECTION); } },
-    { id: 'plugins', label: 'Plugins', icon: 'extension', activate: () => { sections.open(PLUGINS_SECTION); } },
-  ];
-
-  const nav = new PluginNav({
-    entries,
-    groupId: 'vrcnextPluginsNavGroup',
-    groupLabel: 'Plugins',
-    groupIcon: 'extension',
-    onError: (error, entry) => {
-      core.logger.error(`Could not render "${entry.label}": ${error instanceof Error ? error.message : String(error)}`);
-    },
-    onUiEvent: (action, detail) => { core.debugHub.logUi(action, detail); },
+  ui.addSidebarGroup({
+    id: 'vrcnextPluginsNavGroup',
+    label: 'Plugins',
+    icon: 'extension',
+    entries: [
+      { id: 'system', label: 'Plugin System', icon: 'tune', activate: () => { system.open(); } },
+      { id: 'plugins', label: 'Plugins', icon: 'extension', activate: () => { plugins.open(); } },
+    ],
   });
-  nav.mount();
-  bag.add(nav);
 }
 
 /** Once the bridge is connected: read the host state, then activate the enabled plugins. */

@@ -124,9 +124,14 @@ export type {
   NavTabOptions,
   PanelHandle,
   SettingsCardOptions,
+  SettingsSectionHandle,
+  SettingsSectionOptions,
+  SidebarGroupOptions,
+  SidebarShortcut,
   ToastOptions,
   UiApi,
 } from './ui.js';
+
 
 export { definePlugin } from './plugin.js';
 export type { PluginContext, VrcnextPlugin } from './plugin.js';

@@ -47,9 +47,11 @@ export class PluginNav implements Disposable {
     this.#options = options;
   }
 
-  mount(): void {
-    this.#mountSidebar();
+  /** Mounts both surfaces and returns the sidebar group element. */
+  mount(): HTMLElement {
+    const group = this.#mountSidebar();
     this.#mountTaskbar();
+    return group;
   }
 
   /** Shared by both surfaces. A shortcut that throws is reported, not propagated into VRCNext. */
@@ -63,9 +65,9 @@ export class PluginNav implements Disposable {
 
   // Sidebar
 
-  #mountSidebar(): void {
+  #mountSidebar(): HTMLElement {
     const nav = requireElement(SELECTORS.navList);
-    for (const el of nav.querySelectorAll(`[${HOST_ATTR}]`)) el.remove();
+    for (const el of nav.querySelectorAll(`[${HOST_ATTR}="${this.#options.groupId}"]`)) el.remove();
     const separator = PluginNav.#buildSidebarSeparator(this.#options.groupLabel);
     const group = this.#buildSidebarGroup();
 
@@ -84,11 +86,13 @@ export class PluginNav implements Disposable {
       separator.remove();
       group.remove();
     });
+    return group;
   }
 
   static #buildSidebarSeparator(label: string): HTMLElement {
     const separator = element('div', 'nav-sep');
     separator.setAttribute(HOST_ATTR, 'sep');
+    separator.dataset['group'] = label;
     separator.appendChild(element('span', 'nav-sep-label nl', label));
     return separator;
   }
@@ -99,7 +103,7 @@ export class PluginNav implements Disposable {
     const group = element('div', CLASSES.navGroup);
     group.id = groupId;
     group.dataset['groupId'] = groupId;
-    group.setAttribute(HOST_ATTR, 'group');
+    group.setAttribute(HOST_ATTR, groupId);
 
     const header = element('button', `${CLASSES.navButton} nav-group-btn`);
     header.appendChild(iconSpan(groupIcon, 'ni'));
@@ -249,7 +253,7 @@ export class PluginNav implements Disposable {
 
   #mountTaskbar(): void {
     const menus = requireElement(SELECTORS.taskbarMenus);
-    for (const el of menus.querySelectorAll(`[${HOST_ATTR}]`)) el.remove();
+    for (const el of menus.querySelectorAll(`[${HOST_ATTR}="${this.#options.groupId}"]`)) el.remove();
     const separator = element('div', 'tb-sep');
     separator.setAttribute(HOST_ATTR, 'sep');
     const menu = this.#buildTaskbarMenu();
@@ -279,10 +283,10 @@ export class PluginNav implements Disposable {
   }
 
   #buildTaskbarMenu(): HTMLElement {
-    const { groupLabel, entries } = this.#options;
+    const { groupId, groupLabel, entries } = this.#options;
 
     const menu = element('div', 'tb-menu-item');
-    menu.setAttribute(HOST_ATTR, 'menu');
+    menu.setAttribute(HOST_ATTR, groupId);
     menu.appendChild(element('span', undefined, groupLabel));
 
     const dropdown = element('div', 'tb-dropdown');
