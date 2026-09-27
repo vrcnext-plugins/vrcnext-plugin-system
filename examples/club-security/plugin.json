@@ -1,9 +1,9 @@
 {
   "id": "club-security",
   "name": "Club Security",
-  "version": "1.0.0",
-  "apiVersion": "^0.2.0",
-  "description": "Reports each join to your instance: 18+ verification, avatar performance ranks, group membership and whether they were here with you before, to toast, desktop, VR or Discord.",
+  "version": "2.0.0",
+  "apiVersion": "^0.3.0",
+  "description": "Per-club presets: filter instances, require 18+, avatar ranks, group membership or friendship, and report each join with a green, orange or red verdict to toast, desktop, VR or Discord.",
   "author": "vrcnext-plugins",
   "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system/tree/main/examples/club-security",
   "tags": [
@@ -12,29 +12,15 @@
     "activity"
   ],
   "permissions": [
-    "host:events",
-    "host:actions",
     "gamelog",
+    "vrchat",
     "notifications",
     "native",
     "network"
   ],
   "optionalPermissions": [],
-  "actions": [
-    "getTimelineForUser",
-    "vrcGetAvatarDetail",
-    "vrcGetCurrentInstance",
-    "vrcGetGroupsForNetwork",
-    "vrcGetInstanceAvatars"
-  ],
-  "events": [
-    "timelineForUser",
-    "vrcAvatarDetail",
-    "vrcCurrentInstance",
-    "vrcGroupsForNetwork",
-    "vrcInstanceAvatarFound",
-    "vrcUser"
-  ],
+  "actions": [],
+  "events": [],
   "hosts": [
     "discord.com"
   ]

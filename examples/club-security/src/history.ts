@@ -1,16 +1,13 @@
 /**
  * Whether a joiner has been in this exact instance with you before, from VRCNext's own timeline.
  *
- * `getTimelineForUser` returns the ten most recent timeline events involving the player, each with
- * a timestamp and the location it happened in. VRCNext keeps those in SQLite, so they survive
- * VRCNext and VRChat restarts and reach back to when VRCNext was installed. The check is strict on
- * purpose: same world and same instance id, not "met somewhere" and not "an instance like this".
+ * `ctx.vrchat.userTimeline` returns the ten most recent timeline events involving the player,
+ * each with a timestamp and the location it happened in. VRCNext keeps those in SQLite, so they
+ * survive restarts and reach back to when VRCNext was installed. The check is strict on purpose:
+ * same world and same instance id, not "met somewhere".
  */
 
-export interface TimelineEntry {
-  readonly timestamp: string;
-  readonly location: string;
-}
+import { parseLocation, type VrcTimelineEvent } from '@vrcnext/plugin-api';
 
 export interface Rejoin {
   /** `undefined` when VRCNext did not answer in time. */
@@ -21,44 +18,21 @@ export interface Rejoin {
 
 export const UNKNOWN_REJOIN: Rejoin = { seenHere: undefined, lastAt: undefined };
 
-function rec(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
-}
-
-function str(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-/** Narrows a `timelineForUser` reply for one user. */
-export function toTimelineEntries(payload: unknown, userId: string): readonly TimelineEntry[] | undefined {
-  const r = rec(payload);
-  if (r === undefined || str(r['userId']) !== userId) return undefined;
-  const events = Array.isArray(r['events']) ? r['events'] : [];
-  return events.flatMap((e) => {
-    const entry = rec(e);
-    return entry === undefined ? [] : [{ timestamp: str(entry['timestamp']), location: str(entry['location']) }];
-  });
-}
-
-/** `wrld_…:12345` — the part of a location that identifies the instance, without its modifiers. */
-export function instanceKey(location: string): string {
-  return location.split('~')[0] ?? '';
-}
-
 /**
  * Looks for an earlier event in the same instance. Events from this join are excluded by
- * timestamp: anything at or after `joinedAt` describes this visit, not an earlier one.
+ * timestamp: anything at or after `joinedAt` (with a few seconds of slack) describes this
+ * visit, not an earlier one.
  */
 export function rejoinIn(
-  entries: readonly TimelineEntry[] | undefined,
+  events: readonly Pick<VrcTimelineEvent, 'timestamp' | 'location'>[] | undefined,
   location: string,
   joinedAt: number,
 ): Rejoin {
-  if (entries === undefined) return UNKNOWN_REJOIN;
-  const key = instanceKey(location);
+  if (events === undefined) return UNKNOWN_REJOIN;
+  const key = parseLocation(location).key;
   if (key === '') return { seenHere: false, lastAt: undefined };
-  const earlier = entries
-    .filter((e) => instanceKey(e.location) === key)
+  const earlier = events
+    .filter((e) => parseLocation(e.location).key === key)
     .filter((e) => {
       const at = Date.parse(e.timestamp);
       return Number.isFinite(at) && at < joinedAt - 5_000;

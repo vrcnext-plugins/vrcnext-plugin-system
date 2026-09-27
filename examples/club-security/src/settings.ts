@@ -1,151 +1,192 @@
 /**
- * Settings schema. The host renders these as rows on the plugin's settings card and persists
- * them; the plugin reads them through `ctx.settings`.
+ * Settings schema.
+ *
+ * Everything that varies per club is a **preset**: which instances it watches (filters, one of
+ * each kind), what it expects of a joiner (requirements), and where its reports go (channels,
+ * each with its own template or embed). The three numbers at the bottom are global.
  */
 
-import type { SettingsSchema } from '@vrcnext/plugin-api';
+import { INSTANCE_TYPES, PERFORMANCE_RANKS, type SettingsSchema, type SettingsValues } from '@vrcnext/plugin-api';
 
-/** Instance types as VRCNext's `ParseLocation` names them, plus a shorthand for every group type. */
-export const INSTANCE_TYPES = [
-  'public',
-  'friends+',
-  'friends',
-  'hidden',
-  'private',
-  'invite_plus',
-  'group',
-  'group-public',
-  'group-plus',
-  'group-members',
-] as const;
-
-/** The report as first specified, one fact per line. */
+/** The report as text: first line = title, rest = body. Used for toasts, desktop and VR. */
 export const DEFAULT_TEMPLATE = [
-  'Player "{name}" joined',
-  '18+ Verified: {ageVerifiedText}',
-  'Avatar PC Performance Rank: {pcRankText}',
-  'Avatar Quest Performance Rank: {questRankText}',
-  'In Group: {inGroupText}',
-  'Rejoin?: {rejoinText}',
+  '{resultEmoji} {name} {{ "is back" if rejoin else "joined" }} · {preset}',
+  '{checksText}',
+  'Avatar: {avatar} (PC {pcRankText} · Quest {questRankText})',
+  '{{ "Seen here before, " + rejoinAgo if rejoin else "" }}',
 ].join('\n');
 
-/**
- * The first version's variables were text; they are booleans now, with the wording under
- * `…Text`. A stored template written against the old names is rewritten once on activation, so
- * an edited format keeps rendering words rather than `true`.
- */
-export function migrateTemplate(template: string): string {
-  return template.replace(/\{(ageVerified|pcRank|questRank|inGroup|rejoin)\}/g, '{$1Text}');
-}
+/** The same, without emoji: WayVR draws with one font and shows nothing for symbols. */
+export const DEFAULT_TEMPLATE_VR = [
+  '{name} {{ "is back" if rejoin else "joined" }}: {resultText}',
+  '{checksPlainText}',
+].join('\n');
 
-export const settings = {
-  enabled: {
+/** The report as a Discord embed. Every text is a template; `{resultColor}` colours the bar. */
+export const DEFAULT_EMBED = {
+  title: '{resultEmoji} {name} {{ "is back" if rejoin else "joined" }}',
+  description: '{checksText}',
+  color: '{resultColor}',
+  thumbnailUrl: '{avatarImageUrl}',
+  footerText: '{preset} · {world} · {instanceType}',
+  timestamp: true,
+  fields: [
+    { name: 'Avatar', value: '{avatar}', inline: true },
+    { name: 'PC / Quest', value: '{pcRankEmoji} {pcRankText} / {questRankEmoji} {questRankText}', inline: true },
+    { name: 'Rejoin', value: '{{ rejoinText }}', inline: true },
+  ],
+} as const;
+
+/** Names a template may use. Listed under the editors so the user can see them. */
+export const TEMPLATE_VARIABLES = [
+  'name', 'playerId', 'preset', 'result', 'resultText', 'resultEmoji', 'resultColor', 'checksText', 'checksPlainText',
+  'failedText', 'unverifiedText', 'ageVerified', 'ageVerifiedText', 'ageVerifiedEmoji', 'ageStatus',
+  'pcRank', 'pcRankText', 'pcRankEmoji', 'questRank', 'questRankText', 'questRankEmoji',
+  'avatar', 'avatarId', 'avatarImageUrl', 'platform', 'platformEmoji', 'isFriend', 'friendText',
+  'inGroup', 'inGroupText', 'inGroupEmoji', 'rejoin', 'rejoinText', 'rejoinEmoji', 'rejoinAgo', 'rejoinSince',
+  'world', 'worldId', 'instanceType', 'instanceId', 'location', 'time', 'date', 'timestamp',
+] as const;
+
+const RANK_OPTIONS = [
+  { value: 'any', label: 'Any' },
+  ...[...PERFORMANCE_RANKS].reverse().map((rank) => ({ value: rank, label: `${rank} or better` })),
+] as const;
+
+const INSTANCE_TYPE_OPTIONS = INSTANCE_TYPES.map((type) => ({ value: type, label: type })) as unknown as readonly { readonly value: (typeof INSTANCE_TYPES)[number]; readonly label: string }[];
+
+/** One club. */
+export const preset = {
+  name: { kind: 'string', label: 'Preset name', default: 'My club', maxLength: 40 },
+  enabled: { kind: 'boolean', label: 'Enabled', default: true },
+
+  instanceTypes: {
+    kind: 'multiselect',
+    label: 'Instance types',
+    description: 'Only these count. None chosen means every type.',
+    default: [],
+    options: INSTANCE_TYPE_OPTIONS,
+  },
+  group: {
+    kind: 'group',
+    label: 'Group',
+    description: 'Only instances of this group. Empty means any.',
+    default: '',
+  },
+  worlds: {
+    kind: 'world',
+    label: 'Worlds',
+    description: 'Only these worlds. None chosen means any.',
+    default: [],
+    multiple: true,
+  },
+
+  requireAge: {
     kind: 'boolean',
-    label: 'Report joins',
-    description: 'Master switch. Filters below decide which instances count.',
+    label: 'Require 18+ verification',
+    description: 'Met when VRChat shows 18+. Hidden or unknown counts as unverified; a verified account under 18 fails.',
     default: true,
   },
-  instanceTypes: {
-    kind: 'string',
-    label: 'Only in these instance types',
-    description:
-      'Comma-separated. Leave empty for every instance. Types: public, friends+, friends, hidden, ' +
-      'private, invite_plus, group-public, group-plus, group-members, or just "group" for all group instances.',
+  minPcRank: {
+    kind: 'select',
+    label: 'PC avatar rank at least',
+    description: 'An unknown rank counts as unverified.',
+    default: 'any',
+    options: RANK_OPTIONS,
+  },
+  minQuestRank: {
+    kind: 'select',
+    label: 'Quest avatar rank at least',
+    default: 'any',
+    options: RANK_OPTIONS,
+  },
+  requiredGroup: {
+    kind: 'group',
+    label: 'Must be a member of',
+    description: 'Only memberships the player shows publicly can be seen; a hidden one counts as unverified.',
     default: '',
-    placeholder: 'group-public, group-plus',
   },
-  groupId: {
-    kind: 'string',
-    label: 'Only in instances of this group',
-    description: 'A grp_… id. Leave empty for any group. When set, the report also says whether the joiner is a member.',
-    default: '',
-    placeholder: 'grp_00000000-0000-0000-0000-000000000000',
-  },
-  worldIds: {
-    kind: 'string',
-    label: 'Only in these worlds',
-    description: 'Comma-separated wrld_… ids. Leave empty for any world.',
-    default: '',
-    placeholder: 'wrld_…, wrld_…',
-  },
-  settleSecs: {
-    kind: 'number',
-    label: 'Seconds to ignore after you join',
-    description:
-      'When you enter an instance, VRChat logs a join for everyone already there. Joins inside this window are remembered but not reported.',
-    default: 15,
-    min: 3,
-    max: 120,
-    step: 1,
-  },
-  collectTimeoutSecs: {
-    kind: 'number',
-    label: 'Seconds to wait for details',
-    description: 'How long to wait for VRCNext to load the profile and avatar before reporting what is known.',
-    default: 25,
-    min: 5,
-    max: 120,
-    step: 5,
-  },
+  requireFriend: { kind: 'boolean', label: 'Must be on my friend list', default: false },
+
+  toast: { kind: 'boolean', label: 'In-app toast', default: true },
+  desktop: { kind: 'boolean', label: 'Desktop notification', default: true },
+  vr: { kind: 'boolean', label: 'VR overlay notification', default: true },
   template: {
     kind: 'string',
     multiline: true,
     label: 'Report template',
-    description:
-      'First line = title, rest = body. A line whose placeholders are all empty is left out. {name} is short for ' +
-      '{{ name }}; expressions like {{ "yes" if rejoin else "no" }}, {{ pcRank | upper }} and {% if inGroup == false %}…{% endif %} work. ' +
-      'Text: name playerId ageVerifiedText ageStatus pcRankText questRankText avatar platform inGroupText rejoinText rejoinAgo ' +
-      'rejoinSince world worldId instanceType instanceId location time date. Booleans: ageVerified inGroup rejoin. Emoji: ' +
-      'ageVerifiedEmoji pcRankEmoji questRankEmoji platformEmoji inGroupEmoji rejoinEmoji.',
+    description: 'First line = title, rest = body. A line whose placeholders are all empty is left out. Variables are listed under the Discord embed.',
     default: DEFAULT_TEMPLATE,
   },
   templateVr: {
     kind: 'string',
     multiline: true,
-    label: 'VR overlay template (optional)',
-    description:
-      'Used for VR overlay targets instead of the report template. Leave empty to use the same. WayVR draws with one ' +
-      'font and shows nothing for emoji and most symbols, so keep this to plain text.',
-    default: '',
+    label: 'VR overlay template',
+    description: 'Plain text: WayVR shows nothing for emoji. Empty means the report template.',
+    default: DEFAULT_TEMPLATE_VR,
   },
-  notifyToast: {
-    kind: 'boolean',
-    label: 'In-app toast',
-    default: true,
+  discord: {
+    kind: 'object',
+    label: 'Discord',
+    fields: {
+      enabled: { kind: 'boolean', label: 'Post to a webhook', default: false },
+      webhookUrl: {
+        kind: 'string',
+        label: 'Webhook URL',
+        description: 'Server Settings → Integrations → Webhooks. Only discord.com is allowed.',
+        default: '',
+        placeholder: 'https://discord.com/api/webhooks/…',
+        format: 'url',
+      },
+      embed: {
+        kind: 'embed',
+        label: 'Embed',
+        default: DEFAULT_EMBED,
+        variables: TEMPLATE_VARIABLES,
+      },
+    },
   },
-  notifyDesktop: {
-    kind: 'boolean',
-    label: 'Desktop notification',
-    description: 'Through the VRCNext Bridge on any platform, or VRCNext’s tray toast on Windows.',
-    default: true,
+} as const satisfies SettingsSchema;
+
+export const settings = {
+  presets: {
+    kind: 'list',
+    label: 'Presets',
+    description: 'One per club: which instances it watches, what it requires, where it reports. A join is reported once per preset that matches.',
+    titleKey: 'name',
+    addLabel: 'Add preset',
+    default: [],
+    item: preset,
+  },
+  settleSecs: {
+    kind: 'number',
+    label: 'Seconds to ignore after you join',
+    description: 'VRChat logs a join for everyone already there when you enter. Joins inside this window are not reported.',
+    default: 15,
+    min: 3,
+    max: 120,
+    step: 1,
+    unit: 's',
+    slider: true,
+  },
+  collectTimeoutSecs: {
+    kind: 'number',
+    label: 'Seconds to wait for details',
+    description: 'How long to give VRCNext for the profile, avatar and groups before reporting what is known.',
+    default: 25,
+    markers: [5, 10, 15, 25, 40, 60],
+    unit: 's',
   },
   notifyTimeoutSecs: {
     kind: 'number',
     label: 'Seconds a desktop or VR notification stays',
-    description: 'Sent as the notification’s expiry. KDE keeps "critical" notifications until dismissed, so reports are never sent as critical.',
     default: 30,
     min: 1,
     max: 60,
     step: 1,
-  },
-  notifyVr: {
-    kind: 'boolean',
-    label: 'VR overlay notification',
-    description: 'Through the VRCNext Bridge’s VR target on any platform, or the SteamVR wrist overlay on Windows.',
-    default: true,
-  },
-  notifyDiscord: {
-    kind: 'boolean',
-    label: 'Discord webhook',
-    default: false,
-  },
-  discordWebhookUrl: {
-    kind: 'string',
-    label: 'Discord webhook URL',
-    description: 'Server Settings → Integrations → Webhooks. Sent straight from this page; the URL is stored locally only.',
-    default: '',
-    placeholder: 'https://discord.com/api/webhooks/…',
+    unit: 's',
+    slider: true,
   },
 } as const satisfies SettingsSchema;
 
 export type Settings = typeof settings;
+export type Preset = SettingsValues<typeof preset>;

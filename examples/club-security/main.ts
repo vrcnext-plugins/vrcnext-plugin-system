@@ -1,40 +1,36 @@
 /**
  * Club Security.
  *
- * Watches VRChat's game log for players joining your instance. When the instance passes the
- * configured filters (type, group, world), it gathers what VRCNext knows about the joiner and
- * sends one report per join to the enabled channels.
+ * Watches VRChat's game log for players joining your instance. For every enabled preset whose
+ * filters match the instance, it gathers what VRCNext knows about the joiner through
+ * `ctx.vrchat` (no dialogs open), checks the preset's requirements, and sends one report to the
+ * preset's channels with a green, orange or red verdict.
  *
- * Compare with `plugin.json`: every category used here is declared there, and the exact action
- * and event names are listed so they are granted when the plugin is enabled.
+ * Compare with `plugin.json`: every category used here is declared there.
  */
 
-import { definePlugin, type PluginContext, type PluginId } from '@vrcnext/plugin-api';
+import { definePlugin, type PluginContext, type PluginId, type VrcInstance } from '@vrcnext/plugin-api';
 
-import { FactCollector, type Joiner } from './src/collector.js';
-import { filterFrom, instanceMatches } from './src/filters.js';
-import { notifyAll, type Report } from './src/notify.js';
+import { collectFacts, type Joiner } from './src/facts.js';
+import { matchingPresets } from './src/filters.js';
+import { notify } from './src/notify.js';
 import { ReportPanel } from './src/panel.js';
-import { migrateTemplate, settings } from './src/settings.js';
-import { toSelf, type Self } from './src/vrcnext-data.js';
+import { evaluate } from './src/requirements.js';
+import { type Report } from './src/report.js';
+import { settings, type Preset } from './src/settings.js';
 
 type Ctx = PluginContext<typeof settings>;
 
 /** VRCNext's parsed game-log kinds for `[Behaviour] OnPlayerJoined` and `Joining wrld_…`. */
 const JOIN_EVENT = 'gl_player_join';
 const WORLD_JOIN_EVENT = 'gl_world_join';
-
+/** How often the current instance is re-read while the tab is open, so its status stays honest. */
+const INSTANCE_REFRESH_MS = 30_000;
 
 class ClubSecurity {
   readonly #ctx: Ctx;
-  readonly #collector: FactCollector;
   readonly #panel: ReportPanel;
-  /**
-   * The signed-in account, from the `vrcUser` event VRCNext pushes after login and whenever the
-   * profile is re-rendered. Empty until the first push: before that, only the settle window
-   * keeps the local player's own `OnPlayerJoined` line from being reported.
-   */
-  #self: Self = { id: '', name: '' };
+  #instance: VrcInstance | undefined;
   /** Joiners currently being looked up, so a duplicate log line does not produce two reports. */
   readonly #inFlight = new Set<string>();
   /**
@@ -45,62 +41,70 @@ class ClubSecurity {
 
   constructor(ctx: Ctx) {
     this.#ctx = ctx;
-    this.#collector = new FactCollector(ctx);
     this.#panel = new ReportPanel(ctx, {
-      currentInstance: () => this.#collector.instance,
+      currentInstance: () => this.#instance,
       sendTest: () => this.#sendTest(),
     });
   }
 
   start(): void {
-    this.#ctx.events.on('vrcUser', (payload) => {
-      const self = toSelf(payload);
-      if (self !== undefined) this.#self = self;
+    this.#ctx.gameLog.onType(WORLD_JOIN_EVENT, () => {
+      this.#startSettling();
+      void this.#refreshInstance();
     });
-    this.#ctx.events.on('vrcCurrentInstance', () => { this.#panel.refresh(); });
-    this.#ctx.gameLog.onType(WORLD_JOIN_EVENT, () => { this.#startSettling(); });
     this.#ctx.gameLog.onType(JOIN_EVENT, (entry) => {
       void this.#onJoin({ name: entry.message, userId: entry.detail });
     });
     this.#panel.install();
-    // Ask for the instance we are already in, so the first join after enabling is not missed.
-    this.#ctx.bridge.send('vrcGetCurrentInstance');
+    void this.#refreshInstance();
+    const timer = setInterval(() => { void this.#refreshInstance(); }, INSTANCE_REFRESH_MS);
+    this.#ctx.disposables.add(() => { clearInterval(timer); });
     this.#ctx.logger.info(`Club Security v${this.#ctx.version} watching for joins.`);
+  }
+
+  async #refreshInstance(): Promise<void> {
+    try {
+      this.#instance = await this.#ctx.vrchat.currentInstance({ cached: false, signal: this.#ctx.signal });
+    } catch (error) {
+      this.#ctx.logger.debug(`Current instance not available: ${String(error)}`);
+    }
+    this.#panel.refresh();
   }
 
   #startSettling(): void {
     this.#settledAt = Date.now() + this.#ctx.settings.get('settleSecs') * 1000;
   }
 
+  #isSelf(joiner: Joiner): boolean {
+    const self = this.#ctx.vrchat.self();
+    if (self === undefined) return false;
+    return joiner.userId !== '' ? joiner.userId === self.id : joiner.name === self.displayName;
+  }
+
   async #onJoin(joiner: Joiner): Promise<void> {
-    const values = this.#ctx.settings.values;
-    if (!values.enabled || joiner.name === '') return;
+    if (joiner.name === '') return;
     if (this.#isSelf(joiner)) {
       this.#startSettling();
       return;
     }
-    const instance = this.#collector.instance;
-    if (instance === undefined) {
-      this.#ctx.logger.debug(`${joiner.name} joined but the current instance is not known yet.`);
+    if (Date.now() < this.#settledAt) {
+      // VRCNext records the meeting itself, so nothing is lost by not reporting it.
+      this.#ctx.logger.debug(`${joiner.name} was already here when you joined; not reported.`);
       return;
     }
-    const filter = filterFrom(values);
-    if (!instanceMatches(filter, instance)) return;
-
     const key = joiner.userId === '' ? `name:${joiner.name}` : joiner.userId;
     if (this.#inFlight.has(key)) return;
     this.#inFlight.add(key);
     try {
-      if (Date.now() < this.#settledAt) {
-        // VRCNext records the meeting itself, so nothing is lost by not reporting it.
-        this.#ctx.logger.debug(`${joiner.name} was already here when you joined; not reported.`);
+      const instance = this.#instance ?? (await this.#ctx.vrchat.currentInstance({ cached: false, signal: this.#ctx.signal }));
+      if (instance === undefined) {
+        this.#ctx.logger.debug(`${joiner.name} joined but the current instance is not known.`);
         return;
       }
-      const facts = await this.#collector.collect(joiner, filter, values.collectTimeoutSecs * 1000);
-      const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId };
-      this.#panel.push(report);
-      this.#ctx.logger.info(`Reported ${joiner.name}: 18+ ${String(facts.ageVerified ?? '?')}, PC ${facts.avatar?.pc ?? '?'}, Quest ${facts.avatar?.quest ?? '?'}.`);
-      await notifyAll(this.#ctx, report);
+      this.#instance = instance;
+      const presets = matchingPresets(this.#ctx.settings.get('presets'), instance);
+      if (presets.length === 0) return;
+      await this.#report(joiner, instance, presets, this.#ctx.settings.get('collectTimeoutSecs') * 1000);
     } catch (error) {
       this.#ctx.logger.error(`Report for ${joiner.name} failed: ${String(error)}`);
     } finally {
@@ -108,28 +112,38 @@ class ClubSecurity {
     }
   }
 
-  #isSelf(joiner: Joiner): boolean {
-    const self = this.#self;
-    if (joiner.userId !== '' && self.id !== '') return joiner.userId === self.id;
-    return self.name !== '' && joiner.name === self.name;
+  /** One fact collection, then one report per preset. */
+  async #report(joiner: Joiner, instance: VrcInstance, presets: readonly Preset[], deadlineMs: number): Promise<void> {
+    const facts = await collectFacts(this.#ctx.vrchat, joiner, instance, {
+      deadlineMs,
+      signal: this.#ctx.signal,
+      wantsGroups: presets.some((p) => p.requiredGroup !== ''),
+    });
+    for (const preset of presets) {
+      const report: Report = { at: Date.now(), preset, joiner, instance, facts, evaluation: evaluate(preset, facts) };
+      this.#panel.push(report);
+      this.#ctx.logger.info(`${preset.name}: ${joiner.name} — ${report.evaluation.verdict}` +
+        (report.evaluation.checks.length === 0 ? '' : ` (${report.evaluation.checks.map((c) => `${c.label}: ${c.detail}`).join(', ')})`));
+      await notify(this.#ctx, report);
+    }
   }
 
-  /** A report built from whatever the current instance knows about you, to check the channels. */
+  /** A report built from your own account in the current instance, to check the channels. */
   async #sendTest(): Promise<void> {
-    const instance = this.#collector.instance;
-    if (instance === undefined) {
+    await this.#refreshInstance();
+    const instance = this.#instance;
+    const self = this.#ctx.vrchat.self();
+    if (instance === undefined || self === undefined) {
       this.#ctx.notifications.toast({ message: 'Join an instance first; the test uses it.', ok: false });
       return;
     }
-    const self = this.#self;
-    const me = instance.users.find((u) => u.id === self.id) ?? instance.users[0];
-    const name = me?.displayName ?? self.name;
-    const joiner: Joiner = { name: name === '' ? 'Test player' : name, userId: me?.id ?? '' };
-    const filter = filterFrom(this.#ctx.settings.values);
-    const facts = await this.#collector.collect(joiner, filter, 10_000);
-    const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId };
-    await notifyAll(this.#ctx, report);
-    this.#ctx.notifications.toast({ message: 'Test report sent to every enabled channel.' });
+    const presets = matchingPresets(this.#ctx.settings.get('presets'), instance);
+    if (presets.length === 0) {
+      this.#ctx.notifications.toast({ message: 'No enabled preset matches this instance.', ok: false });
+      return;
+    }
+    await this.#report({ name: self.displayName, userId: self.id }, instance, presets, 10_000);
+    this.#ctx.notifications.toast({ message: `Test report sent through ${String(presets.length)} preset(s).` });
   }
 }
 
@@ -138,9 +152,6 @@ export default definePlugin({
   settings,
 
   activate(ctx) {
-    const template = ctx.settings.get('template');
-    const migrated = migrateTemplate(template);
-    if (migrated !== template) void ctx.settings.set('template', migrated);
     new ClubSecurity(ctx).start();
   },
 

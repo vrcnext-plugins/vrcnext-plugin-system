@@ -1,57 +1,44 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { describeFilter, instanceMatches, splitList, type InstanceFilter } from './filters.js';
-import type { CurrentInstance } from './vrcnext-data.js';
+import { defaultsFor } from '@vrcnext/plugin-api';
+
+import { describePreset, matchingPresets, presetMatches, type InstanceShape } from './filters.js';
+import { preset as presetSchema, type Preset } from './settings.js';
 
 const GROUP = 'grp_11111111-2222-3333-4444-555555555555';
 const WORLD = 'wrld_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
-function instance(overrides: Partial<CurrentInstance> = {}): CurrentInstance {
-  return {
-    location: `${WORLD}:12345~group(${GROUP})~groupAccessType(public)~region(eu)`,
-    worldId: WORLD,
-    worldName: 'The Club',
-    instanceType: 'group-public',
-    groupId: GROUP,
-    users: [],
-    ...overrides,
-  };
+function preset(overrides: Partial<Preset> = {}): Preset {
+  return { ...defaultsFor(presetSchema), ...overrides };
 }
 
-const any: InstanceFilter = { instanceTypes: [], groupId: '', worldIds: [] };
+function instance(overrides: Partial<InstanceShape> = {}): InstanceShape {
+  return { worldId: WORLD, instanceType: 'group-public', groupId: GROUP, ...overrides };
+}
 
-test('splitList accepts commas, spaces and mixed case', () => {
-  assert.deepEqual(splitList(' Group-Public, group-plus  friends+ '), ['group-public', 'group-plus', 'friends+']);
-  assert.deepEqual(splitList(''), []);
+test('an empty preset matches every instance', () => {
+  assert.equal(presetMatches(preset(), instance()), true);
+  assert.equal(presetMatches(preset(), instance({ instanceType: 'public', groupId: '' })), true);
 });
 
-test('an empty filter matches every instance', () => {
-  assert.equal(instanceMatches(any, instance()), true);
-  assert.equal(instanceMatches(any, instance({ instanceType: 'public', groupId: '' })), true);
+test('instance types are exact, group and worlds compare case-insensitively', () => {
+  assert.equal(presetMatches(preset({ instanceTypes: ['group-plus'] }), instance()), false);
+  assert.equal(presetMatches(preset({ instanceTypes: ['group-plus', 'group-public'] }), instance()), true);
+  assert.equal(presetMatches(preset({ group: GROUP.toUpperCase() }), instance()), true);
+  assert.equal(presetMatches(preset({ group: GROUP }), instance({ groupId: 'grp_other' })), false);
+  assert.equal(presetMatches(preset({ worlds: [WORLD.toUpperCase()] }), instance()), true);
+  assert.equal(presetMatches(preset({ worlds: ['wrld_other'] }), instance()), false);
 });
 
-test('"group" matches every group access type, a specific type only itself', () => {
-  const group: InstanceFilter = { ...any, instanceTypes: ['group'] };
-  assert.equal(instanceMatches(group, instance({ instanceType: 'group-plus' })), true);
-  assert.equal(instanceMatches(group, instance({ instanceType: 'public' })), false);
-  const plus: InstanceFilter = { ...any, instanceTypes: ['group-plus'] };
-  assert.equal(instanceMatches(plus, instance({ instanceType: 'group-public' })), false);
+test('matchingPresets skips disabled ones and keeps order', () => {
+  const a = preset({ name: 'a' });
+  const b = preset({ name: 'b', enabled: false });
+  const c = preset({ name: 'c', worlds: ['wrld_other'] });
+  assert.deepEqual(matchingPresets([a, b, c], instance()).map((p) => p.name), ['a']);
 });
 
-test('group and world filters compare case-insensitively', () => {
-  const byGroup: InstanceFilter = { ...any, groupId: GROUP.toUpperCase() };
-  assert.equal(instanceMatches(byGroup, instance()), true);
-  assert.equal(instanceMatches(byGroup, instance({ groupId: 'grp_other' })), false);
-  const byWorld: InstanceFilter = { ...any, worldIds: [WORLD] };
-  assert.equal(instanceMatches(byWorld, instance({ worldId: WORLD.toUpperCase() })), true);
-  assert.equal(instanceMatches(byWorld, instance({ worldId: 'wrld_other' })), false);
-});
-
-test('describeFilter names what is restricted', () => {
-  assert.equal(describeFilter(any), 'every instance');
-  assert.equal(
-    describeFilter({ instanceTypes: ['group'], groupId: GROUP, worldIds: [WORLD, 'wrld_b'] }),
-    `types: group · group: ${GROUP} · worlds: 2`,
-  );
+test('describePreset names what is restricted', () => {
+  assert.equal(describePreset(preset()), 'every instance');
+  assert.equal(describePreset(preset({ instanceTypes: ['group-plus'], group: GROUP, worlds: [WORLD, 'wrld_b'] })), 'types: group-plus · one group · 2 worlds');
 });
