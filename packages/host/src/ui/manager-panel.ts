@@ -242,6 +242,6 @@ export class ManagerPanel {
         openChangelogs: this.#openChangelogs,
       }),
     );
-    return grid(cards, 420);
+    return grid(cards, 340);
   }
 }

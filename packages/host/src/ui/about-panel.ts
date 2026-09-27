@@ -53,7 +53,8 @@ export class AboutPanel {
     if (root === undefined) return;
     root.replaceChildren(
       buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }),
-      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 460),
+      // 320px keeps two columns even with VRCNext's friends panel open at a common window width.
+      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 320),
     );
   }
 
