@@ -71,3 +71,45 @@ test('request() resolves false on deny rather than throwing', async () => {
   assert.equal(await g.request('network'), false);
   assert.equal(g.has('network'), false);
 });
+
+test('an event the manifest does not list is refused, not prompted', () => {
+  const { gate: g, asked } = gate('allow');
+  g.requireDeclared('host:events', 'friendTimelineEvent');
+  assert.throws(
+    () => { g.requireDeclared('host:events', 'vrcUser'); },
+    (error: unknown) => error instanceof PermissionError && error.message.includes(String.raw`"events"`),
+  );
+  // Refusing without asking is the point: the enable dialog listed the events, so a prompt for
+  // one it did not list would make that list a half-truth.
+  assert.deepEqual(asked, []);
+});
+
+test('an action the manifest does not list is refused too', () => {
+  const { gate: g } = gate('allow');
+  assert.throws(
+    () => { g.requireDeclared('host:actions', 'vrcLogin'); },
+    (error: unknown) => error instanceof PermissionError && error.message.includes(String.raw`"actions"`),
+  );
+});
+
+test('"*" declares the whole stream, for onAny', () => {
+  const { manifest: parsed } = parsePluginManifest({
+    id: 'watcher',
+    name: 'Watcher',
+    version: '1.0.0',
+    apiVersion: '^0.3.0',
+    permissions: ['host:events'],
+    events: ['*'],
+  });
+  assert.ok(parsed);
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: () => Promise.resolve('allow' as Decision) },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const g = new PluginGate(parsed, broker, logger);
+  g.seedDeclared();
+  g.requireDeclared('host:events', '*');
+  g.requireDeclared('host:events', 'anythingAtAll');
+});

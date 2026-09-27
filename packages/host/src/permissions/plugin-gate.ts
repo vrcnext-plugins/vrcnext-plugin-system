@@ -62,6 +62,27 @@ export class PluginGate implements PermissionsApi {
     }
   }
 
+  /**
+   * Throws when an action or event name is not in `plugin.json`.
+   *
+   * Both lists are constants in a plugin's source, so a manifest can name every one it will
+   * ever use, and the enable dialog can therefore show the user a complete list. An undeclared
+   * name is refused outright rather than prompted for, because a prompt half-way through a
+   * session is precisely the thing that dialog was supposed to make unnecessary. `"*"` declares
+   * the whole stream, which is what `onAny` needs and what the dialog then shows.
+   *
+   * `hosts` is deliberately not treated this way: a URL can come from a setting the user typed,
+   * so an undeclared host still asks rather than refusing.
+   */
+  requireDeclared(kind: 'host:actions' | 'host:events', name: string): void {
+    const declared = kind === 'host:actions' ? this.#manifest.actions : this.#manifest.events;
+    if (declared.includes(name) || declared.includes(ANY_TARGET)) return;
+    const field = kind === 'host:actions' ? 'actions' : 'events';
+    const detail = `"${name}" is not listed in plugin.json "${field}"`;
+    this.#logger.error(`Refused: ${detail}.`);
+    throw new PermissionError(kind, detail);
+  }
+
   /** Throws when the category is outside the plugin's ceiling. Logged, never prompted. */
   requireCategory(permission: Permission): void {
     if (this.has(permission)) return;

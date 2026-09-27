@@ -104,6 +104,7 @@ export class GatedEventBus implements EventBus {
   }
 
   on<T extends string>(type: T, listener: EventListener<T>): () => void {
+    this.#gate.requireDeclared('host:events', type);
     return lazySubscribe(this.#gate, eventPrompt(this.#gate.subject, type), this.#bag, () =>
       this.#router.on(type, (payload) => { listener(payload as EventPayload<T>); }),
     );
@@ -118,12 +119,14 @@ export class GatedEventBus implements EventBus {
   }
 
   onAny(listener: (envelope: HostEnvelope) => void): () => void {
+    this.#gate.requireDeclared('host:events', ANY_TARGET);
     return lazySubscribe(this.#gate, eventPrompt(this.#gate.subject, ANY_TARGET), this.#bag, () =>
       this.#router.onAny(listener),
     );
   }
 
   async next<T extends string>(type: T, signal?: AbortSignal): Promise<EventPayload<T>> {
+    this.#gate.requireDeclared('host:events', type);
     await this.#gate.check(eventPrompt(this.#gate.subject, type));
     return this.#router.next(type, signal);
   }
@@ -141,6 +144,7 @@ export class GatedBridge implements Bridge {
   }
 
   send(action: ActionName, args: ActionArgs = {}): void {
+    this.#gate.requireDeclared('host:actions', action);
     this.#gate.whenAllowed(actionPrompt(this.#gate.subject, action, args), () => {
       this.#inner.send(action, args);
     });
@@ -151,6 +155,7 @@ export class GatedBridge implements Bridge {
     args: ActionArgs,
     options: RequestOptions & { readonly expect: T },
   ): Promise<EventPayload<T>> {
+    this.#gate.requireDeclared('host:actions', action);
     await this.#gate.check(actionPrompt(this.#gate.subject, action, args));
     return this.#inner.request(action, args, options);
   }
