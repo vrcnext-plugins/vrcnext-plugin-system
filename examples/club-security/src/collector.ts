@@ -16,7 +16,7 @@
 import type { EventBus, PluginContext } from '@vrcnext/plugin-api';
 
 import type { InstanceFilter } from './filters.js';
-import { summarise, toMeetEvent, toTimelineEntries, type MeetEvent, type MeetHistory } from './history.js';
+import { rejoinIn, toTimelineEntries, UNKNOWN_REJOIN, type Rejoin } from './history.js';
 import type { Settings } from './settings.js';
 import {
   profileLoaded,
@@ -47,7 +47,7 @@ export interface Facts {
   readonly avatar: AvatarFacts | undefined;
   /** `undefined` when no group filter is configured. */
   readonly inGroup: boolean | undefined;
-  readonly history: MeetHistory;
+  readonly rejoin: Rejoin;
 }
 
 type Ctx = PluginContext<Settings>;
@@ -95,18 +95,12 @@ export class FactCollector {
   #latest: CurrentInstance | undefined;
   /** Performance ranks by avatar id, so a popular avatar is only fetched once. */
   readonly #perfCache = new Map<string, AvatarFacts>();
-  /** The latest first_meet / meet_again VRCNext pushed per user; it can arrive before the join line. */
-  readonly #meets = new Map<string, MeetEvent>();
 
   constructor(ctx: Ctx) {
     this.#ctx = ctx;
     ctx.events.on('vrcCurrentInstance', (payload) => {
       const instance = toCurrentInstance(payload);
       if (instance !== undefined) this.#latest = instance;
-    });
-    ctx.events.on('timelineEvent', (payload) => {
-      const meet = toMeetEvent(payload);
-      if (meet !== undefined) this.#meets.set(meet.userId, meet);
     });
     ctx.events.on('vrcAvatarDetail', (payload) => {
       const perf = toAvatarPerformance(payload);
@@ -124,11 +118,11 @@ export class FactCollector {
   async collect(joiner: Joiner, filter: InstanceFilter, deadlineMs: number): Promise<Facts> {
     const signal = this.#ctx.signal;
     const joinedAt = Date.now();
-    const [profile, inGroup, avatar, history] = await Promise.all([
+    const [profile, inGroup, avatar, rejoin] = await Promise.all([
       this.#profile(joiner, deadlineMs, signal),
       filter.groupId === '' ? Promise.resolve(undefined) : this.#membership(joiner, filter.groupId, deadlineMs, signal),
       this.#avatar(joiner, deadlineMs, signal),
-      this.#history(joiner, filter, joinedAt, { ms: deadlineMs, signal }),
+      this.#rejoin(joiner, joinedAt, { ms: deadlineMs, signal }),
     ]);
     return {
       ageVerified: profile === undefined ? undefined : profile.ageVerified,
@@ -136,37 +130,25 @@ export class FactCollector {
       platform: profile?.platform ?? '',
       avatar,
       inGroup,
-      history,
+      rejoin,
     };
   }
 
   /**
-   * VRCNext's own record of earlier meetings: the live meet event for this join, plus the user's
-   * recent timeline. Legacy accounts without a `usr_` id have neither.
+   * Whether VRCNext's timeline already has this player in this exact instance. Legacy accounts
+   * without a `usr_` id cannot be looked up.
    */
-  async #history(
-    joiner: Joiner,
-    filter: InstanceFilter,
-    joinedAt: number,
-    window: { readonly ms: number; readonly signal: AbortSignal },
-  ): Promise<MeetHistory> {
-    const { ms, signal } = window;
-    if (joiner.userId === '') return summarise(undefined, undefined, filter, joinedAt);
-    const meetPending = this.#meets.get(joiner.userId) !== undefined
-      ? Promise.resolve(this.#meets.get(joiner.userId))
-      : waitFor(this.#ctx.events, 'timelineEvent', (payload) => {
-          const meet = toMeetEvent(payload);
-          return meet?.userId === joiner.userId ? meet : undefined;
-        }, { ms: Math.min(ms, 8_000), signal });
-    const timelinePending = waitFor(
+  async #rejoin(joiner: Joiner, joinedAt: number, window: { readonly ms: number; readonly signal: AbortSignal }): Promise<Rejoin> {
+    const location = this.#latest?.location ?? '';
+    if (joiner.userId === '' || location === '') return UNKNOWN_REJOIN;
+    const pending = waitFor(
       this.#ctx.events,
       'timelineForUser',
       (payload) => toTimelineEntries(payload, joiner.userId),
-      { ms, signal },
+      window,
     );
     this.#ctx.bridge.send('getTimelineForUser', { userId: joiner.userId });
-    const [meet, entries] = await Promise.all([meetPending, timelinePending]);
-    return summarise(meet, entries, filter, joinedAt);
+    return rejoinIn(await pending, location, joinedAt);
   }
 
   async #profile(joiner: Joiner, ms: number, signal: AbortSignal): Promise<InstanceUser | undefined> {

@@ -71,7 +71,7 @@ export class ReportPanel {
       icon: 'build',
       children: [
         k.description('A test report uses the current instance and your own name, and goes to every enabled channel.'),
-        k.description('Rejoin history comes from VRCNext’s own timeline, so there is nothing to clear here.'),
+        k.description('Rejoin is answered from VRCNext’s own timeline: was this player in this exact instance with you before.'),
         k.buttonRow(
           k.button({ label: 'Send test notification', icon: 'send', onClick: () => { void this.#deps.sendTest(); } }),
         ),
@@ -114,7 +114,7 @@ export class ReportPanel {
       return k.row({
         label: `${time} · ${report.joiner.name}`,
         detail: lines.slice(1).join(' · '),
-        value: report.facts.history.metBefore === true ? k.badge('warn', 'Rejoin') : k.badge('accent', report.facts.history.metBefore === false ? 'New' : 'History ?'),
+        value: report.facts.rejoin.seenHere === true ? k.badge('warn', 'Rejoin') : k.badge('accent', report.facts.rejoin.seenHere === false ? 'New' : 'Rejoin ?'),
       });
     });
   }

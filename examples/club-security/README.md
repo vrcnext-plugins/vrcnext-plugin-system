@@ -8,7 +8,7 @@ Player "Tupper" joined
 Avatar PC Performance Rank: Good
 Avatar Quest Performance Rank: Poor
 In Group: Yes
-Rejoin?: Yes (met 2× before; last 26/09/2026, 21:40:12 in Lovers Wedding; 1 of the last 3 in matching instances)
+Rejoin?: Yes (2 hours ago)
 ```
 
 `In Group` only appears when a group filter is set.
@@ -39,7 +39,7 @@ All optional, all in the plugin's settings card. Empty means "any".
 | 18+ verified | VRCNext fetches the joiner's profile itself on join and re-pushes the instance; the plugin waits for that push. | Legacy accounts without a `usr_` id cannot be looked up. |
 | Avatar ranks | `vrcGetInstanceAvatars` resolves the avatar from the profile image through VRCNext's avatar databases, then `vrcGetAvatarDetail` gives the ranks. | Only works when one of the databases knows the avatar. The detail action also feeds VRCNext's avatar modal, so it is skipped while that modal is open. |
 | In group | `vrcGetGroupsForNetwork`, the joiner's publicly visible groups. | A member who hides the membership shows as "No". |
-| Rejoin | VRCNext's own timeline: its `first_meet` / `meet_again` event for this join (with its meeting count) and `getTimelineForUser`, the player's ten most recent timeline events with where and when. | Survives VRCNext and VRChat restarts and reaches back to when VRCNext was installed. The "in matching instances" count only sees those ten events, and says so. |
+| Rejoin | `getTimelineForUser`: the player's ten most recent timeline events, each with its location. Yes when one of them is this exact instance (same world and instance id) from before this join, with how long ago. | Survives VRCNext and VRChat restarts and reaches back to when VRCNext was installed, but only ten events deep per player. |
 
 Everything waits at most the configured number of seconds, then reports what it has, with
 `Unknown` for the rest.
@@ -49,8 +49,7 @@ Everything waits at most the configured number of seconds, then reports what it 
 The signed-in account comes from the `vrcUser` event VRCNext pushes after login; the plugin
 reads no page globals. VRChat logs an `OnPlayerJoined` line for the local player too, and right after it one line for
 every player already in the instance. The plugin ignores your own line and treats joins inside
-the settle window after it (or after a world change) as "already here": not reported, and nothing
-is lost because VRCNext records the meeting itself.
+the settle window after it (or after a world change) as "already here" and does not report them.
 
 ## Layout and permissions
 

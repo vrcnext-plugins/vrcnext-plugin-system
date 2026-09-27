@@ -12,7 +12,7 @@
 import { definePlugin, type PluginContext, type PluginId } from '@vrcnext/plugin-api';
 
 import { FactCollector, type Joiner } from './src/collector.js';
-import { filterFrom, instanceMatches, type InstanceFilter } from './src/filters.js';
+import { filterFrom, instanceMatches } from './src/filters.js';
 import { notifyAll, type Report } from './src/notify.js';
 import { ReportPanel } from './src/panel.js';
 import { settings } from './src/settings.js';
@@ -24,9 +24,6 @@ type Ctx = PluginContext<typeof settings>;
 const JOIN_EVENT = 'gl_player_join';
 const WORLD_JOIN_EVENT = 'gl_world_join';
 
-function isFiltered(filter: InstanceFilter): boolean {
-  return filter.instanceTypes.length > 0 || filter.groupId !== '' || filter.worldIds.length > 0;
-}
 
 class ClubSecurity {
   readonly #ctx: Ctx;
@@ -100,7 +97,7 @@ class ClubSecurity {
         return;
       }
       const facts = await this.#collector.collect(joiner, filter, values.collectTimeoutSecs * 1000);
-      const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId, filtered: isFiltered(filter) };
+      const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId };
       this.#panel.push(report);
       this.#ctx.logger.info(`Reported ${joiner.name}: 18+ ${String(facts.ageVerified ?? '?')}, PC ${facts.avatar?.pc ?? '?'}, Quest ${facts.avatar?.quest ?? '?'}.`);
       await notifyAll(this.#ctx, report);
@@ -130,7 +127,7 @@ class ClubSecurity {
     const joiner: Joiner = { name: name === '' ? 'Test player' : name, userId: me?.id ?? '' };
     const filter = filterFrom(this.#ctx.settings.values);
     const facts = await this.#collector.collect(joiner, filter, 10_000);
-    const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId, filtered: isFiltered(filter) };
+    const report: Report = { at: Date.now(), joiner, instance, facts, groupFilter: filter.groupId };
     await notifyAll(this.#ctx, report);
     this.#ctx.notifications.toast({ message: 'Test report sent to every enabled channel.' });
   }
