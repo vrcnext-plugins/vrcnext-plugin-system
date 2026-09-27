@@ -1,8 +1,8 @@
 {
   "name": "@vrcnext-examples/club-security",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Reports who joins your instance: age verification, avatar performance, group membership and rejoins.",
+  "description": "Per-club presets: filter instances, require 18+, avatar ranks, group membership or friendship, and report each join with a verdict.",
   "license": "Unlicense",
   "type": "module",
   "dependencies": {
