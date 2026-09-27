@@ -53,8 +53,9 @@ export class AboutPanel {
     if (root === undefined) return;
     root.replaceChildren(
       buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }),
-      // 320px keeps two columns even with VRCNext's friends panel open at a common window width.
-      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 320),
+      // Two columns whenever they fit (320px keeps them with the friends panel open), never more:
+      // four narrow cards in a row read worse than two rows of two.
+      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 320, 2),
     );
   }
 

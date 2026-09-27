@@ -46,8 +46,19 @@ import { element, iconSpan } from './dom.js';
 const KIT_CSS = `
 .vrcnx-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--vrcnx-grid-min, 280px), 1fr));
-  gap: 16px;
+  --vrcnx-grid-gap: 16px;
+  /* Columns are at least --vrcnx-grid-min wide, and never more than --vrcnx-grid-max of them. */
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      max(
+        var(--vrcnx-grid-min, 280px),
+        calc((100% - (var(--vrcnx-grid-max, 99) - 1) * var(--vrcnx-grid-gap)) / var(--vrcnx-grid-max, 99))
+      ),
+      1fr
+    )
+  );
+  gap: var(--vrcnx-grid-gap);
   align-items: start;
   grid-auto-flow: row dense;
 }
@@ -101,10 +112,11 @@ export function setChildren(parent: Node, children: readonly UiChild[]): void {
  * The default choice when a panel has more than one card: full-width cards stacked vertically
  * waste most of a wide window.
  */
-export function grid(children: readonly UiChild[], min = 280): HTMLElement {
+export function grid(children: readonly UiChild[], min = 280, maxColumns?: number): HTMLElement {
   ensureKitStyles();
   const root = element('div', 'vrcnx-grid');
   root.style.setProperty('--vrcnx-grid-min', `${String(min)}px`);
+  if (maxColumns !== undefined) root.style.setProperty('--vrcnx-grid-max', String(maxColumns));
   appendChildren(root, children);
   return root;
 }
