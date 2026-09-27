@@ -110,6 +110,15 @@ export const settings = {
     description: 'Through the VRCNext Bridge on any platform, or VRCNext’s tray toast on Windows.',
     default: true,
   },
+  notifyTimeoutSecs: {
+    kind: 'number',
+    label: 'Seconds a desktop or VR notification stays',
+    description: 'Sent as the notification’s expiry. KDE keeps "critical" notifications until dismissed, so reports are never sent as critical.',
+    default: 30,
+    min: 1,
+    max: 60,
+    step: 1,
+  },
   notifyVr: {
     kind: 'boolean',
     label: 'VR overlay notification',

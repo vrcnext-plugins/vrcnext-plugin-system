@@ -191,14 +191,16 @@ async function sendNative(ctx: Ctx, wants: { readonly desktop: boolean; readonly
     ctx.logger.debug('The bridge has no target for the enabled channels.');
     return false;
   }
-  const lines = reportLines(report, ctx.settings.values.template, (e) => { warnTemplate(ctx, e); });
+  const values = ctx.settings.values;
+  const lines = reportLines(report, values.template, (e) => { warnTemplate(ctx, e); });
   const result = await ctx.native.notify({
     title: lines[0] ?? `${report.joiner.name} joined`,
     content: lines.slice(1).join('\n'),
-    timeoutSecs: 8,
+    timeoutSecs: values.notifyTimeoutSecs,
     icon: 'security-high',
     sinks,
-    urgency: accentFor(report) === 'warn' ? 'critical' : 'normal',
+    // Never critical: KDE ignores the expiry for critical notifications and keeps them on screen.
+    urgency: 'normal',
   });
   for (const failure of result.failed) {
     if (failure.sink !== 'bridge') ctx.logger.warn(`Bridge target ${failure.sink} failed: ${failure.error}`);
