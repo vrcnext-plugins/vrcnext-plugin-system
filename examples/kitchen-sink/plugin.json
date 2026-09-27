@@ -2,7 +2,7 @@
   "id": "kitchen-sink",
   "name": "Kitchen Sink",
   "version": "1.0.0",
-  "apiVersion": "^0.2.0",
+  "apiVersion": "^0.3.0",
   "description": "Reference plugin exercising every host capability, with custom CSS.",
   "author": "vrcnext-plugins",
   "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system/tree/main/examples/kitchen-sink",
@@ -10,6 +10,7 @@
   "permissions": [
     "host:events",
     "gamelog",
+    "vrchat",
     "osc",
     "routes",
     "context-menu",

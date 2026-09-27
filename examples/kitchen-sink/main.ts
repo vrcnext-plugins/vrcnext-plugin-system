@@ -12,45 +12,11 @@ import {
   type ContextMenuEntry,
   type PluginContext,
   type PluginId,
-  type SettingsSchema,
 } from '@vrcnext/plugin-api';
 
 import { PLUGIN_CSS } from './src/styles.js';
 import { createLogPanel, type LogPanel } from './src/log-panel.js';
-
-const settings = {
-  watchGameLog: {
-    kind: 'boolean',
-    label: 'Follow the VRChat game log',
-    description: 'Streams player joins and world changes into the panel below.',
-    default: true,
-  },
-  oscParameter: {
-    kind: 'string',
-    label: 'OSC parameter to pulse',
-    description: 'Sent to /avatar/parameters/<name> by the dashboard button.',
-    default: 'VRCEmote',
-    placeholder: 'VRCEmote',
-  },
-  oscValue: {
-    kind: 'number',
-    label: 'OSC value',
-    default: 1,
-    min: 0,
-    max: 255,
-    step: 1,
-  },
-  verbosity: {
-    kind: 'select',
-    label: 'Log verbosity',
-    default: 'normal',
-    options: [
-      { value: 'quiet', label: 'Quiet' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'loud', label: 'Everything' },
-    ],
-  },
-} as const satisfies SettingsSchema;
+import { settings } from './src/settings.js';
 
 type Ctx = PluginContext<typeof settings>;
 
@@ -402,6 +368,7 @@ function installUi(ctx: Ctx, state: State): void {
 
   installNavTab(ctx, state);
   installSettingsSection(ctx, state);
+  void installVrchatData(ctx, state);
 
   ctx.ui.addSettingsCard({
     title: 'Kitchen Sink',
@@ -433,8 +400,51 @@ function installUi(ctx: Ctx, state: State): void {
           });
       });
       card.appendChild(reset);
+
+      // The same picker the `user`/`world`/… settings use, opened on demand. No permission: it
+      // reads VRCNext's data on the user's behalf, and the plugin only sees what was chosen.
+      const pick = ctx.ui.kit.button({
+        label: 'Pick a friend…',
+        icon: 'person_search',
+        onClick: () => {
+          void ctx.ui.pickEntity({ kind: 'user', scopes: ['friends', 'favorites'] }).then((ids) => {
+            if (ids !== undefined && ids.length > 0) state.log(`[pick] ${ids.join(', ')}`);
+          });
+        },
+      });
+      card.appendChild(ctx.ui.kit.buttonRow(pick));
     },
   });
+}
+
+/**
+ * 13. VRChat data without opening a dialog.
+ *
+ * `ctx.vrchat` reads what VRCNext already knows (friends, favourites, your groups, the instance
+ * you are in) and looks up users, avatars, worlds and groups quietly — asking VRCNext the same
+ * way its own modals do, but keeping the reply so nothing appears on screen.
+ */
+async function installVrchatData(ctx: Ctx, state: State): Promise<void> {
+  try {
+    const [friends, groups, instance] = await Promise.all([
+      ctx.vrchat.friends(),
+      ctx.vrchat.myGroups(),
+      ctx.vrchat.currentInstance(),
+    ]);
+    state.log(`[vrchat] ${String(friends.length)} friends, ${String(groups.length)} groups`);
+    if (instance !== undefined) {
+      state.log(`[vrchat] in ${instance.worldName} (${instance.instanceType}), ${String(instance.userCount)} here`);
+      const other = instance.users.find((u) => u.id !== '' && u.id !== ctx.vrchat.self()?.id);
+      if (other !== undefined) {
+        const avatar = await ctx.vrchat.instanceAvatar(other.id);
+        const detail = avatar === undefined ? undefined : await ctx.vrchat.avatar(avatar.avatarId);
+        state.log(`[vrchat] ${other.displayName} wears ${detail?.name ?? 'an unknown avatar'} (PC ${detail?.pcRank === undefined || detail.pcRank === '' ? '?' : detail.pcRank})`);
+      }
+    }
+  } catch (error) {
+    // A denied permission is a normal outcome, not a crash.
+    ctx.logger.info(`VRChat data unavailable: ${String(error)}`);
+  }
 }
 
 /**
