@@ -60,6 +60,14 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 - `plugin.json` descriptions are capped at 200 characters and the source policy also scans
   comments (`window.`, `eval(`, `fetch(` and similar are refused, even in prose).
 
+## The permission vocabulary lives in two places
+
+`packages/api/src/permissions.ts` and `crates/vrcnext-bridge-plugins/src/manifest.rs` in the
+bridge. The bridge validates every `plugin.json` against its own copy, so adding a permission
+means adding it there too, rebuilding the bridge (`./scripts/build.sh`), copying the binary to
+`~/.vrcnext-plugins/bin/` and restarting `vrcnext-bridge.service` — otherwise installing a plugin
+that declares the new name fails with `manifest_invalid`.
+
 ## Gate
 
 `./scripts/check.sh` (typecheck, lint, tests including examples, build) must pass before a

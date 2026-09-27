@@ -80,13 +80,61 @@ const KIT_CSS = `
   text-transform: uppercase;
   letter-spacing: .5px;
 }
+/* VRCNext draws its font-size slider's track with .fs-ticks, which is that feature's dashed
+   ten-step ruler. A general slider wants a plain track with the chosen part filled. */
+.vrcnx-slider-track {
+  position: absolute; left: 7px; right: 7px; top: 50%; height: 4px;
+  transform: translateY(-50%); border-radius: 2px; background: var(--brd); pointer-events: none;
+}
+.vrcnx-slider-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; background: var(--accent); }
+.vrcnx-slider-tick {
+  position: absolute; top: -3px; width: 1px; height: 10px; background: var(--brd);
+  transform: translateX(-50%);
+}
 .vrcnx-slider-marks { position: relative; height: 14px; margin: 0 7px; }
 .vrcnx-slider-mark {
   position: absolute; transform: translateX(-50%); top: 0;
   font-size: calc(10px + var(--fs-off, 0px)); color: var(--tx2); white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.vrcnx-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.vrcnx-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
+.vrcnx-chips-left { justify-content: flex-start; }
+.vrcnx-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px;
+  border: 1px solid var(--brd); border-radius: 999px; background: var(--bg-input);
+  font-size: calc(11px + var(--fs-off, 0px)); color: var(--tx1); max-width: 100%;
+}
+.vrcnx-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrcnx-chip-x {
+  border: 0; background: transparent; color: var(--tx2); cursor: pointer; line-height: 1;
+  padding: 2px; border-radius: 999px; display: inline-flex;
+}
+.vrcnx-chip-x:hover { color: var(--err); background: var(--bg-hover); }
+.vrcnx-chip-x .msi { font-size: 14px; }
+.vrcnx-plugin-list { display: flex; flex-direction: column; }
+.vrcnx-plugin-row { border-top: 1px solid var(--brd); }
+.vrcnx-plugin-row:first-child { border-top: 0; }
+.vrcnx-plugin-summary {
+  display: flex; align-items: center; gap: 10px; padding: 10px 0; cursor: pointer;
+  list-style: none;
+}
+.vrcnx-plugin-summary::-webkit-details-marker { display: none; }
+.vrcnx-plugin-summary > .msi { color: var(--tx2); transition: transform .12s; }
+.vrcnx-plugin-row[open] > .vrcnx-plugin-summary > .msi { color: var(--accent); }
+.vrcnx-plugin-text { flex: 1 1 auto; min-width: 0; }
+.vrcnx-plugin-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--tx0); }
+.vrcnx-plugin-blurb {
+  margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vrcnx-plugin-row[open] .vrcnx-plugin-blurb { white-space: normal; }
+.vrcnx-plugin-body { padding: 0 0 12px 30px; display: flex; flex-direction: column; gap: 6px; }
+.vrcnx-plugin-body .sf-toggle-row { padding: 6px 0; }
+.vrcnx-changelog summary { cursor: pointer; }
+.vrcnx-changelog pre {
+  white-space: pre-wrap; word-break: break-word; margin: 4px 0 0;
+  font-size: calc(11px + var(--fs-off, 0px)); color: var(--tx2);
+  max-height: 200px; overflow: auto;
+}
 .vrcnx-error { color: var(--err); font-size: calc(11px + var(--fs-off, 0px)); margin: 2px 0 0; }
 .vrcnx-nested { border-left: 2px solid var(--brd); padding-left: 12px; margin: 4px 0; }
 .vrcnx-list-item { border: 1px solid var(--brd); border-radius: 8px; padding: 4px 10px 8px; margin: 8px 0; }
@@ -96,7 +144,7 @@ const KIT_CSS = `
 .vrcnx-pick-list .fd-profile-item-small { cursor: pointer; }
 .vrcnx-pick-list .fd-profile-item-small.vrcnx-picked { background: var(--bg-hover); }
 .vrcnx-pick-list .fd-profile-item-small.vrcnx-picked .fd-pi-sm-name::after { content: 'check'; font-family: 'Material Symbols Rounded'; margin-left: auto; color: var(--accent); }
-.vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 320px; }
+.vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 100%; }
 `;
 
 const STYLE_ID = 'vrcnext-plugins-kit-style';
@@ -349,7 +397,8 @@ export function textField(options: {
   const input = element('input', 'vrcn-edit-field');
   input.type = 'text';
   // A bounded width: in a row the label keeps the room, in a control strip it still shrinks.
-  input.style.cssText = 'flex:0 1 320px;min-width:160px;max-width:100%;';
+  // Width, never flex-basis: in a column-direction parent a basis would set the height.
+  input.style.cssText = 'width:320px;max-width:100%;min-width:0;';
   input.value = options.value;
   input.spellcheck = false;
   if (options.placeholder !== undefined) input.placeholder = options.placeholder;
@@ -402,7 +451,10 @@ export function dropdown(options: {
   return select;
 }
 
-/** VRCNext's slider (`.fs-slider`), with an optional value readout and labelled markers. */
+/** A slider that can also be moved from outside, by whoever owns the value. */
+export type SliderElement = HTMLElement & { setValue(next: number): void };
+
+/** VRCNext's slider (`.fs-slider`), with a value readout, a filled track and labelled markers. */
 export function slider(options: {
   readonly value: number;
   readonly min: number;
@@ -416,19 +468,32 @@ export function slider(options: {
   readonly onInput?: (next: number) => void;
   /** Fires when the thumb is released. */
   readonly onChange: (next: number) => void;
-}): HTMLElement {
+}): SliderElement {
   ensureKitStyles();
   const block = element('div', 'fs-slider-block');
-  block.style.cssText = 'flex:0 1 320px;min-width:160px;max-width:100%;';
+  block.style.cssText = 'width:320px;max-width:100%;min-width:0;';
+
   const head = element('div', 'fs-slider-head');
+  head.style.justifyContent = 'flex-end';
   const readout = element('span', 'fs-slider-val');
-  const unit = options.unit ?? '';
-  const show = (n: number): void => { readout.textContent = `${String(n)}${unit}`; };
-  show(options.value);
   head.appendChild(readout);
   block.appendChild(head);
 
+  const span = options.max - options.min || 1;
+  const percent = (n: number): number => Math.min(100, Math.max(0, ((n - options.min) / span) * 100));
+
   const wrap = element('div', 'fs-slider-wrap');
+  const track = element('div', 'vrcnx-slider-track');
+  const fill = element('div', 'vrcnx-slider-fill');
+  track.appendChild(fill);
+  const markers = options.markers ?? [];
+  for (const mark of markers) {
+    const tick = element('div', 'vrcnx-slider-tick');
+    tick.style.left = `${String(percent(mark))}%`;
+    track.appendChild(tick);
+  }
+  wrap.appendChild(track);
+
   const input = element('input', 'fs-slider');
   input.type = 'range';
   input.min = String(options.min);
@@ -436,7 +501,6 @@ export function slider(options: {
   input.step = String(options.step ?? 1);
   input.value = String(options.value);
   if (options.disabled === true) input.disabled = true;
-  const markers = options.markers ?? [];
   if (markers.length > 0) {
     const list = element('datalist');
     list.id = `vrcnx-marks-${String(Math.random()).slice(2)}`;
@@ -453,22 +517,36 @@ export function slider(options: {
 
   if (markers.length > 0) {
     const marks = element('div', 'vrcnx-slider-marks');
-    const span = options.max - options.min || 1;
     for (const mark of markers) {
       const label = element('span', 'vrcnx-slider-mark', String(mark));
-      label.style.left = `${String(((mark - options.min) / span) * 100)}%`;
+      label.style.left = `${String(percent(mark))}%`;
       marks.appendChild(label);
     }
     block.appendChild(marks);
   }
 
+  const unit = options.unit ?? '';
+  const paint = (n: number): void => {
+    readout.textContent = `${String(n)}${unit}`;
+    fill.style.width = `${String(percent(n))}%`;
+  };
+  paint(options.value);
+
   input.addEventListener('input', () => {
     const n = Number(input.value);
-    show(n);
+    paint(n);
     options.onInput?.(n);
   });
   input.addEventListener('change', () => { options.onChange(Number(input.value)); });
-  return block;
+
+  // A write from elsewhere sets the value and repaints; assigning `input.value` alone would
+  // leave the readout and the filled track behind, and a synthetic event would be a lie.
+  return Object.assign(block, {
+    setValue(next: number): void {
+      input.value = String(next);
+      paint(next);
+    },
+  });
 }
 
 /** A row of toggle buttons; the pressed ones are the chosen values. */
@@ -508,6 +586,25 @@ export function chips(options: {
   return root;
 }
 
+/** A small pill with a remove button, for a value the user can take back. */
+export function chip(text: string, onRemove: () => void): HTMLElement {
+  ensureKitStyles();
+  const root = element('span', 'vrcnx-chip');
+  const label = element('span', 'vrcnx-chip-text', text);
+  label.title = text;
+  const remove = element('button', 'vrcnx-chip-x');
+  remove.type = 'button';
+  remove.title = `Forget ${text}`;
+  remove.appendChild(iconSpan('close'));
+  remove.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onRemove();
+  });
+  root.append(label, remove);
+  return root;
+}
+
 /** A native input styled as VRCNext's edit field; `type` is `time`, `color`, `url`, `password`, … */
 export function typedField(type: string, options: {
   readonly value: string;
@@ -521,7 +618,7 @@ export function typedField(type: string, options: {
   if (type === 'color') {
     input.style.cssText = 'width:44px;height:28px;padding:2px;border-radius:6px;cursor:pointer;';
   } else {
-    input.style.cssText = 'flex:0 1 200px;min-width:120px;max-width:100%;';
+    input.style.cssText = 'width:200px;max-width:100%;min-width:0;';
   }
   input.addEventListener('change', () => { options.onChange(input.value); });
   return input;

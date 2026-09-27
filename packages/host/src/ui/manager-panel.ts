@@ -1,9 +1,12 @@
 /**
- * The install-and-manage cards of the Plugins section in VRCNext's Settings tab.
+ * The manage half of the Plugins section in VRCNext's Settings tab.
  *
- * Until the bridge is connected this is only the Bridge card. Connected, it adds the install
- * field with its progress list, the installed plugins, and the update controls. Rendering is a
- * full redraw of a small list, which is cheap and avoids a diffing layer.
+ * Until the bridge is connected this is only the Bridge card. Connected, it is a status strip,
+ * the installed plugins as rows that open, and the install field with its progress list — in
+ * that order, because "what do I have" is asked far more often than "add another". Every
+ * plugin's own settings card is attached below these by the host. Rendering is a full redraw of
+ * a small list, which is cheap and avoids a diffing layer; what the user has opened is kept in
+ * `#expanded` so a redraw does not fold their rows.
  */
 
 import type { PluginId } from '@vrcnext/plugin-api';
@@ -21,8 +24,8 @@ import {
 } from '../plugins/plugins-service.js';
 import { buildBridgeCard } from './bridge-card.js';
 import { element } from './dom.js';
-import { buildPluginCard, type PluginView } from './plugin-card.js';
-import { button, card, controlRow, description, emptyState, grid, panelLayout, textField, value } from './widgets.js';
+import { buildPluginRows, type PluginView } from './plugin-row.js';
+import { button, card, controlRow, description, panelLayout, statusCard, textField } from './widgets.js';
 
 export interface ManagerPanelDeps {
   readonly manager: PluginManager;
@@ -45,6 +48,8 @@ export class ManagerPanel {
   readonly #progress = new Map<string, Progress[]>();
   #lastError: { readonly message: string; readonly docs: boolean } | undefined;
   readonly #openChangelogs = new Set<string>();
+  /** Which plugin rows are open. Kept across the full redraws below. */
+  readonly #expanded = new Set<string>();
   #checkedUpdates = false;
   readonly #unsubscribe: (() => void)[] = [];
 
@@ -79,7 +84,7 @@ export class ManagerPanel {
       root.replaceChildren(buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }));
       return;
     }
-    root.replaceChildren(this.#buildInstallCard(), this.#buildUpdatesCard(), this.#buildList());
+    root.replaceChildren(this.#buildStatusCard(), this.#buildList(), this.#buildInstallCard());
   }
 
   #onPush(event: string, data: unknown): void {
@@ -117,6 +122,31 @@ export class ManagerPanel {
     });
   }
 
+  /** One line saying where things stand, with the two update controls beside it. */
+  #buildStatusCard(): HTMLElement {
+    const { manager } = this.#deps;
+    const count = manager.updates.length;
+    const installed = manager.installed.length;
+    const label = !this.#checkedUpdates
+      ? `${String(installed)} plugin${installed === 1 ? '' : 's'} installed`
+      : count === 0
+        ? `${String(installed)} plugin${installed === 1 ? '' : 's'}, all up to date`
+        : `${String(count)} of ${String(installed)} can be updated`;
+    return statusCard({
+      tone: count === 0 ? 'online' : 'warn',
+      label,
+      action: controlRow(
+        button({ label: 'Check for updates', icon: 'refresh', disabled: this.#busy, onClick: () => { this.#checkUpdates(); } }),
+        button({
+          label: 'Update all',
+          icon: 'download',
+          disabled: this.#busy || count === 0,
+          onClick: () => { this.#run(() => manager.updateAll()); },
+        }),
+      ),
+    });
+  }
+
   #buildInstallCard(): HTMLElement {
     const panel = card('Install a plugin', 'download');
     const input = textField({
@@ -146,7 +176,9 @@ export class ManagerPanel {
       description(
         'A flat git repository over https with plugin.json and main.ts at its root. The bridge ' +
           'clones it, checks its manifest and source policy, asks you to confirm on the desktop, ' +
-          'and rebuilds the bundle. Plugins run with the authority of this page — there is no sandbox.',
+          'and rebuilds the bundle. Each update is confirmed the same way, one plugin at a time, ' +
+          'and the new code runs after you reload VRCNext. Plugins run with the authority of this ' +
+          'page — there is no sandbox.',
       ),
     );
     const progress = this.#buildProgress();
@@ -182,37 +214,6 @@ export class ManagerPanel {
     return list;
   }
 
-  #buildUpdatesCard(): HTMLElement {
-    const { manager } = this.#deps;
-    const panel = card('Updates', 'system_update_alt');
-    const count = manager.updates.length;
-    panel.appendChild(
-      controlRow(
-        button({ label: 'Check for updates', icon: 'refresh', disabled: this.#busy, onClick: () => { this.#checkUpdates(); } }),
-        button({
-          label: count === 0 ? 'Update all' : `Update all (${String(count)})`,
-          icon: 'download',
-          disabled: this.#busy || count === 0,
-          onClick: () => { this.#run(() => manager.updateAll()); },
-        }),
-        value(
-          !this.#checkedUpdates
-            ? 'Not checked yet.'
-            : count === 0
-              ? 'Everything is up to date.'
-              : `${String(count)} plugin${count === 1 ? '' : 's'} can be updated.`,
-        ),
-      ),
-    );
-    panel.appendChild(
-      description(
-        'Each update is confirmed on the desktop, one plugin at a time. After a rebuild, reload ' +
-          'VRCNext to run the new code.',
-      ),
-    );
-    return panel;
-  }
-
   #views(): readonly PluginView[] {
     const { manager } = this.#deps;
     const ids = new Set<PluginId>();
@@ -227,21 +228,18 @@ export class ManagerPanel {
   }
 
   #buildList(): HTMLElement {
-    const views = this.#views();
-    if (views.length === 0) {
-      const empty = card('Installed plugins', 'extension');
-      empty.appendChild(emptyState('No plugins yet. Install one above.'));
-      return empty;
-    }
-    const cards = views.map((view) =>
-      buildPluginCard(view, {
+    const panel = card('Installed plugins', 'extension');
+    panel.appendChild(
+      buildPluginRows(this.#views(), {
         manager: this.#deps.manager,
         broker: this.#deps.broker,
         openSettings: this.#deps.openSettings,
+        openUrl: this.#deps.openUrl,
         run: (work) => { this.#run(work); },
+        expanded: this.#expanded,
         openChangelogs: this.#openChangelogs,
       }),
     );
-    return grid(cards, 340);
+    return panel;
   }
 }

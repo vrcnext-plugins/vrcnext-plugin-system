@@ -74,8 +74,7 @@ function numberControl(spec: NumberSetting, binding: Binding, error: ReturnType<
       onChange: (next) => { commit(binding, next, error, ctx); },
     });
     ctx.track(binding.onChange((value) => {
-      const input = node.querySelector('input');
-      if (input !== null && typeof value === 'number' && document.activeElement !== input) input.value = String(value);
+      if (typeof value === 'number' && document.activeElement !== node.querySelector('input')) node.setValue(value);
     }));
     return { element: node };
   }
@@ -260,7 +259,7 @@ export function renderSetting(
   const error = widgets.errorLine();
   const control = buildControl(spec, binding, error, ctx);
   const fieldset = element('fieldset');
-  fieldset.style.cssText = 'border:0;padding:0;margin:0;min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px;';
+  fieldset.style.cssText = 'border:0;padding:0;margin:0;min-width:0;max-width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:2px;';
   if (control.stacked === true) fieldset.style.alignItems = 'stretch';
   fieldset.append(control.element, error);
   const row = widgets.row(spec.label, fieldset, spec.description, { stacked: control.stacked === true });
@@ -328,6 +327,11 @@ function listControl(spec: ListSetting, binding: Binding, error: ReturnType<type
     })));
     if (items.length === 0) children.unshift(widgets.emptyState('Nothing here yet.'));
     widgets.setChildren(root, children);
+    // Enforce the fold state after mounting: a <details> set before insertion does not reliably
+    // keep it, and an item springing open on every redraw is the whole card jumping.
+    for (const [index, card] of [...root.querySelectorAll<HTMLDetailsElement>(':scope > .vrcnx-list-item')].entries()) {
+      card.open = open.has(index);
+    }
   };
   draw();
   // A field edit inside an item writes the whole list; only a structural change redraws.
