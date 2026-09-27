@@ -3,7 +3,7 @@
   "name": "Club Security",
   "version": "1.0.0",
   "apiVersion": "^0.2.0",
-  "description": "When someone joins your instance, gathers age verification, avatar performance, group membership and whether they were in this instance with you before, then notifies you in-app, on the desktop, in VR or on Discord.",
+  "description": "Reports each join to your instance: 18+ verification, avatar performance ranks, group membership and whether they were here with you before, to toast, desktop, VR or Discord.",
   "author": "vrcnext-plugins",
   "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system/tree/main/examples/club-security",
   "tags": [
