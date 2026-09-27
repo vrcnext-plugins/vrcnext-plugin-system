@@ -43,6 +43,44 @@ export interface VrcUserSummary {
   readonly ageVerified: boolean;
 }
 
+/**
+ * The signed-in account. VRCNext pushes all of this after login, so it costs nothing to read.
+ */
+export interface VrcSelf extends VrcUserSummary {
+  readonly bio: string;
+  readonly bioLinks: readonly string[];
+  readonly pronouns: string;
+  readonly languages: readonly string[];
+  readonly dateJoined: string;
+  readonly lastLogin: string;
+  readonly currentAvatarId: string;
+  readonly currentAvatarImageUrl: string;
+  /** Where "go home" goes; `''` when unset. */
+  readonly homeLocation: string;
+  /** Whether VRChat is running, as VRCNext sees it. */
+  readonly vrcRunning: boolean;
+}
+
+/** One of your favourite-friend groups, with the names in it. */
+export interface VrcFavoriteGroup {
+  /** VRChat's own tag, e.g. `group_0`. */
+  readonly name: string;
+  /** What you renamed it to, e.g. `Besties`. */
+  readonly displayName: string;
+  readonly userIds: readonly string[];
+  /** The members this page knows by name; a non-friend may be missing. */
+  readonly users: readonly VrcUserSummary[];
+}
+
+/** How many people you have moderated, by kind. */
+export interface VrcModerationCounts {
+  readonly blocked: number;
+  readonly muted: number;
+  readonly hiddenAvatar: number;
+  readonly interactOff: number;
+  readonly muteChat: number;
+}
+
 /** A full profile, as VRCNext's user dialog would show it. */
 export interface VrcUser extends VrcUserSummary {
   readonly bio: string;
@@ -226,12 +264,16 @@ export interface VrcLookupOptions {
  */
 export interface VrchatApi {
   /** The signed-in account, or `undefined` before login. Synchronous: VRCNext pushes it. */
-  self(): VrcUserSummary | undefined;
+  self(): VrcSelf | undefined;
 
   /** Your friend list, from VRCNext's live store. */
   friends(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]>;
   /** Your favourite friends. */
   favoriteFriends(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]>;
+  /** The same, kept in their groups, with the names you gave the groups. */
+  favoriteFriendGroups(options?: VrcLookupOptions): Promise<readonly VrcFavoriteGroup[]>;
+  /** How many people you have blocked, muted and so on. */
+  moderationCounts(options?: VrcLookupOptions): Promise<VrcModerationCounts>;
   /** Players VRCNext recorded near you, most recent first. */
   recentPlayers(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]>;
 

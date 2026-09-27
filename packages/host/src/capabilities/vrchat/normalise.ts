@@ -15,8 +15,10 @@ import {
   type VrcAvatarSummary,
   type VrcGroup,
   type VrcGroupSummary,
+  type VrcFavoriteGroup,
   type VrcInstance,
   type VrcInstanceUser,
+  type VrcSelf,
   type VrcTimelineEvent,
   type VrcUser,
   type VrcUserSummary,
@@ -118,6 +120,57 @@ export function userDetail(value: unknown): VrcUser | undefined {
     note: str(r['note']) || str(r['userNote']),
     memo: str(r['memo']),
   };
+}
+
+/** The `vrcUser` push: everything VRCNext knows about the signed-in account. */
+export function self(value: unknown): VrcSelf | undefined {
+  const summary = userSummary(value);
+  const r = rec(value);
+  if (summary === undefined || r === undefined) return undefined;
+  return {
+    ...summary,
+    isFriend: false,
+    bio: str(r['bio']),
+    bioLinks: strings(r['bioLinks']),
+    pronouns: str(r['pronouns']),
+    languages: strings(r['languages']),
+    dateJoined: str(r['dateJoined']),
+    lastLogin: str(r['lastLogin']),
+    currentAvatarId: str(r['currentAvatar']),
+    currentAvatarImageUrl: str(r['currentAvatarImageUrl']),
+    homeLocation: str(r['homeLocation']),
+    vrcRunning: r['vrcRunning'] === true,
+  };
+}
+
+/** `vrcFavoriteFriends` again, this time keeping the groups and who is in each. */
+export function favoriteGroups(value: unknown): readonly VrcFavoriteGroup[] | undefined {
+  const r = rec(value);
+  if (r === undefined || !Array.isArray(r['friends'])) return undefined;
+  const byGroup = new Map<string, string[]>();
+  for (const entry of list(r['friends'])) {
+    const f = rec(entry);
+    const id = str(f?.['favoriteId']);
+    const group = str(f?.['groupName']);
+    if (id === '' || group === '') continue;
+    const ids = byGroup.get(group) ?? [];
+    ids.push(id);
+    byGroup.set(group, ids);
+  }
+  const named = new Map<string, string>();
+  for (const entry of list(r['groups'])) {
+    const g = rec(entry);
+    const name = str(g?.['name']);
+    if (name !== '') named.set(name, str(g?.['displayName']));
+  }
+  // Groups VRCNext listed but nobody is in still belong here; an empty one is a fact.
+  const names = new Set([...byGroup.keys(), ...named.keys()]);
+  return [...names].map((name) => ({
+    name,
+    displayName: named.get(name) ?? name,
+    userIds: byGroup.get(name) ?? [],
+    users: [],
+  }));
 }
 
 /** `vrcFavoriteFriends`: `{ friends: [{ favoriteId: usr_…, groupName }], groups }`. */

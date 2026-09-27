@@ -17,13 +17,16 @@ import type {
   ActionArgs,
   VrcAvatar,
   VrcAvatarSummary,
+  VrcFavoriteGroup,
   VrcFriendInstance,
   VrcGroup,
   VrcGroupSummary,
   VrcInstance,
   VrcLookupOptions,
+  VrcModerationCounts,
   VrcSearchOptions,
   VrcSearchPage,
+  VrcSelf,
   VrcTimelineEvent,
   VrcUser,
   VrcUserSummary,
@@ -80,7 +83,7 @@ export interface VrchatApiDeps {
 export class HostVrchatApi implements VrchatApi {
   readonly #deps: VrchatApiDeps;
   readonly #unsubscribe: (() => void)[] = [];
-  #self: VrcUserSummary | undefined;
+  #self: VrcSelf | undefined;
 
   readonly #friends = new Mirror<readonly VrcUserSummary[]>((p) => {
     const r = n.rec(p);
@@ -88,6 +91,9 @@ export class HostVrchatApi implements VrchatApi {
     return raw === undefined ? undefined : n.each(raw, n.friendSummary);
   });
   readonly #favoriteFriendIds = new Mirror<readonly string[]>(n.favoriteFriendIds);
+  readonly #favoriteGroups = new Mirror<readonly VrcFavoriteGroup[]>(n.favoriteGroups);
+  /** One mirror per moderation list; VRCNext pushes them as five separate events. */
+  readonly #moderations = new Map<keyof VrcModerationCounts, number>();
   readonly #recentPlayers = new Mirror<readonly VrcUserSummary[]>((p) => {
     const players = n.rec(p)?.['players'];
     return Array.isArray(players) ? n.each(players, n.userSummary) : undefined;
@@ -132,12 +138,27 @@ export class HostVrchatApi implements VrchatApi {
       this.#unsubscribe.push(deps.router.on(type, listener));
     };
     on('vrcUser', (p) => {
-      const self = n.userSummary(p);
+      const self = n.self(p);
       if (self !== undefined) this.#self = self;
     });
     on('vrcFriends', (p) => { this.#friends.feed(p); });
     on('vrcFriendUpdate', (p) => { this.#patchFriend(p); });
-    on('vrcFavoriteFriends', (p) => { this.#favoriteFriendIds.feed(p); });
+    on('vrcFavoriteFriends', (p) => {
+      this.#favoriteFriendIds.feed(p);
+      this.#favoriteGroups.feed(p);
+    });
+    const moderation: readonly (readonly [string, keyof VrcModerationCounts])[] = [
+      ['vrcBlockedList', 'blocked'],
+      ['vrcMutedList', 'muted'],
+      ['vrcHideAvatarList', 'hiddenAvatar'],
+      ['vrcInteractOffList', 'interactOff'],
+      ['vrcMuteChatList', 'muteChat'],
+    ];
+    for (const [event, key] of moderation) {
+      on(event, (p) => {
+        if (Array.isArray(p)) this.#moderations.set(key, p.length);
+      });
+    }
     on('recentSeenPlayers', (p) => { this.#recentPlayers.feed(p); });
     on('vrcFavoriteWorlds', (p) => { this.#favoriteWorlds.feed(p); });
     on('visitedWorlds', (p) => { this.#recentWorlds.feed(p); });
@@ -221,7 +242,7 @@ export class HostVrchatApi implements VrchatApi {
     }
   }
 
-  self(): VrcUserSummary | undefined {
+  self(): VrcSelf | undefined {
     return this.#self;
   }
 
@@ -239,6 +260,47 @@ export class HostVrchatApi implements VrchatApi {
       const friend = byId.get(id);
       return friend === undefined ? [] : [friend];
     });
+  }
+
+  /** The groups, with each member resolved to a name where this page knows one. */
+  async favoriteFriendGroups(options?: VrcLookupOptions): Promise<readonly VrcFavoriteGroup[]> {
+    const [groups, friends] = await Promise.all([
+      this.#list(this.#favoriteGroups, { action: 'vrcGetFavoriteFriends', expect: 'vrcFavoriteFriends' }, options),
+      this.friends(options),
+    ]);
+    const byId = new Map(friends.map((f) => [f.id, f]));
+    return groups.map((group) => ({
+      ...group,
+      users: group.userIds.flatMap((id) => {
+        const user = byId.get(id);
+        return user === undefined ? [] : [user];
+      }),
+    }));
+  }
+
+  /**
+   * One request fans out into five list pushes, so this waits for the blocked list and reads
+   * whatever the others left behind — they arrive together.
+   */
+  async moderationCounts(options?: VrcLookupOptions): Promise<VrcModerationCounts> {
+    const known = (): VrcModerationCounts => ({
+      blocked: this.#moderations.get('blocked') ?? 0,
+      muted: this.#moderations.get('muted') ?? 0,
+      hiddenAvatar: this.#moderations.get('hiddenAvatar') ?? 0,
+      interactOff: this.#moderations.get('interactOff') ?? 0,
+      muteChat: this.#moderations.get('muteChat') ?? 0,
+    });
+    if (this.#moderations.size > 0 && options?.cached !== false) return known();
+    await this.#shared('vrcGetAllModerations', () =>
+      this.#deps.channel.request<number>({
+        action: 'vrcGetAllModerations',
+        expect: 'vrcBlockedList',
+        swallow: false,
+        accept: (payload) => (Array.isArray(payload) ? payload.length : undefined),
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      }),
+    );
+    return known();
   }
 
   recentPlayers(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]> {

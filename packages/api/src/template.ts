@@ -17,8 +17,8 @@
  *
  * Expressions: literals (`"text"`, `12`, `true`, `null`), names with dotted paths (`a.b`),
  * `== != < <= > >=`, `and or not` (also `&& || !`), `+` for numbers and strings, the two
- * conditional forms, and filters with `|`. Filters: `upper lower capitalize trim length default
- * yesno join replace truncate`. A name that is not in the values renders empty.
+ * conditional forms, and filters with `|`. Filters: `upper lower capitalize trim length size default
+ * yesno join replace truncate get`. A name that is not in the values renders empty.
  *
  * Lines: a line that contained placeholders which all came out empty is dropped, so
  * `In Group: {inGroup}` disappears when the fact is not applicable. Literal lines stay.
@@ -284,6 +284,8 @@ const FILTERS: Readonly<Record<string, Filter>> = {
   capitalize: (v) => { const s = stringify(v); return s.charAt(0).toUpperCase() + s.slice(1); },
   trim: (v) => stringify(v).trim(),
   length: (v) => (Array.isArray(v) ? v.length : stringify(v).length),
+  // Liquid spells it `size`; templates carried over from there keep working.
+  size: (v) => (Array.isArray(v) ? v.length : stringify(v).length),
   default: (v, [fallback]) => (truthy(v) ? v : fallback),
   yesno: (v, [yes = 'Yes', no = 'No', unknown]) => (v === undefined || v === null ? (unknown ?? no) : (truthy(v) ? yes : no)),
   join: (v, [sep = ', ']) => (Array.isArray(v) ? v.map(stringify).join(stringify(sep)) : stringify(v)),

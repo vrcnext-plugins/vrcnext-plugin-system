@@ -67,8 +67,42 @@ test('lists answer from the mirror once VRCNext pushed them, and ask otherwise',
 test('self comes from the vrcUser push and is synchronous', () => {
   const f = fake();
   assert.equal(f.api.self(), undefined);
-  f.router.dispatch({ type: 'vrcUser', payload: { id: USER, displayName: 'Me', image: '', status: 'active' } });
-  assert.equal(f.api.self()?.displayName, 'Me');
+  f.router.dispatch({
+    type: 'vrcUser',
+    payload: { id: USER, displayName: 'Me', image: '', status: 'active', bio: 'hi', bioLinks: ['https://x.test'], pronouns: 'they/them', dateJoined: '2020-01-01', vrcRunning: true },
+  });
+  const me = f.api.self();
+  assert.ok(me !== undefined);
+  assert.equal(me.displayName, 'Me');
+  assert.deepEqual([me.bio, me.pronouns, me.dateJoined, me.vrcRunning], ['hi', 'they/them', '2020-01-01', true]);
+  assert.deepEqual(me.bioLinks, ['https://x.test']);
+});
+
+test('favourite groups keep their names and resolve members this page knows', async () => {
+  const f = fake();
+  f.router.dispatch({ type: 'vrcFriends', payload: { friends: [{ id: USER, displayName: 'Tupper', image: '' }] } });
+  f.router.dispatch({
+    type: 'vrcFavoriteFriends',
+    payload: {
+      friends: [{ favoriteId: USER, groupName: 'group_0' }, { favoriteId: 'usr_stranger', groupName: 'group_0' }],
+      groups: [{ name: 'group_0', displayName: 'Besties' }, { name: 'group_1', displayName: 'Others' }],
+    },
+  });
+  const groups = await f.api.favoriteFriendGroups();
+  assert.deepEqual(groups.map((g) => [g.name, g.displayName, g.userIds.length, g.users.map((u) => u.displayName)]), [
+    ['group_0', 'Besties', 2, ['Tupper']],
+    ['group_1', 'Others', 0, []],
+  ]);
+});
+
+test('moderation counts come from the five lists one request fans out into', async () => {
+  const f = fake();
+  f.replies.set('vrcBlockedList', [[{ id: 'a' }, { id: 'b' }]]);
+  const counts = await f.api.moderationCounts();
+  assert.equal(counts.blocked, 0, 'the fake channel answers without dispatching the pushes');
+  f.router.dispatch({ type: 'vrcBlockedList', payload: [{ id: 'a' }, { id: 'b' }] });
+  f.router.dispatch({ type: 'vrcMutedList', payload: [{ id: 'c' }] });
+  assert.deepEqual(await f.api.moderationCounts(), { blocked: 2, muted: 1, hiddenAvatar: 0, interactOff: 0, muteChat: 0 });
 });
 
 test('details are asked quietly, matched by id, and cached', async () => {

@@ -91,14 +91,17 @@ export type {
   PerformanceRank,
   VrcAvatar,
   VrcAvatarSummary,
+  VrcFavoriteGroup,
   VrcFriendInstance,
   VrcGroup,
   VrcGroupSummary,
   VrcInstance,
   VrcInstanceUser,
   VrcLookupOptions,
+  VrcModerationCounts,
   VrcSearchOptions,
   VrcSearchPage,
+  VrcSelf,
   VrcTimelineEvent,
   VrcUser,
   VrcUserSummary,
@@ -188,6 +191,7 @@ export type {
 } from './ui.js';
 
 export { timeAgo } from './time.js';
+export type { TimeInput } from './time.js';
 export { INSTANCE_TYPES, isGroupInstance, parseLocation } from './location.js';
 export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';
