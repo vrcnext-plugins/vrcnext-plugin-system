@@ -87,6 +87,8 @@ export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
 export { PERFORMANCE_RANKS, TRUST_RANKS, rankIndex, trustRank } from './vrchat.js';
+export { trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
+export type { TrustCriterion, TrustInput, TrustScore } from './trust.js';
 export type {
   PerformanceRank,
   TrustRank,
