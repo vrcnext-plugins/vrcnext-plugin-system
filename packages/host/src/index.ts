@@ -6,7 +6,7 @@
  * theme script without a reload, and booting twice would double every listener.
  *
  * Nothing plugin-related happens until the VRCNext Bridge is connected: it holds the enabled
- * flags, the saved grants and every plugin's settings. Until then the Plugins tab shows only the
+ * flags, the saved grants and every plugin's settings. Until then the Plugins section shows only the
  * Bridge card.
  */
 
@@ -37,6 +37,7 @@ import { ManagerPanel } from './ui/manager-panel.js';
 import { PermissionModal } from './ui/permission-modal.js';
 import { PluginNav, type NavEntry } from './ui/plugin-nav.js';
 import { showReloadToast } from './ui/reload-toast.js';
+import { PLUGINS_SECTION, SYSTEM_SECTION } from './ui/settings-section.js';
 import { UiHost } from './ui/ui-host.js';
 
 const GLOBAL_KEY = '__vrcnextPluginHost';
@@ -164,7 +165,11 @@ function buildCore(): Core {
   return { sink, logger, bridge, manager, broker, grants, ui, toast, routes, contextMenu, native, debugHub, isLinux };
 }
 
-/** Mounts the "Plugins" group in both the sidebar and the top menu bar. */
+/**
+ * Files the host's pages under its Settings sections and mounts the "Plugins" shortcut group in
+ * the sidebar and the top menu bar. Plugin System: bridge, status, logs. Plugins: install and
+ * manage, followed by every plugin's settings card as plugins add them.
+ */
 function mountNav(core: Core, bag: DisposableBag): void {
   const openUrl = (url: string): void => { core.bridge.send('openUrl', { url }); };
   const managerPanel = new ManagerPanel({
@@ -175,7 +180,7 @@ function mountNav(core: Core, bag: DisposableBag): void {
     openSettings: (id) => {
       const card = UiHost.settingsCardOf(id);
       if (card === undefined) return false;
-      core.ui.settingsSection.open(card);
+      core.ui.settingsSections.open(PLUGINS_SECTION, card);
       return true;
     },
     onError: (message) => {
@@ -195,24 +200,24 @@ function mountNav(core: Core, bag: DisposableBag): void {
   bag.add(() => { managerPanel.dispose(); });
   bag.add(() => { logPanel.dispose(); });
   bag.add(() => { aboutPanel.dispose(); });
-  bag.add(() => { core.ui.settingsSection.unmount(); });
+  bag.add(() => { core.ui.settingsSections.unmount(); });
+
+  const sections = core.ui.settingsSections;
+  const block = (): HTMLElement => document.createElement('div');
+  const systemBlock = block();
+  aboutPanel.render(systemBlock);
+  sections.attach(SYSTEM_SECTION, systemBlock);
+  const logCard = core.ui.forHost(bag).createCard('Plugin logs', 'article');
+  logPanel.render(logCard);
+  sections.attach(SYSTEM_SECTION, logCard);
+  const pluginsBlock = block();
+  managerPanel.render(pluginsBlock);
+  sections.attach(PLUGINS_SECTION, pluginsBlock);
+  bag.add(() => { systemBlock.remove(); logCard.remove(); pluginsBlock.remove(); });
 
   const entries: readonly NavEntry[] = [
-    { id: 'manage', label: 'Manage Plugins', icon: 'extension', render: (c) => { managerPanel.render(c); } },
-    {
-      id: 'logs',
-      label: 'Logs',
-      icon: 'article',
-      render: (container) => {
-        const host = core.ui.forHost(bag);
-        const layout = host.createPanelLayout();
-        const card = host.createCard('Plugin logs', 'article');
-        logPanel.render(card);
-        layout.appendChild(card);
-        container.replaceChildren(layout);
-      },
-    },
-    { id: 'system', label: 'Plugin System', icon: 'tune', render: (c) => { aboutPanel.render(c); } },
+    { id: 'system', label: 'Plugin System', icon: 'tune', activate: () => { sections.open(SYSTEM_SECTION); } },
+    { id: 'plugins', label: 'Plugins', icon: 'extension', activate: () => { sections.open(PLUGINS_SECTION); } },
   ];
 
   const nav = new PluginNav({
@@ -261,7 +266,7 @@ function gateOnBridge(core: Core, bag: DisposableBag): void {
         showReloadToast('Rebuilt — reload to apply', () => { globalThis.location.reload(); });
       } else {
         core.logger.error(`The bridge could not rebuild the bundle: ${result.errors.join('\n')}`);
-        core.toast({ message: 'Plugin rebuild failed; see the Logs tab.', ok: false });
+        core.toast({ message: 'Plugin rebuild failed; see the Plugin System section in Settings.', ok: false });
       }
       return;
     }

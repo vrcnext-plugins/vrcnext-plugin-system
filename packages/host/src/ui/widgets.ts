@@ -63,6 +63,7 @@ const KIT_CSS = `
   grid-auto-flow: row dense;
 }
 .vrcnx-grid > .vrcnx-full { grid-column: 1 / -1; }
+.settings-content .settings-content { padding: 0; overflow: visible; }
 .sf-dot.vrcnx-dot-warn { background: var(--warn); }
 .vrcnx-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; min-width: 0; }
 .vrcnx-stat-value {

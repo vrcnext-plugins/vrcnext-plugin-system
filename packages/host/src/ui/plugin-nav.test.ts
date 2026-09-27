@@ -24,20 +24,22 @@ const SHELL = `<!doctype html><html><body>
 let dom: JSDOM;
 let nav: PluginNav;
 let shown: number[];
-let renders: string[];
+let activated: string[];
+let errors: string[];
 
 function entries(): readonly NavEntry[] {
   return [
-    { id: 'manage', label: 'Manage Plugins', icon: 'extension', render: (c) => { renders.push('manage'); c.textContent = 'manage'; } },
-    { id: 'logs', label: 'Logs', icon: 'article', render: (c) => { renders.push('logs'); c.textContent = 'logs'; } },
-    { id: 'system', label: 'Plugin System', icon: 'settings_applications', render: (c) => { renders.push('system'); c.textContent = 'system'; } },
+    { id: 'system', label: 'Plugin System', icon: 'tune', activate: () => { activated.push('system'); } },
+    { id: 'plugins', label: 'Plugins', icon: 'extension', activate: () => { activated.push('plugins'); } },
+    { id: 'broken', label: 'Broken', icon: 'bug_report', activate: () => { throw new Error('nope'); } },
   ];
 }
 
 beforeEach(() => {
   dom = new JSDOM(SHELL, { pretendToBeVisual: true });
   shown = [];
-  renders = [];
+  activated = [];
+  errors = [];
 
   // The host reads document/MutationObserver/showTab off the global, exactly as it does in the
   // real page; point them at the JSDOM window for the duration of the test.
@@ -51,7 +53,7 @@ beforeEach(() => {
     groupId: 'vrcnextPluginsNavGroup',
     groupLabel: 'Plugins',
     groupIcon: 'extension',
-    onError: (error) => { throw error; },
+    onError: (error, entry) => { errors.push(`${entry.id}: ${error instanceof Error ? error.message : String(error)}`); },
   });
   nav.mount();
 });
@@ -79,16 +81,16 @@ test('adds a sidebar separator and a Plugins group using VRCNext classes', () =>
   assert.equal(header.querySelector('.nav-group-arrow')?.textContent, 'expand_more');
 });
 
-test('renders one nav-sub item per entry, in order', () => {
+test('adds one nav-sub item per entry, in order', () => {
   const items = [...dom.window.document.querySelectorAll('#navEl .nav-group-items .nav-btn.nav-sub')];
   assert.equal(items.length, 3);
   assert.deepEqual(
     items.map((i) => i.querySelector('.nl')?.textContent),
-    ['Manage Plugins', 'Logs', 'Plugin System'],
+    ['Plugin System', 'Plugins', 'Broken'],
   );
   assert.deepEqual(
     items.map((i) => i.querySelector('.ni.msi')?.textContent),
-    ['extension', 'article', 'settings_applications'],
+    ['tune', 'extension', 'bug_report'],
   );
 });
 
@@ -114,29 +116,30 @@ test('mirrors the group into the top menu bar', () => {
   const items = [...mine.querySelectorAll('.tb-dropdown .tb-dd-item')];
   assert.deepEqual(
     items.map((i) => i.querySelectorAll('span')[1]?.textContent),
-    ['Manage Plugins', 'Logs', 'Plugin System'],
+    ['Plugin System', 'Plugins', 'Broken'],
   );
 });
 
-test('creates one tab per entry and renders it lazily on first activation', () => {
-  assert.equal(dom.window.document.querySelectorAll('.tab').length, 4); // VRCNext's tab0 + 3
-  assert.deepEqual(renders, [], 'nothing should render before activation');
+test('entries are shortcuts: no tab is created and the item only runs the entry', () => {
+  assert.equal(dom.window.document.querySelectorAll('.tab').length, 1, 'only VRCNext’s own tab');
 
-  const logs = q('#navEl .nav-group-items .nav-btn.nav-sub:nth-child(2)');
-  (logs as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  assert.deepEqual(renders, ['logs']);
-  assert.deepEqual(shown, [2]); // tab index: tab0, manage, logs
-
-  (logs as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  assert.deepEqual(renders, ['logs'], 'second activation must not re-render');
-  assert.deepEqual(shown, [2, 2]);
+  const plugins = q('#navEl .nav-group-items .nav-btn.nav-sub:nth-child(2)');
+  (plugins as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  (plugins as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.deepEqual(activated, ['plugins', 'plugins']);
+  assert.deepEqual(shown, [], 'the shortcut decides what to show');
 });
 
-test('the taskbar item activates the same shared tab', () => {
+test('a shortcut that throws is reported through onError', () => {
+  const broken = q('#navEl .nav-group-items .nav-btn.nav-sub:nth-child(3)');
+  (broken as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.deepEqual(errors, ['broken: nope']);
+});
+
+test('the taskbar item runs the same entry', () => {
   const ddItem = q('#tbMenuItems .tb-menu-item:last-child .tb-dd-item');
   (ddItem as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  assert.deepEqual(renders, ['manage']);
-  assert.deepEqual(shown, [1]);
+  assert.deepEqual(activated, ['system']);
 });
 
 test('re-attaches after navRender() clears #navEl', async () => {
@@ -167,12 +170,10 @@ test('opens popout in modern-folders mode and activates tab on cell click', () =
 
   const cells = [...popout.querySelectorAll('.nav-folder-cell')];
   assert.equal(cells.length, 3);
-  assert.equal(cells[1]?.querySelector('.nav-folder-cell-label')?.textContent, 'Logs');
+  assert.equal(cells[1]?.querySelector('.nav-folder-cell-label')?.textContent, 'Plugins');
 
-  // Click Logs cell
   (cells[1] as HTMLElement).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  assert.deepEqual(renders, ['logs']);
-  assert.deepEqual(shown, [2]);
+  assert.deepEqual(activated, ['plugins']);
   assert.equal(q('#navFolderPopout'), null, 'popout should close after item click');
 });
 
@@ -181,5 +182,4 @@ test('dispose removes everything it injected', () => {
   assert.equal(q('#navEl .nav-sep'), null);
   assert.equal(q('#vrcnextPluginsNavGroup'), null);
   assert.equal(q('#tbMenuItems .tb-sep'), null);
-  assert.equal(dom.window.document.querySelectorAll('.tab').length, 1);
 });

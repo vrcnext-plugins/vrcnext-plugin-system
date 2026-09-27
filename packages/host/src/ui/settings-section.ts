@@ -1,17 +1,38 @@
 /**
- * A "Plugins" section inside VRCNext's own Settings tab.
+ * The host's sections inside VRCNext's own Settings tab.
  *
  * VRCNext's settings page is a left-hand nav of `.settings-nav-item` buttons and a
- * `.settings-content` column of `.vrcn-panel-card[data-section=…]` cards; `switchSettingsSection`
- * shows the cards whose `data-section` matches and hides the rest. A card appended anywhere else
- * lands outside that layout, full width under the columns. This module adds one nav item and
- * tags plugin cards with `data-section="plugins"`, so they behave like VRCNext's own.
+ * `.settings-content` column of `[data-section=…]` blocks; `switchSettingsSection` shows the
+ * blocks whose `data-section` matches and hides the rest, and its search walks every block's
+ * text. This module adds a divider and two nav items below VRCNext's own — **Plugin System**
+ * (bridge, status, logs) and **Plugins** (install and manage, then every plugin's settings
+ * card) — and files the host's blocks and the plugins' cards under them, so they behave exactly
+ * like VRCNext's sections: same switch, same search, same active state.
+ *
+ * The nav items carry VRCNext's `onclick="switchSettingsSection('…', this)"` attribute rather
+ * than a listener, because VRCNext reads that attribute back to learn which section is active
+ * after a search is cleared.
  */
 
 import { CLASSES, SELECTORS, element, iconSpan, requireElement, showTab, tabIndexOf } from './dom.js';
 
-export const SECTION_ID = 'plugins';
+export const SYSTEM_SECTION = 'plugin-system';
+export const PLUGINS_SECTION = 'plugins';
+export type SectionId = typeof SYSTEM_SECTION | typeof PLUGINS_SECTION;
+
 const NAV_ATTR = 'data-vrcnext-plugin-host';
+
+interface SectionSpec {
+  readonly id: SectionId;
+  readonly label: string;
+  readonly icon: string;
+}
+
+/** In nav order. */
+export const SECTIONS: readonly SectionSpec[] = [
+  { id: SYSTEM_SECTION, label: 'Plugin System', icon: 'tune' },
+  { id: PLUGINS_SECTION, label: 'Plugins', icon: 'extension' },
+];
 
 type SwitchSection = (id: string, button: HTMLElement | null) => void;
 
@@ -20,45 +41,58 @@ function switchSection(): SwitchSection | undefined {
   return typeof fn === 'function' ? (fn as SwitchSection) : undefined;
 }
 
-export class SettingsSection {
-  #navItem: HTMLElement | undefined;
+export class SettingsSections {
+  readonly #navItems = new Map<SectionId, HTMLElement>();
+  #divider: HTMLElement | undefined;
 
-  /** Adds the nav item once. Safe to call before any plugin card exists. */
+  /** Adds the divider and the nav items once. Safe to call before any content exists. */
   mount(): void {
-    if (this.#navItem?.isConnected === true) return;
+    if (this.#divider?.isConnected === true) return;
     const nav = requireElement(SELECTORS.settingsNav);
-    const item = element('button', CLASSES.settingsNavItem);
-    item.setAttribute(NAV_ATTR, 'settings-nav');
-    item.appendChild(iconSpan('extension'));
-    item.appendChild(element('span', undefined, 'Plugins'));
-    item.addEventListener('click', () => { switchSection()?.(SECTION_ID, item); });
-    nav.appendChild(item);
-    this.#navItem = item;
+
+    const divider = element('div');
+    divider.setAttribute(NAV_ATTR, 'settings-divider');
+    // VRCNext's nav has no divider of its own; this matches the column's border.
+    divider.style.cssText = 'height:1px;margin:6px 4px;background:rgba(255,255,255,.07);flex-shrink:0;';
+    nav.appendChild(divider);
+    this.#divider = divider;
+
+    for (const spec of SECTIONS) {
+      const item = element('button', CLASSES.settingsNavItem);
+      item.setAttribute(NAV_ATTR, `settings-nav-${spec.id}`);
+      item.setAttribute('onclick', `switchSettingsSection('${spec.id}', this)`);
+      item.appendChild(iconSpan(spec.icon));
+      item.appendChild(element('span', undefined, spec.label));
+      nav.appendChild(item);
+      this.#navItems.set(spec.id, item);
+    }
   }
 
   unmount(): void {
-    this.#navItem?.remove();
-    this.#navItem = undefined;
+    this.#divider?.remove();
+    this.#divider = undefined;
+    for (const item of this.#navItems.values()) item.remove();
+    this.#navItems.clear();
   }
 
-  /** Whether VRCNext currently shows the Plugins section. */
-  #isActive(): boolean {
-    return this.#navItem?.classList.contains(CLASSES.settingsNavActive) === true;
+  /** Whether VRCNext currently shows `section`. */
+  isActive(section: SectionId): boolean {
+    return this.#navItems.get(section)?.classList.contains(CLASSES.settingsNavActive) === true;
   }
 
-  /** Places a plugin's card in the section, hidden unless the section is the one on screen. */
-  attach(card: HTMLElement): void {
+  /** Files `block` under `section`, hidden unless that section is the one on screen. */
+  attach(section: SectionId, block: HTMLElement): void {
     this.mount();
-    card.dataset['section'] = SECTION_ID;
-    if (!this.#isActive()) card.style.display = 'none';
-    requireElement(SELECTORS.settingsContent).appendChild(card);
+    block.dataset['section'] = section;
+    if (!this.isActive(section)) block.style.display = 'none';
+    requireElement(SELECTORS.settingsContent).appendChild(block);
   }
 
-  /** Opens VRCNext's Settings tab on the Plugins section, scrolled to `card` when given. */
-  open(card?: HTMLElement): void {
+  /** Opens VRCNext's Settings tab on `section`, scrolled to `block` when given. */
+  open(section: SectionId, block?: HTMLElement): void {
     this.mount();
     showTab(tabIndexOf(requireElement(SELECTORS.settingsTab)));
-    switchSection()?.(SECTION_ID, this.#navItem ?? null);
-    card?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    switchSection()?.(section, this.#navItems.get(section) ?? null);
+    block?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 }

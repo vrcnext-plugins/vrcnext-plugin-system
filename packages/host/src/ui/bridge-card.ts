@@ -1,5 +1,5 @@
 /**
- * The VRCNext Bridge card: the first thing the Plugins tab shows, and the only thing until the
+ * The VRCNext Bridge card: the first thing the Plugins section shows, and the only thing until the
  * bridge is connected. Four states, each saying what the user has to do next.
  */
 

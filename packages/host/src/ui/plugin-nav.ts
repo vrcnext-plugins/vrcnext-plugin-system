@@ -1,9 +1,10 @@
 /**
  * The "Plugins" navigation group, mirrored in the sidebar and the top menu bar.
  *
- * One {@link NavEntry} list drives both surfaces — only the markup builders differ, because
- * VRCNext's sidebar and taskbar use unrelated DOM. Activation, lazy rendering and tab ownership
- * are shared.
+ * Every entry is a shortcut: the host's own pages live in VRCNext's Settings tab, and these
+ * items only open the right section there. Real tabs in the sidebar are for plugins (see
+ * `addNavTab`), not for the host. One {@link NavEntry} list drives both surfaces — only the
+ * markup builders differ, because VRCNext's sidebar and taskbar use unrelated DOM.
  *
  * Two VRCNext behaviours force the shape of this code:
  *
@@ -15,7 +16,7 @@
 
 import type { Disposable, IconName } from '@vrcnext/plugin-api';
 
-import { CLASSES, element, iconSpan, requireElement, SELECTORS, showTab, tabContainer, tabIndexOf } from './dom.js';
+import { CLASSES, element, iconSpan, requireElement, SELECTORS } from './dom.js';
 
 const HOST_ATTR = 'data-vrcnext-plugin-host';
 
@@ -23,7 +24,8 @@ export interface NavEntry {
   readonly id: string;
   readonly label: string;
   readonly icon: IconName;
-  render(container: HTMLElement): void;
+  /** What the shortcut does; typically opens a Settings section. */
+  activate(): void;
 }
 
 export interface PluginNavOptions {
@@ -37,8 +39,6 @@ export interface PluginNavOptions {
 
 export class PluginNav implements Disposable {
   readonly #options: PluginNavOptions;
-  readonly #tabs = new Map<string, HTMLElement>();
-  readonly #rendered = new Set<string>();
   readonly #disposers: (() => void)[] = [];
   #popoutEl: HTMLElement | undefined;
   #popoutCleanup: (() => void) | undefined;
@@ -48,39 +48,17 @@ export class PluginNav implements Disposable {
   }
 
   mount(): void {
-    this.#createTabs();
     this.#mountSidebar();
     this.#mountTaskbar();
   }
 
-  /** One `.tab` per entry, appended beside VRCNext's own. */
-  #createTabs(): void {
-    const container = tabContainer();
-    for (const entry of this.#options.entries) {
-      const tab = element('div', CLASSES.tab);
-      tab.setAttribute(HOST_ATTR, entry.id);
-      container.appendChild(tab);
-      this.#tabs.set(entry.id, tab);
-      this.#disposers.push(() => { tab.remove(); });
-    }
-  }
-
-  /** Shared by both surfaces: render once, then hand off to VRCNext's own tab switcher. */
+  /** Shared by both surfaces. A shortcut that throws is reported, not propagated into VRCNext. */
   #activate(entry: NavEntry): void {
-    const tab = this.#tabs.get(entry.id);
-    if (tab === undefined) return;
-
-    if (!this.#rendered.has(entry.id)) {
-      this.#rendered.add(entry.id);
-      try {
-        entry.render(tab);
-      } catch (error) {
-        this.#rendered.delete(entry.id);
-        this.#options.onError(error, entry);
-        return;
-      }
+    try {
+      entry.activate();
+    } catch (error) {
+      this.#options.onError(error, entry);
     }
-    showTab(tabIndexOf(tab));
   }
 
   // Sidebar
@@ -366,7 +344,5 @@ export class PluginNav implements Disposable {
       }
     }
     this.#disposers.length = 0;
-    this.#tabs.clear();
-    this.#rendered.clear();
   }
 }

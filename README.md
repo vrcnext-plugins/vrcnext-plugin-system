@@ -152,7 +152,7 @@ Every prompt has four answers. **Confirm** allows it until VRCNext restarts. **C
 remembers it through the bridge's state store. **Deny** rejects the call with a `PermissionError`
 naming the category and target, and is not asked again this session. **Uninstall** removes the
 plugin. Identical concurrent requests share one prompt, and the steady state is one map lookup
-per call. Under **Manage Plugins → Permissions** every saved grant is listed with a Revoke
+per call. Under **Settings → Plugins → Permissions** every saved grant is listed with a Revoke
 button and a Forget all; a revoked grant is simply asked about again next time, nothing restarts.
 
 `ctx.permissions.has(p)` says whether a category is available; `ctx.permissions.request(p)`
@@ -192,18 +192,21 @@ examples, so `npm run check` bundles a host that runs plugins.
 At boot the host connects to the bridge (`ws://127.0.0.1:42081/v1/ws`, endpoint and token from
 `localStorage`), sends `hello`, and on `welcome` reads the host namespace of the state store —
 enabled flags and saved grants — then activates the enabled plugins from `COMPILED_PLUGINS` in
-dependency order. Until it is connected the Plugins tab shows only the Bridge card: not
+dependency order. Until it is connected the Plugins section shows only the Bridge card: not
 detected, running, unpaired (with the token field), or connected.
 
-## The Plugins menu
+## Where the host lives
 
-VRCNext gains a **Plugins** group in the sidebar, mirrored in the top menu bar:
+The host's own pages are two sections in VRCNext's **Settings** tab, after a divider below
+VRCNext's own:
 
-| Entry | What it is |
+| Section | What it is |
 | :--- | :--- |
-| **Manage Plugins** | Bridge card; install by URL with progress; enable with consent; updates with a commits-behind badge and changelog; uninstall; saved permissions. |
-| **Logs** | Live plugin + host + bridge log with level and scope filters, copy, clear and download. |
-| **Plugin System** | Status, platform support matrix, diagnostics, about. |
+| **Plugin System** | Bridge card; status, platform support matrix, diagnostics, about; the live plugin + host + bridge log with level and scope filters, copy, clear and download. |
+| **Plugins** | Install by URL with progress; enable with consent; updates with a commits-behind badge and changelog; uninstall; saved permissions. Every plugin's settings card follows. |
+
+The **Plugins** group in the sidebar (mirrored in the top menu bar) holds shortcuts to those two
+sections and nothing else: sidebar tabs of their own are for plugins.
 
 ## Repository layout
 

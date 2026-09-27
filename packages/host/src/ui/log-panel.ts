@@ -1,5 +1,5 @@
 /**
- * Live log viewer for the Plugins tab.
+ * Live log viewer, under Plugin System in Settings.
  *
  * Exists because VRCNext's activity-log file is not writable from the page — this, plus the
  * download button, is how a user follows plugin activity without opening devtools.

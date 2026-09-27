@@ -7,7 +7,7 @@
  * > arbitrary text. The page has no filesystem access either. So "follow what plugins are
  * > doing without reading the browser console" is served three other ways instead:
  * >
- * > 1. A live **Logs panel** in the Plugins tab.
+ * > 1. A live **Logs panel** under Plugin System in Settings.
  * > 2. **Mirroring to the VRCNext Bridge**, which appends every record to its `plugins.log`.
  * > 3. **Download as a `.log` file**, which is a real file on disk.
  *

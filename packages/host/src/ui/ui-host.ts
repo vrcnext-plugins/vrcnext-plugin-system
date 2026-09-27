@@ -29,7 +29,7 @@ import {
   tabContainer,
   tabIndexOf,
 } from './dom.js';
-import { SettingsSection } from './settings-section.js';
+import { PLUGINS_SECTION, SettingsSections } from './settings-section.js';
 import { HostUiKit } from './ui-kit.js';
 import * as widgets from './widgets.js';
 
@@ -44,8 +44,8 @@ export interface PluginUi extends UiApi {
 
 export class UiHost {
   readonly #toast: (options: ToastOptions) => void;
-  /** One "Plugins" section in VRCNext's Settings tab, shared by every plugin's settings card. */
-  readonly settingsSection = new SettingsSection();
+  /** The host's sections in VRCNext's Settings tab; every plugin's settings card goes under Plugins. */
+  readonly settingsSections = new SettingsSections();
 
   constructor(toast: (options: ToastOptions) => void) {
     this.#toast = toast;
@@ -57,24 +57,24 @@ export class UiHost {
     settings?: SettingsStore<SettingsSchema>,
     schema?: SettingsSchema,
   ): PluginUi {
-    return new PluginUiImpl(pluginId, this.#toast, bag, { settings, schema, section: this.settingsSection });
+    return new PluginUiImpl(pluginId, this.#toast, bag, { settings, schema, sections: this.settingsSections });
   }
 
   /** UI owned by the host itself, such as the plugin manager tab. */
   forHost(bag: DisposableBag): PluginUi {
-    return new PluginUiImpl('host', this.#toast, bag, { section: this.settingsSection });
+    return new PluginUiImpl('host', this.#toast, bag, { sections: this.settingsSections });
   }
 
   /** The settings card a plugin added, if any. */
   static settingsCardOf(pluginId: string): HTMLElement | undefined {
-    return document.querySelector<HTMLElement>(`[${PLUGIN_ATTR}="${pluginId}"][data-section]`) ?? undefined;
+    return document.querySelector<HTMLElement>(`[${PLUGIN_ATTR}="${pluginId}"][data-section="${PLUGINS_SECTION}"]`) ?? undefined;
   }
 }
 
 interface PluginUiContext {
   readonly settings?: SettingsStore<SettingsSchema> | undefined;
   readonly schema?: SettingsSchema | undefined;
-  readonly section: SettingsSection;
+  readonly sections: SettingsSections;
 }
 
 class PluginUiImpl implements PluginUi {
@@ -83,7 +83,7 @@ class PluginUiImpl implements PluginUi {
   readonly #bag: DisposableBag;
   readonly #settings: SettingsStore<SettingsSchema> | undefined;
   readonly #schema: SettingsSchema | undefined;
-  readonly #section: SettingsSection;
+  readonly #sections: SettingsSections;
   readonly #handles = new Set<PanelHandle>();
 
   constructor(
@@ -97,7 +97,7 @@ class PluginUiImpl implements PluginUi {
     this.#bag = bag;
     this.#settings = context.settings;
     this.#schema = context.schema;
-    this.#section = context.section;
+    this.#sections = context.sections;
   }
 
   #track(handle: PanelHandle): PanelHandle {
@@ -207,7 +207,7 @@ class PluginUiImpl implements PluginUi {
     }
 
     options.render?.(card);
-    this.#section.attach(card);
+    this.#sections.attach(PLUGINS_SECTION, card);
 
     return this.#track({
       element: card,

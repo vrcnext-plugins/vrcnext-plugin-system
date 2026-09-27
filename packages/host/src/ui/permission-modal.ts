@@ -27,7 +27,7 @@ export class PermissionModal implements PermissionPrompt {
         badge(risk.tone, risk.text),
         description(
           'Confirm allows it until VRCNext is restarted. Confirm & Save remembers it; you can ' +
-            'take it back under Manage Plugins → Permissions. Deny refuses it for this session.',
+            'take it back under Settings → Plugins → Permissions. Deny refuses it for this session.',
         ),
         request.details.length > 0 ? detailsBlock(request.details) : undefined,
       ],

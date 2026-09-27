@@ -1,5 +1,5 @@
 /**
- * The "Manage Plugins" tab.
+ * The install-and-manage cards of the Plugins section in VRCNext's Settings tab.
  *
  * Until the bridge is connected this is only the Bridge card. Connected, it adds the install
  * field with its progress list, the installed plugins, and the update controls. Rendering is a
@@ -74,7 +74,7 @@ export class ManagerPanel {
     const root = this.#root;
     if (root === undefined) return;
     // Until the bridge is paired there is nothing else to show, so the pairing card lives here;
-    // once connected it moves to the Plugin System tab, where the rest of the status is.
+    // once connected it moves to the Plugin System section, where the rest of the status is.
     if (this.#deps.native.status !== 'connected') {
       root.replaceChildren(buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }));
       return;
