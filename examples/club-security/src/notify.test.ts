@@ -43,6 +43,12 @@ test('unknown rejoin is labelled, not guessed', () => {
   assert.equal(reportLines(report())[5], 'Rejoin?: No');
 });
 
+test('a custom template picks its own facts and drops lines with nothing in them', () => {
+  const lines = reportLines(report({ facts: { ...report().facts, avatar: undefined } }), '{name} ({platform})\nAvatar: {avatar}\n{rejoin} · {world}');
+  assert.deepEqual(lines, ['Tupper (standalonewindows)', 'No · Club']);
+  assert.deepEqual(reportLines(report(), '   ')[0], 'Player "Tupper" joined', 'blank template means the default');
+});
+
 test('reportSummary fits one line', () => {
   assert.equal(reportSummary(report()), 'Tupper joined · 18+: Yes · PC Good · Quest Poor · group: Yes · new');
 });

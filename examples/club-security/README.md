@@ -11,7 +11,13 @@ In Group: Yes
 Rejoin?: Yes (2 hours ago)
 ```
 
-`In Group` only appears when a group filter is set.
+That is the default **Report template**, editable in the plugin's settings. The first line is
+the title on desktop, VR and Discord; the rest is the body. A line whose placeholders are all
+empty is left out, which is why `In Group` only appears when a group filter is set.
+
+Placeholders: `{name}` `{userId}` `{ageVerified}` `{ageStatus}` `{pcRank}` `{questRank}`
+`{avatar}` `{platform}` `{inGroup}` `{rejoin}` `{rejoinAgo}` `{world}` `{worldId}`
+`{instanceType}` `{location}` `{time}`.
 
 ## Filters
 

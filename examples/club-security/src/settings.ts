@@ -19,6 +19,16 @@ export const INSTANCE_TYPES = [
   'group-members',
 ] as const;
 
+/** The report as first specified, one fact per line. */
+export const DEFAULT_TEMPLATE = [
+  'Player "{name}" joined',
+  '18+ Verified: {ageVerified}',
+  'Avatar PC Performance Rank: {pcRank}',
+  'Avatar Quest Performance Rank: {questRank}',
+  'In Group: {inGroup}',
+  'Rejoin?: {rejoin}',
+].join('\n');
+
 export const settings = {
   enabled: {
     kind: 'boolean',
@@ -67,6 +77,17 @@ export const settings = {
     min: 5,
     max: 120,
     step: 5,
+  },
+  template: {
+    kind: 'string',
+    multiline: true,
+    label: 'Report template',
+    description:
+      'The first line is the title on desktop, VR and Discord; the rest is the body. A line whose placeholders ' +
+      'are all empty is left out, which is how "In Group" only appears with a group filter. Placeholders: ' +
+      '{name} {userId} {ageVerified} {ageStatus} {pcRank} {questRank} {avatar} {platform} {inGroup} {rejoin} ' +
+      '{rejoinAgo} {world} {worldId} {instanceType} {location} {time}.',
+    default: DEFAULT_TEMPLATE,
   },
   notifyToast: {
     kind: 'boolean',

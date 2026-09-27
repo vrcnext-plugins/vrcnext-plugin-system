@@ -109,7 +109,7 @@ export class ReportPanel {
     const k = this.#ctx.ui.kit;
     if (this.#reports.length === 0) return [k.emptyState('No joins reported yet.')];
     return this.#reports.map((report) => {
-      const lines = reportLines(report);
+      const lines = reportLines(report, this.#ctx.settings.values.template);
       const time = new Date(report.at).toLocaleTimeString();
       return k.row({
         label: `${time} · ${report.joiner.name}`,

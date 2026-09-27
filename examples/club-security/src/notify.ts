@@ -10,13 +10,11 @@
  *   `hosts`, so that is the only webhook host accepted here.
  */
 
-import type { PluginContext, SettingsValues } from '@vrcnext/plugin-api';
+import { fillTemplate, timeAgo, type PluginContext, type SettingsValues } from '@vrcnext/plugin-api';
 
 import type { Facts, Joiner } from './collector.js';
-import { timeAgo } from '@vrcnext/plugin-api';
-
 import type { Rejoin } from './history.js';
-import type { Settings } from './settings.js';
+import { DEFAULT_TEMPLATE, type Settings } from './settings.js';
 import type { CurrentInstance } from './vrcnext-data.js';
 
 export interface Report {
@@ -49,21 +47,36 @@ function rejoinText(rejoin: Rejoin): string {
   return rejoin.lastAt === undefined ? 'Yes' : `Yes (${timeAgo(rejoin.lastAt)})`;
 }
 
-/** The report as the spec lays it out, one fact per line. */
-export function reportLines(report: Report): readonly string[] {
-  const { facts } = report;
+/** Everything a template may name. `undefined` means "not applicable", so its line is dropped. */
+export function reportValues(report: Report): Readonly<Record<string, string | undefined>> {
+  const { facts, joiner, instance } = report;
   const age = facts.ageVerified === undefined
     ? 'Unknown'
     : `${yesNo(facts.ageVerified)}${facts.ageStatus === '' ? '' : ` (${facts.ageStatus})`}`;
-  const lines = [
-    `Player "${report.joiner.name}" joined`,
-    `18+ Verified: ${age}`,
-    `Avatar PC Performance Rank: ${rank(facts.avatar?.pc ?? '')}`,
-    `Avatar Quest Performance Rank: ${rank(facts.avatar?.quest ?? '')}`,
-  ];
-  if (report.groupFilter !== '') lines.push(`In Group: ${yesNo(facts.inGroup, 'Unknown (only visible memberships count)')}`);
-  lines.push(`Rejoin?: ${rejoinText(report.facts.rejoin)}`);
-  return lines;
+  return {
+    name: joiner.name,
+    userId: joiner.userId,
+    ageVerified: age,
+    ageStatus: facts.ageStatus,
+    pcRank: rank(facts.avatar?.pc ?? ''),
+    questRank: rank(facts.avatar?.quest ?? ''),
+    avatar: facts.avatar?.name ?? '',
+    platform: facts.platform,
+    inGroup: report.groupFilter === '' ? undefined : yesNo(facts.inGroup, 'Unknown (only visible memberships count)'),
+    rejoin: rejoinText(facts.rejoin),
+    rejoinAgo: facts.rejoin.lastAt === undefined ? '' : timeAgo(facts.rejoin.lastAt),
+    world: instance.worldName,
+    worldId: instance.worldId,
+    instanceType: instance.instanceType,
+    location: instance.location,
+    time: new Date(report.at).toLocaleTimeString(),
+  };
+}
+
+/** The report through the user's template, one line per entry. An empty template means the default. */
+export function reportLines(report: Report, template: string = DEFAULT_TEMPLATE): readonly string[] {
+  const chosen = template.trim() === '' ? DEFAULT_TEMPLATE : template;
+  return fillTemplate(chosen, reportValues(report)).split('\n');
 }
 
 /** Everything a single-line surface can hold. */
@@ -114,10 +127,10 @@ async function sendNative(ctx: Ctx, wants: { readonly desktop: boolean; readonly
     ctx.logger.debug('The bridge has no target for the enabled channels.');
     return false;
   }
-  const lines = reportLines(report).slice(1);
+  const lines = reportLines(report, ctx.settings.values.template);
   const result = await ctx.native.notify({
-    title: `${report.joiner.name} joined`,
-    content: lines.join('\n'),
+    title: lines[0] ?? `${report.joiner.name} joined`,
+    content: lines.slice(1).join('\n'),
     timeoutSecs: 8,
     icon: 'security-high',
     sinks,
@@ -137,9 +150,10 @@ async function sendDesktopAndVr(ctx: Ctx, values: SettingsValues<Settings>, repo
 
   // Windows without the bridge's targets: VRCNext's own tray toast and wrist overlay in one call.
   if (ctx.notifications.desktopAvailable) {
+    const lines = reportLines(report, values.template);
     ctx.notifications.desktop({
-      title: `${report.joiner.name} joined`,
-      subtitle: reportLines(report).slice(1).join(' · '),
+      title: lines[0] ?? `${report.joiner.name} joined`,
+      subtitle: lines.slice(1).join(' · '),
       accent: accentFor(report),
       ...(report.joiner.userId === '' ? {} : { friendId: report.joiner.userId }),
     });
@@ -155,7 +169,7 @@ async function sendDiscord(ctx: Ctx, values: SettingsValues<Settings>, report: R
     ctx.logger.warn('Discord webhook is enabled but the URL is not a discord.com webhook URL.');
     return;
   }
-  const lines = reportLines(report);
+  const lines = reportLines(report, values.template);
   const colour = { ok: 0x3ba55d, warn: 0xed4245, info: 0x5865f2 }[accentFor(report)];
   const body = {
     username: 'Club Security',
