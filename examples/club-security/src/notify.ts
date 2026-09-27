@@ -10,7 +10,14 @@
  *   `hosts`, so that is the only webhook host accepted here.
  */
 
-import { fillTemplate, timeAgo, type PluginContext, type SettingsValues } from '@vrcnext/plugin-api';
+import {
+  TemplateError,
+  renderTemplate,
+  timeAgo,
+  type PluginContext,
+  type SettingsValues,
+  type TemplateValues,
+} from '@vrcnext/plugin-api';
 
 import type { Facts, Joiner } from './collector.js';
 import type { Rejoin } from './history.js';
@@ -47,36 +54,89 @@ function rejoinText(rejoin: Rejoin): string {
   return rejoin.lastAt === undefined ? 'Yes' : `Yes (${timeAgo(rejoin.lastAt)})`;
 }
 
-/** Everything a template may name. `undefined` means "not applicable", so its line is dropped. */
-export function reportValues(report: Report): Readonly<Record<string, string | undefined>> {
+/** VRChat's performance rank colours, as emoji. */
+const RANK_EMOJI: Readonly<Record<string, string>> = {
+  Excellent: '🟢', Good: '🔵', Medium: '🟡', Poor: '🟠', VeryPoor: '🔴',
+};
+
+const PLATFORM_EMOJI: readonly (readonly [RegExp, string])[] = [
+  [/windows/i, '🖥️'], [/android|quest/i, '📱'], [/ios/i, '🍎'],
+];
+
+function triState(value: boolean | undefined, yes: string, no: string, unknown = '❔'): string {
+  return value === undefined ? unknown : (value ? yes : no);
+}
+
+/**
+ * Everything a template may name. `undefined` means "not applicable", so a line that only
+ * shows that value is dropped. Three flavours per fact: the boolean for conditions, `…Text` for
+ * the spec's wording, `…Emoji` for compact formats.
+ */
+export function reportValues(report: Report): TemplateValues {
   const { facts, joiner, instance } = report;
-  const age = facts.ageVerified === undefined
-    ? 'Unknown'
-    : `${yesNo(facts.ageVerified)}${facts.ageStatus === '' ? '' : ` (${facts.ageStatus})`}`;
+  const groupFiltered = report.groupFilter !== '';
+  const pc = facts.avatar?.pc ?? '';
+  const quest = facts.avatar?.quest ?? '';
+  const seenHere = facts.rejoin.seenHere;
+  const at = new Date(report.at);
   return {
     name: joiner.name,
+    playerId: joiner.userId,
     userId: joiner.userId,
-    ageVerified: age,
+    ageVerified: facts.ageVerified,
+    ageVerifiedText: facts.ageVerified === undefined
+      ? 'Unknown'
+      : `${yesNo(facts.ageVerified)}${facts.ageStatus === '' ? '' : ` (${facts.ageStatus})`}`,
+    ageVerifiedEmoji: triState(facts.ageVerified, '✅', '❌'),
     ageStatus: facts.ageStatus,
-    pcRank: rank(facts.avatar?.pc ?? ''),
-    questRank: rank(facts.avatar?.quest ?? ''),
+    pcRank: pc === '' ? undefined : pc,
+    pcRankText: rank(pc),
+    pcRankEmoji: RANK_EMOJI[pc] ?? '⚪',
+    questRank: quest === '' ? undefined : quest,
+    questRankText: rank(quest),
+    questRankEmoji: RANK_EMOJI[quest] ?? '⚪',
     avatar: facts.avatar?.name ?? '',
     platform: facts.platform,
-    inGroup: report.groupFilter === '' ? undefined : yesNo(facts.inGroup, 'Unknown (only visible memberships count)'),
-    rejoin: rejoinText(facts.rejoin),
+    platformEmoji: PLATFORM_EMOJI.find(([re]) => re.test(facts.platform))?.[1] ?? '❔',
+    groupId: report.groupFilter,
+    inGroup: groupFiltered ? facts.inGroup : undefined,
+    inGroupText: groupFiltered ? yesNo(facts.inGroup, 'Unknown (only visible memberships count)') : undefined,
+    inGroupEmoji: groupFiltered ? triState(facts.inGroup, '✅', '❌') : undefined,
+    rejoin: seenHere,
+    rejoinText: rejoinText(facts.rejoin),
+    rejoinEmoji: triState(seenHere, '🔁', '🆕'),
     rejoinAgo: facts.rejoin.lastAt === undefined ? '' : timeAgo(facts.rejoin.lastAt),
+    rejoinSince: facts.rejoin.lastAt === undefined ? '' : new Date(facts.rejoin.lastAt).toLocaleString(),
+    rejoinAt: facts.rejoin.lastAt ?? '',
     world: instance.worldName,
     worldId: instance.worldId,
     instanceType: instance.instanceType,
+    instanceId: instance.location.split('~')[0]?.split(':')[1] ?? '',
     location: instance.location,
-    time: new Date(report.at).toLocaleTimeString(),
+    time: at.toLocaleTimeString(),
+    date: at.toLocaleDateString(),
+    timestamp: at.toISOString(),
   };
 }
 
-/** The report through the user's template, one line per entry. An empty template means the default. */
-export function reportLines(report: Report, template: string = DEFAULT_TEMPLATE): readonly string[] {
+/**
+ * The report through the user's template, one line per entry. An empty template means the
+ * default; a template that does not parse falls back to it, with `onError` told why.
+ */
+export function reportLines(
+  report: Report,
+  template: string = DEFAULT_TEMPLATE,
+  onError?: (error: TemplateError) => void,
+): readonly string[] {
   const chosen = template.trim() === '' ? DEFAULT_TEMPLATE : template;
-  return fillTemplate(chosen, reportValues(report)).split('\n');
+  const values = reportValues(report);
+  try {
+    return renderTemplate(chosen, values).split('\n');
+  } catch (error) {
+    if (!(error instanceof TemplateError)) throw error;
+    onError?.(error);
+    return renderTemplate(DEFAULT_TEMPLATE, values).split('\n');
+  }
 }
 
 /** Everything a single-line surface can hold. */
@@ -97,6 +157,10 @@ function accentFor(report: Report): 'ok' | 'warn' | 'info' {
   if (facts.ageVerified === false || facts.avatar?.pc === 'VeryPoor') return 'warn';
   if (facts.ageVerified === true) return 'ok';
   return 'info';
+}
+
+function warnTemplate(ctx: Ctx, error: TemplateError): void {
+  ctx.logger.warn(`Report template is invalid, using the default: ${error.message}`);
 }
 
 /** Bridge targets: the VR overlay is the one whose name says so; the rest are desktop. */
@@ -127,7 +191,7 @@ async function sendNative(ctx: Ctx, wants: { readonly desktop: boolean; readonly
     ctx.logger.debug('The bridge has no target for the enabled channels.');
     return false;
   }
-  const lines = reportLines(report, ctx.settings.values.template);
+  const lines = reportLines(report, ctx.settings.values.template, (e) => { warnTemplate(ctx, e); });
   const result = await ctx.native.notify({
     title: lines[0] ?? `${report.joiner.name} joined`,
     content: lines.slice(1).join('\n'),
@@ -150,7 +214,7 @@ async function sendDesktopAndVr(ctx: Ctx, values: SettingsValues<Settings>, repo
 
   // Windows without the bridge's targets: VRCNext's own tray toast and wrist overlay in one call.
   if (ctx.notifications.desktopAvailable) {
-    const lines = reportLines(report, values.template);
+    const lines = reportLines(report, values.template, (e) => { warnTemplate(ctx, e); });
     ctx.notifications.desktop({
       title: lines[0] ?? `${report.joiner.name} joined`,
       subtitle: lines.slice(1).join(' · '),
@@ -169,7 +233,7 @@ async function sendDiscord(ctx: Ctx, values: SettingsValues<Settings>, report: R
     ctx.logger.warn('Discord webhook is enabled but the URL is not a discord.com webhook URL.');
     return;
   }
-  const lines = reportLines(report, values.template);
+  const lines = reportLines(report, values.template, (e) => { warnTemplate(ctx, e); });
   const colour = { ok: 0x3ba55d, warn: 0xed4245, info: 0x5865f2 }[accentFor(report)];
   const body = {
     username: 'Club Security',

@@ -44,9 +44,24 @@ test('unknown rejoin is labelled, not guessed', () => {
 });
 
 test('a custom template picks its own facts and drops lines with nothing in them', () => {
-  const lines = reportLines(report({ facts: { ...report().facts, avatar: undefined } }), '{name} ({platform})\nAvatar: {avatar}\n{rejoin} · {world}');
+  const lines = reportLines(report({ facts: { ...report().facts, avatar: undefined } }), '{name} ({platform})\nAvatar: {avatar}\n{rejoinText} · {world}');
   assert.deepEqual(lines, ['Tupper (standalonewindows)', 'No · Club']);
   assert.deepEqual(reportLines(report(), '   ')[0], 'Player "Tupper" joined', 'blank template means the default');
+});
+
+test('expressions, booleans and emoji variables are available to templates', () => {
+  const lines = reportLines(
+    report(),
+    '{{ "REJOIN" if rejoin else "new" }} {{ ageVerified | yesno("18+", "minor?") }} {pcRankEmoji}{questRankEmoji} {platformEmoji} {{ inGroup ? "member" : "outsider" }}\n{% if pcRank == "VeryPoor" %}heavy{% else %}fine{% endif %}',
+  );
+  assert.deepEqual(lines, ['new 18+ 🔵🟠 🖥️ member', 'fine']);
+});
+
+test('a template that does not parse falls back to the default and reports why', () => {
+  const errors: string[] = [];
+  const lines = reportLines(report(), '{{ name', (e) => { errors.push(e.message); });
+  assert.equal(lines[0], 'Player "Tupper" joined');
+  assert.equal(errors.length, 1);
 });
 
 test('reportSummary fits one line', () => {

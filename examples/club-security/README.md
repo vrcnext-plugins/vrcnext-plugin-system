@@ -15,9 +15,22 @@ That is the default **Report template**, editable in the plugin's settings. The 
 the title on desktop, VR and Discord; the rest is the body. A line whose placeholders are all
 empty is left out, which is why `In Group` only appears when a group filter is set.
 
-Placeholders: `{name}` `{userId}` `{ageVerified}` `{ageStatus}` `{pcRank}` `{questRank}`
-`{avatar}` `{platform}` `{inGroup}` `{rejoin}` `{rejoinAgo}` `{world}` `{worldId}`
-`{instanceType}` `{location}` `{time}`.
+`{name}` is short for `{{ name }}`; the full template language (conditions, filters, `{% if %}`
+blocks) is documented in the plugin system's API reference. For example:
+
+```
+{rejoinEmoji} {name} {{ "is back" if rejoin else "is new" }} {ageVerifiedEmoji}
+{pcRankEmoji} PC {pcRankText} · {questRankEmoji} Quest {questRankText}
+{% if inGroup == false %}⚠️ Not a group member{% endif %}
+```
+
+| Kind | Variables |
+| :--- | :--- |
+| Text | `name` `playerId` `ageVerifiedText` `ageStatus` `pcRankText` `questRankText` `avatar` `platform` `inGroupText` `rejoinText` `rejoinAgo` `rejoinSince` `rejoinAt` `world` `worldId` `instanceType` `instanceId` `location` `groupId` `time` `date` `timestamp` |
+| Booleans (for conditions; empty when unknown) | `ageVerified` `inGroup` `rejoin`, plus `pcRank` and `questRank` (the raw rank, empty when unknown) |
+| Emoji | `ageVerifiedEmoji` ✅❌❔ · `pcRankEmoji` / `questRankEmoji` 🟢🔵🟡🟠🔴⚪ · `platformEmoji` 🖥️📱🍎 · `inGroupEmoji` · `rejoinEmoji` 🔁🆕❔ |
+
+A template that does not parse is reported in the log and the default is used instead.
 
 ## Filters
 
