@@ -186,27 +186,40 @@ async function sendNative(ctx: Ctx, wants: { readonly desktop: boolean; readonly
     ctx.logger.debug(`Bridge targets not available: ${String(error)}`);
     return false;
   }
-  const sinks = pickSinks(targets, wants.desktop, wants.vr);
-  if (sinks.length === 0) {
+  const values = ctx.settings.values;
+  const desktopSinks = wants.desktop ? pickSinks(targets, true, false) : [];
+  const vrSinks = wants.vr ? pickSinks(targets, false, true) : [];
+  if (desktopSinks.length === 0 && vrSinks.length === 0) {
     ctx.logger.debug('The bridge has no target for the enabled channels.');
     return false;
   }
-  const values = ctx.settings.values;
-  const lines = reportLines(report, values.template, (e) => { warnTemplate(ctx, e); });
-  const result = await ctx.native.notify({
-    title: lines[0] ?? `${report.joiner.name} joined`,
-    content: lines.slice(1).join('\n'),
-    timeoutSecs: values.notifyTimeoutSecs,
-    icon: 'security-high',
-    sinks,
-    // Never critical: KDE ignores the expiry for critical notifications and keeps them on screen.
-    urgency: 'normal',
-  });
-  for (const failure of result.failed) {
-    if (failure.sink !== 'bridge') ctx.logger.warn(`Bridge target ${failure.sink} failed: ${failure.error}`);
+  // VR overlays get their own template when one is set: WayVR draws with a single font and
+  // shows nothing for emoji, so the rich format is often wrong there.
+  const vrTemplate = values.templateVr.trim() === '' ? values.template : values.templateVr;
+  const batches: { readonly sinks: readonly string[]; readonly template: string }[] =
+    vrTemplate === values.template
+      ? [{ sinks: [...desktopSinks, ...vrSinks], template: values.template }]
+      : [{ sinks: desktopSinks, template: values.template }, { sinks: vrSinks, template: vrTemplate }];
+
+  let delivered = false;
+  for (const batch of batches.filter((b) => b.sinks.length > 0)) {
+    const lines = reportLines(report, batch.template, (e) => { warnTemplate(ctx, e); });
+    const result = await ctx.native.notify({
+      title: lines[0] ?? `${report.joiner.name} joined`,
+      content: lines.slice(1).join('\n'),
+      timeoutSecs: values.notifyTimeoutSecs,
+      icon: 'security-high',
+      sinks: batch.sinks,
+      // Never critical: KDE ignores the expiry for critical notifications and keeps them on screen.
+      urgency: 'normal',
+    });
+    for (const failure of result.failed) {
+      if (failure.sink !== 'bridge') ctx.logger.warn(`Bridge target ${failure.sink} failed: ${failure.error}`);
+    }
+    delivered ||= result.ok;
   }
-  if (!result.ok) ctx.logger.debug('Bridge not reachable or every target refused; falling back.');
-  return result.ok;
+  if (!delivered) ctx.logger.debug('Bridge not reachable or every target refused; falling back.');
+  return delivered;
 }
 
 async function sendDesktopAndVr(ctx: Ctx, values: SettingsValues<Settings>, report: Report): Promise<void> {

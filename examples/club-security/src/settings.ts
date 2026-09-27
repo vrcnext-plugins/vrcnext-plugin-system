@@ -99,6 +99,15 @@ export const settings = {
       'ageVerifiedEmoji pcRankEmoji questRankEmoji platformEmoji inGroupEmoji rejoinEmoji.',
     default: DEFAULT_TEMPLATE,
   },
+  templateVr: {
+    kind: 'string',
+    multiline: true,
+    label: 'VR overlay template (optional)',
+    description:
+      'Used for VR overlay targets instead of the report template. Leave empty to use the same. WayVR draws with one ' +
+      'font and shows nothing for emoji and most symbols, so keep this to plain text.',
+    default: '',
+  },
   notifyToast: {
     kind: 'boolean',
     label: 'In-app toast',
