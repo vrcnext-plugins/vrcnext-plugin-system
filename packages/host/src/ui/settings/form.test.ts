@@ -180,14 +180,18 @@ test('a refused custom write shows on the row', async () => {
   assert.equal(row(root, 'custom').querySelector('.vrcnx-error')?.textContent, 'refused');
 });
 
-test('pickers name the chosen id and can clear it', async () => {
+test('pickers name the chosen id, and each one carries its own remove', async () => {
   const store = memoryStore();
   const { root } = mount(store);
   await settled();
   const owner = row(root, 'owner');
   assert.match(owner.textContent, /Tupper/);
-  const clear = [...owner.querySelectorAll('button')].find((b) => b.textContent.includes('Clear'));
-  clear?.click();
+  // The id is what is stored, not what the user picked: it stays as the row's tooltip only.
+  assert.doesNotMatch(owner.textContent, /usr_/);
+  assert.equal(owner.querySelector('.vrcnx-picked-row')?.getAttribute('title'), store.values.owner);
+
+  const remove = owner.querySelector<HTMLButtonElement>('.vrcnx-icon-btn');
+  remove?.click();
   await settled();
   assert.equal(store.values.owner, '');
   assert.match(owner.textContent, /Nothing chosen/);

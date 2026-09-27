@@ -47,6 +47,25 @@ const SCOPE_LABEL: Readonly<Record<string, string>> = {
   search: 'Search', current: 'Current', own: 'Mine', mine: 'My groups', manual: 'Paste an id',
 };
 
+/**
+ * A name to show. VRCNext stores `???` for a favourite whose world it has not resolved, and an
+ * empty name for anything it only knows by id; neither is worth showing as a title.
+ */
+function named(name: string, kind: EntityKind): string {
+  return isBlank(name) ? `Unknown ${KIND_LABEL[kind]}` : name.trim();
+}
+
+/** VRCNext writes `???` where it has no answer, so that counts as nothing. */
+function isBlank(text: string): boolean {
+  const clean = text.trim();
+  return clean === '' || clean === '???';
+}
+
+/** The second line of a row: who made it, or the id when that is all there is. */
+function author(name: string, id: string): string {
+  return isBlank(name) ? id : name.trim();
+}
+
 function instanceTitle(location: string, worldName: string): string {
   const shape = location.split(':');
   return `${worldName === '' ? (shape[0] ?? location) : worldName} #${(shape[1] ?? '').split('~')[0] ?? ''}`;
@@ -79,7 +98,7 @@ async function loadUsers(vrchat: VrchatApi, scope: string, query: string): Promi
 
 async function loadWorlds(vrchat: VrchatApi, scope: string, query: string): Promise<readonly PickItem[]> {
   const item = (w: { id: string; name: string; authorName: string; thumbnailImageUrl: string }): PickItem =>
-    ({ id: w.id, title: w.name, subtitle: w.authorName, imageUrl: w.thumbnailImageUrl });
+    ({ id: w.id, title: named(w.name, 'world'), subtitle: author(w.authorName, w.id), imageUrl: w.thumbnailImageUrl });
   if (scope === 'favorites') return (await vrchat.favoriteWorlds()).map(item);
   if (scope === 'recent') return (await vrchat.recentWorlds()).map(item);
   if (scope === 'current') {
@@ -92,7 +111,7 @@ async function loadWorlds(vrchat: VrchatApi, scope: string, query: string): Prom
 
 async function loadAvatars(vrchat: VrchatApi, scope: string, query: string): Promise<readonly PickItem[]> {
   const item = (a: { id: string; name: string; authorName: string; thumbnailImageUrl: string }): PickItem =>
-    ({ id: a.id, title: a.name, subtitle: a.authorName, imageUrl: a.thumbnailImageUrl });
+    ({ id: a.id, title: named(a.name, 'avatar'), subtitle: author(a.authorName, a.id), imageUrl: a.thumbnailImageUrl });
   if (scope === 'own') return (await vrchat.ownAvatars()).map(item);
   if (scope === 'favorites') return (await vrchat.favoriteAvatars()).map(item);
   if (scope === 'recent') return (await vrchat.recentAvatars()).map(item);
@@ -102,7 +121,7 @@ async function loadAvatars(vrchat: VrchatApi, scope: string, query: string): Pro
 
 async function loadGroups(vrchat: VrchatApi, scope: string, query: string): Promise<readonly PickItem[]> {
   const item = (g: { id: string; name: string; shortCode: string; iconUrl: string; memberCount: number }): PickItem =>
-    ({ id: g.id, title: g.name, subtitle: `${g.shortCode === '' ? '' : `${g.shortCode} · `}${String(g.memberCount)} members`, imageUrl: g.iconUrl });
+    ({ id: g.id, title: named(g.name, 'group'), subtitle: `${g.shortCode === '' ? '' : `${g.shortCode} · `}${String(g.memberCount)} members`, imageUrl: g.iconUrl });
   if (scope === 'mine') return (await vrchat.myGroups()).map(item);
   if (scope === 'search' && query.trim() !== '') return (await vrchat.searchGroups(query)).results.map(item);
   return [];
@@ -157,6 +176,93 @@ export async function describe(vrchat: VrchatApi, kind: EntityKind, id: string):
   }
 }
 
+/** Everything typed into the filter matches against, lower-cased once per row. */
+function haystack(item: PickItem): string {
+  return `${item.title} ${item.subtitle ?? ''} ${item.id}`.toLowerCase();
+}
+
+/**
+ * The list inside the picker: what was loaded, what the filter leaves of it, and what is
+ * chosen. Kept apart from {@link openPicker} because the filter has to redraw without
+ * re-fetching, and because "what is on screen" is the only state worth naming here.
+ */
+class PickerList {
+  readonly element = element('div', 'vrcnx-pick-list');
+  readonly status = element('div', 'set-desc');
+  #loaded: readonly PickItem[] = [];
+  #filter = '';
+  #empty = 'Nothing here.';
+
+  readonly #multiple: boolean;
+  readonly #chosen: () => readonly string[];
+  readonly #onPick: (id: string) => void;
+
+  constructor(multiple: boolean, chosen: () => readonly string[], onPick: (id: string) => void) {
+    this.#multiple = multiple;
+    this.#chosen = chosen;
+    this.#onPick = onPick;
+    this.status.style.margin = '6px 0 0';
+  }
+
+  /** Replaces what is loaded and redraws; the filter survives a reload of the same scope. */
+  setItems(items: readonly PickItem[], empty: string): void {
+    this.#loaded = items;
+    this.#empty = empty;
+    this.draw();
+  }
+
+  setFilter(text: string): void {
+    this.#filter = text.trim().toLowerCase();
+    this.draw();
+  }
+
+  /** A message instead of rows: loading, an error, or "type to search". */
+  say(message: string): void {
+    this.#loaded = [];
+    widgets.setChildren(this.element, [widgets.emptyState(message)]);
+    this.status.textContent = '';
+  }
+
+  #shown(): readonly PickItem[] {
+    return this.#loaded.filter((item) => haystack(item).includes(this.#filter));
+  }
+
+  draw(): void {
+    const shown = this.#shown();
+    if (shown.length === 0) {
+      widgets.setChildren(this.element, [
+        widgets.emptyState(this.#loaded.length === 0 ? this.#empty : 'Nothing matches that.'),
+      ]);
+    } else {
+      widgets.setChildren(this.element, shown.map((item) => {
+        const row = widgets.listItem({ ...item, onClick: () => { this.#onPick(item.id); } });
+        row.dataset['id'] = item.id;
+        return row;
+      }));
+    }
+    this.paint();
+  }
+
+  /** Marks the chosen rows and updates the count, without rebuilding anything. */
+  paint(): void {
+    const chosen = this.#chosen();
+    for (const node of this.element.querySelectorAll<HTMLElement>('[data-id]')) {
+      node.classList.toggle('vrcnx-picked', chosen.includes(node.dataset['id'] ?? ''));
+    }
+    const shown = this.#shown();
+    const counts = this.#filter === ''
+      ? `${String(this.#loaded.length)} shown`
+      : `${String(shown.length)} of ${String(this.#loaded.length)}`;
+    this.status.textContent = this.#multiple ? `${String(chosen.length)} chosen · ${counts}` : counts;
+  }
+}
+
+function idPlaceholder(kind: EntityKind): string {
+  if (kind === 'instance') return 'wrld_…:12345~…';
+  const prefix = kind === 'user' ? 'usr' : kind === 'world' ? 'wrld' : kind === 'avatar' ? 'avtr' : 'grp';
+  return `${prefix}_…`;
+}
+
 /** Opens the picker; resolves with the chosen ids, or `undefined` on cancel. */
 export function openPicker(vrchat: VrchatApi, options: PickerOptions): Promise<readonly string[] | undefined> {
   const kind = options.kind;
@@ -164,124 +270,164 @@ export function openPicker(vrchat: VrchatApi, options: PickerOptions): Promise<r
   const multiple = options.multiple === true;
   let chosen: string[] = [...(options.selected ?? [])];
   let scope = scopes[0] ?? 'search';
-  let query = '';
   let generation = 0;
   const closer: { close?: (value: 'done' | 'cancel') => void } = {};
 
-  const list = element('div', 'vrcnx-pick-list');
-  const status = element('div', 'set-desc');
-  const search = widgets.textField({ value: '', placeholder: `Search ${KIND_LABEL[kind]}s…`, onCommit: (next) => { query = next; void refresh(); } });
-  search.style.flex = '1 1 auto';
-  const manual = widgets.textField({
-    value: '',
-    placeholder: kind === 'instance' ? 'wrld_…:12345~…' : `${kind === 'user' ? 'usr' : kind === 'world' ? 'wrld' : kind === 'avatar' ? 'avtr' : 'grp'}_…`,
-    onCommit: (next) => {
-      const id = next.trim();
-      if (id === '') return;
-      chosen = multiple ? [...new Set([...chosen, id])] : [id];
-      if (!multiple) closer.close?.('done');
-      else void refresh();
-    },
-  });
-  manual.style.flex = '1 1 auto';
-
-  const toggle = (id: string): void => {
+  const list = new PickerList(multiple, () => chosen, (id) => {
     if (!multiple) {
       chosen = [id];
       closer.close?.('done');
       return;
     }
     chosen = chosen.includes(id) ? chosen.filter((c) => c !== id) : [...chosen, id];
-    paint();
-  };
-  const paint = (): void => {
-    for (const node of list.querySelectorAll<HTMLElement>('[data-id]')) {
-      node.classList.toggle('vrcnx-picked', chosen.includes(node.dataset['id'] ?? ''));
-    }
-    status.textContent = multiple ? `${String(chosen.length)} chosen` : '';
-  };
-  const refresh = async (): Promise<void> => {
+    list.paint();
+  });
+
+  const refresh = async (query = ''): Promise<void> => {
     const mine = ++generation;
-    search.style.display = scope === 'search' ? '' : 'none';
     manual.style.display = scope === 'manual' ? '' : 'none';
-    widgets.setChildren(list, [widgets.emptyState(scope === 'search' && query.trim() === '' ? 'Type to search.' : 'Loading…')]);
-    let items: readonly PickItem[] = [];
-    try {
-      items = scope === 'manual' ? [] : await load(vrchat, kind, scope, query);
-    } catch (error) {
-      if (mine === generation) widgets.setChildren(list, [widgets.emptyState(`Could not load: ${error instanceof Error ? error.message : String(error)}`)]);
+    search.style.display = scope === 'manual' ? 'none' : '';
+    search.placeholder = scope === 'search' ? `Search ${KIND_LABEL[kind]}s…` : `Filter ${KIND_LABEL[kind]}s…`;
+    if (scope === 'manual') {
+      list.say('Paste an id above.');
       return;
     }
-    if (mine !== generation) return;
-    const rows = items.map((item) => {
-      const row = widgets.listItem({ ...item, onClick: () => { toggle(item.id); } });
-      row.dataset['id'] = item.id;
-      return row;
-    });
-    widgets.setChildren(list, rows.length === 0 ? [widgets.emptyState(scope === 'manual' ? 'Paste an id above.' : 'Nothing here.')] : rows);
-    paint();
+    if (scope === 'search' && query.trim() === '') {
+      list.say('Type a name and press Enter.');
+      return;
+    }
+    list.say('Loading…');
+    try {
+      const items = await load(vrchat, kind, scope, query);
+      if (mine === generation) list.setItems(items, 'Nothing here.');
+    } catch (error) {
+      if (mine === generation) list.say(`Could not load: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
+
+  // One field, always there. For a list scope it narrows what is already loaded as you type;
+  // for `search` it is the query VRChat is asked for, on Enter. A hundred favourite worlds are
+  // unusable without it, which is what this picker used to be.
+  const search = widgets.textField({
+    value: '',
+    placeholder: `Filter ${KIND_LABEL[kind]}s…`,
+    onInput: (next) => { list.setFilter(next); },
+    onCommit: (next) => { if (scope === 'search') void refresh(next); },
+  });
+  search.style.flex = '1 1 auto';
+
+  const manual = widgets.textField({
+    value: '',
+    placeholder: idPlaceholder(kind),
+    onCommit: (next) => {
+      const id = next.trim();
+      if (id === '') return;
+      chosen = multiple ? [...new Set([...chosen, id])] : [id];
+      if (!multiple) closer.close?.('done');
+      else list.paint();
+    },
+  });
+  manual.style.flex = '1 1 auto';
 
   const chips = widgets.chips({
     options: scopes.map((s) => ({ value: s, label: SCOPE_LABEL[s] ?? s })),
     selected: [scope],
     multiple: false,
-    onChange: (next) => { scope = next[0] ?? scope; void refresh(); },
+    onChange: (next) => {
+      scope = next[0] ?? scope;
+      search.value = '';
+      list.setFilter('');
+      void refresh();
+    },
   });
-  chips.style.justifyContent = 'flex-start';
-  const strip = widgets.controlRow(search, manual);
   void refresh();
 
   return showModal<'done' | 'cancel'>({
     title: options.title ?? `Choose ${multiple ? `${KIND_LABEL[kind]}s` : `a ${KIND_LABEL[kind]}`}`,
     icon: 'search',
-    body: [chips, strip, list, status],
+    body: [chips, widgets.controlRow(search, manual), list.element, list.status],
     buttons: multiple ? [{ label: 'Done', icon: 'check', value: 'done' }, { label: 'Cancel', value: 'cancel' }] : [{ label: 'Cancel', value: 'cancel' }],
     closer,
   }).then((answer) => (answer === 'done' ? chosen : undefined));
 }
 
-/** The settings-row control: the chosen things by name, with Choose and Clear. */
+/**
+ * The settings-row control: what is chosen, by name, above one button.
+ *
+ * Laid out as a block under the label rather than as a value at the end of the row, because a
+ * chosen world is a profile row, not a word. Each one carries its own ×, so there is no Clear
+ * button to sit there greyed out when nothing is chosen, and the raw id is shown only while the
+ * name is still unknown — an id is what the plugin stores, not what the user picked.
+ */
 export function entityControl(spec: EntitySetting, binding: Binding, error: ReturnType<typeof widgets.errorLine>, ctx: FormContext): Control {
+  const multiple = spec.multiple === true;
   const root = element('div');
-  root.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0;';
+  root.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;';
   const picked = element('div', 'vrcnx-picked-list');
   const read = (): readonly string[] => {
     const value = binding.get();
     if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string');
     return typeof value === 'string' && value !== '' ? [value] : [];
   };
-  const write = (ids: readonly string[]): void => { commit(binding, spec.multiple === true ? ids : (ids[0] ?? ''), error, ctx); };
+  const write = (ids: readonly string[]): void => { commit(binding, multiple ? ids : (ids[0] ?? ''), error, ctx); };
   let generation = 0;
+
+  const remove = (id: string): void => { write(read().filter((other) => other !== id)); };
+
+  /** One chosen thing: VRCNext's compact profile row, plus a × that forgets it. */
+  const pickedRow = (item: PickItem): HTMLElement => {
+    const row = element('div', 'vrcnx-picked-row');
+    row.append(
+      widgets.listItem({
+        title: item.title,
+        // While the name is unknown the id is all there is to show; once it is known the id is
+        // noise, so it only survives as the row's tooltip.
+        ...(item.title === item.id ? {} : { subtitle: item.subtitle ?? '' }),
+        ...(item.imageUrl === undefined ? {} : { imageUrl: item.imageUrl }),
+      }),
+      widgets.iconButton('close', `Remove ${item.title}`, () => { remove(item.id); }),
+    );
+    row.title = item.id;
+    return row;
+  };
+
+  // Sits beside the button rather than on a line of its own: an empty picker should cost two
+  // lines, not three, and there are four of them in one Club Security preset.
+  const hint = element('span', 'set-desc', spec.placeholder ?? 'Nothing chosen');
+  hint.style.margin = '0';
 
   const draw = (): void => {
     const ids = read();
     const mine = ++generation;
+    hint.style.display = ids.length === 0 ? '' : 'none';
     if (ids.length === 0) {
-      widgets.setChildren(picked, [widgets.value(spec.placeholder ?? 'Nothing chosen')]);
+      widgets.setChildren(picked, []);
       return;
     }
-    widgets.setChildren(picked, ids.map((id) => widgets.listItem({ title: id })));
+    widgets.setChildren(picked, ids.map((id) => pickedRow({ id, title: id })));
     void Promise.all(ids.map((id) => describe(ctx.vrchat, spec.kind, id))).then((items) => {
       if (mine !== generation) return;
-      widgets.setChildren(picked, items.map((item) => widgets.listItem({ ...item, subtitle: item.id })));
+      widgets.setChildren(picked, items.map(pickedRow));
     });
   };
+
   const choose = widgets.button({
-    label: 'Choose…',
+    label: multiple ? 'Choose…' : 'Choose…',
     icon: 'search',
     onClick: () => {
       void openPicker(ctx.vrchat, {
         kind: spec.kind,
-        multiple: spec.multiple === true,
+        multiple,
         ...(spec.scopes === undefined ? {} : { scopes: spec.scopes }),
         selected: read(),
       }).then((ids) => { if (ids !== undefined) write(ids); });
     },
   });
-  const clear = widgets.button({ label: 'Clear', icon: 'close', onClick: () => { write([]); } });
-  root.append(picked, widgets.controlRow(choose, clear));
+  const actions = element('div');
+  actions.style.cssText = 'display:flex;justify-content:flex-start;align-items:center;gap:10px;min-width:0;';
+  actions.append(choose, hint);
+  root.append(picked, actions);
   draw();
   ctx.track(binding.onChange(draw));
-  return { element: root, stacked: spec.multiple === true };
+  return { element: root, stacked: true };
 }

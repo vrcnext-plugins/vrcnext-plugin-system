@@ -122,7 +122,10 @@ function selectControl(spec: SelectSetting, binding: Binding, error: ReturnType<
     selected: String(binding.get()),
     onChange: (next) => { commit(binding, next, error, ctx); },
   });
-  ctx.track(binding.onChange((next) => { select.value = String(next); }));
+  ctx.track(binding.onChange((next) => {
+    select.value = String(next);
+    select.syncSelect();
+  }));
   return { element: select };
 }
 
@@ -147,11 +150,15 @@ function multiSelectControl(spec: MultiSelectSetting, binding: Binding, error: R
       commit(binding, next, error, ctx);
     },
   });
+  // A wrapping set of chips reads as a block, not as a value at the end of a row: stacked under
+  // the label and left-aligned, the way VRCNext lays its own theme and cursor pickers out. Two
+  // or three chips still fit at the end of the row.
+  const stacked = spec.options.length > 3;
   const holder = element('div');
-  holder.style.cssText = 'display:flex;justify-content:flex-end;min-width:0;';
+  holder.style.cssText = `display:flex;min-width:0;justify-content:${stacked ? 'flex-start' : 'flex-end'};`;
   holder.appendChild(build());
   ctx.track(binding.onChange(() => { widgets.setChildren(holder, [build()]); }));
-  return { element: holder, stacked: spec.options.length > 4 };
+  return { element: holder, stacked };
 }
 
 function customControl(spec: CustomSetting, binding: Binding, error: ReturnType<typeof widgets.errorLine>, ctx: FormContext): Control {

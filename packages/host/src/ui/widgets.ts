@@ -105,12 +105,16 @@ const KIT_CSS = `
   font-size: calc(11px + var(--fs-off, 0px)); color: var(--tx1); max-width: 100%;
 }
 .vrcnx-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vrcnx-chip-x {
+.vrcnx-chip-x, .vrcnx-icon-btn {
   border: 0; background: transparent; color: var(--tx2); cursor: pointer; line-height: 1;
   padding: 2px; border-radius: 999px; display: inline-flex;
 }
-.vrcnx-chip-x:hover { color: var(--err); background: var(--bg-hover); }
-.vrcnx-chip-x .msi { font-size: 14px; }
+.vrcnx-chip-x:hover, .vrcnx-icon-btn:hover { color: var(--err); background: var(--bg-hover); }
+.vrcnx-chip-x .msi, .vrcnx-icon-btn .msi { font-size: 14px; }
+.vrcnx-icon-btn { flex: 0 0 auto; padding: 4px; }
+.vrcnx-picked-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.vrcnx-picked-row > .fd-profile-item-small { flex: 1 1 auto; min-width: 0; }
+.vrcnx-chip-grid { margin-bottom: 0; }
 .vrcnx-plugin-list { display: flex; flex-direction: column; }
 .vrcnx-plugin-row { border-top: 1px solid var(--brd); }
 .vrcnx-plugin-row:first-child { border-top: 0; }
@@ -140,11 +144,22 @@ const KIT_CSS = `
 .vrcnx-list-item { border: 1px solid var(--brd); border-radius: 8px; padding: 4px 10px 8px; margin: 8px 0; }
 .vrcnx-list-head { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .vrcnx-list-title { flex: 1 1 auto; font-weight: 600; color: var(--tx0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vrcnx-pick-list { max-height: 50vh; overflow: auto; border: 1px solid var(--brd); border-radius: 8px; margin-top: 8px; }
-.vrcnx-pick-list .fd-profile-item-small { cursor: pointer; }
-.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked { background: var(--bg-hover); }
-.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked .fd-pi-sm-name::after { content: 'check'; font-family: 'Material Symbols Rounded'; margin-left: auto; color: var(--accent); }
-.vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 100%; }
+.vrcnx-pick-list {
+  /* A floor as well as a ceiling: without it the modal resizes and jumps under the pointer
+     while the filter is being typed. */
+  min-height: 240px; max-height: 50vh; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--brd); border-radius: 8px; margin-top: 8px; padding: 2px;
+}
+.vrcnx-pick-list .fd-profile-item-small { cursor: pointer; border-radius: 6px; }
+.vrcnx-pick-list .fd-profile-item-small:hover { background: var(--bg-hover); }
+.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.vrcnx-pick-list .fd-profile-item-small.vrcnx-picked .fd-pi-sm-name::after {
+  content: 'check'; font-family: 'Material Symbols Rounded'; margin-left: auto; color: var(--accent);
+}
+.vrcnx-picked-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
 `;
 
 const STYLE_ID = 'vrcnext-plugins-kit-style';
@@ -392,6 +407,8 @@ export function controlRow(...children: readonly Node[]): HTMLElement {
 export function textField(options: {
   readonly value: string;
   readonly placeholder?: string;
+  /** Fires on every keystroke. Only for a field that filters what is already on screen. */
+  readonly onInput?: (next: string) => void;
   readonly onCommit: (next: string) => void;
 }): HTMLInputElement {
   const input = element('input', 'vrcn-edit-field');
@@ -409,6 +426,10 @@ export function textField(options: {
   input.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'Enter') input.blur();
   });
+  if (options.onInput !== undefined) {
+    const onInput = options.onInput;
+    input.addEventListener('input', () => { onInput(input.value); });
+  }
   return input;
 }
 
@@ -435,11 +456,25 @@ export function textArea(options: {
 }
 
 /** VRCNext's select. */
+/** A `<select>` VRCNext has enhanced, or will once it is in the page. */
+export type SelectElement = HTMLSelectElement & {
+  /** Re-reads the options and the value into VRCNext's trigger. Safe before enhancement. */
+  syncSelect(): void;
+};
+
+/**
+ * VRCNext replaces every `<select.vrcn-dropdown>` with its own `vn-select`: a styled trigger and
+ * a floating panel. `initVnSelect` is a page global and the app itself calls it exactly this way
+ * (`if (typeof initVnSelect === 'function')`), so a plugin's dropdown is the app's dropdown
+ * rather than a lookalike. It needs the select to be in the page, so enhancement is deferred to
+ * after the form mounts, and `_vnRefresh` — VRCNext's own hook for programmatic changes — is
+ * what a write from elsewhere calls.
+ */
 export function dropdown(options: {
   readonly options: readonly { readonly value: string; readonly label: string }[];
   readonly selected: string;
   readonly onChange: (next: string) => void;
-}): HTMLSelectElement {
+}): SelectElement {
   const select = element('select', 'vrcn-dropdown');
   for (const item of options.options) {
     const option = element('option', undefined, item.label);
@@ -448,7 +483,28 @@ export function dropdown(options: {
     select.appendChild(option);
   }
   select.addEventListener('change', () => { options.onChange(select.value); });
-  return select;
+
+  const enhanced = select as SelectElement;
+  enhanced.syncSelect = (): void => {
+    const refresh = (select as { _vnRefresh?: () => void })._vnRefresh;
+    if (typeof refresh === 'function') refresh();
+  };
+  enhance(select);
+  return enhanced;
+}
+
+/** Hands the select to VRCNext once it is in the page; harmless when it never arrives. */
+function enhance(select: HTMLSelectElement): void {
+  const init = (globalThis as { initVnSelect?: (el: HTMLSelectElement) => void }).initVnSelect;
+  if (typeof init !== 'function') return;
+  globalThis.setTimeout(() => {
+    if (select.parentNode === null) return;
+    try {
+      init(select);
+    } catch (error) {
+      globalThis.console.warn('[vrcnext-plugins] VRCNext could not enhance a dropdown', error);
+    }
+  }, 0);
 }
 
 /** A slider that can also be moved from outside, by whoever owns the value. */
@@ -577,25 +633,32 @@ export function chips(options: {
   readonly onChange: (next: readonly string[]) => void;
 }): HTMLElement {
   ensureKitStyles();
-  const root = element('div', 'vrcnx-chips');
+  // VRCNext's own toggle-pill idiom: a left-aligned wrapping grid of `.theme-chip`, with
+  // `.active` tinting the chosen ones. Its theme picker and cursor picker are the same control,
+  // so a plugin's multiselect looks like part of the app and a chosen chip is obviously chosen.
+  const root = element('div', 'theme-grid vrcnx-chip-grid');
   let chosen = [...options.selected];
   const buttons = new Map<string, HTMLButtonElement>();
   const paint = (): void => {
-    for (const [value, node] of buttons) node.classList.toggle('active', chosen.includes(value));
+    for (const [value, node] of buttons) {
+      const on = chosen.includes(value);
+      node.classList.toggle('active', on);
+      node.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
   };
   for (const item of options.options) {
-    const node = button({
-      label: item.label,
-      onClick: () => {
-        if (options.multiple) {
-          chosen = chosen.includes(item.value) ? chosen.filter((v) => v !== item.value) : [...chosen, item.value];
-          chosen = options.options.map((o) => o.value).filter((v) => chosen.includes(v));
-        } else {
-          chosen = [item.value];
-        }
-        paint();
-        options.onChange(chosen);
-      },
+    const node = element('button', 'theme-chip');
+    node.type = 'button';
+    node.textContent = item.label;
+    node.addEventListener('click', () => {
+      if (options.multiple) {
+        chosen = chosen.includes(item.value) ? chosen.filter((v) => v !== item.value) : [...chosen, item.value];
+        chosen = options.options.map((o) => o.value).filter((v) => chosen.includes(v));
+      } else {
+        chosen = [item.value];
+      }
+      paint();
+      options.onChange(chosen);
     });
     if (options.disabled === true) node.disabled = true;
     buttons.set(item.value, node);
@@ -603,6 +666,22 @@ export function chips(options: {
   }
   paint();
   return root;
+}
+
+/** A borderless button that is only an icon: remove, clear, expand. */
+export function iconButton(icon: string, title: string, onClick: () => void): HTMLButtonElement {
+  ensureKitStyles();
+  const node = element('button', 'vrcnx-icon-btn');
+  node.type = 'button';
+  node.title = title;
+  node.setAttribute('aria-label', title);
+  node.appendChild(iconSpan(icon));
+  node.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onClick();
+  });
+  return node;
 }
 
 /** A small pill with a remove button, for a value the user can take back. */
