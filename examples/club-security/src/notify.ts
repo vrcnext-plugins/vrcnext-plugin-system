@@ -13,7 +13,9 @@
 import type { PluginContext, SettingsValues } from '@vrcnext/plugin-api';
 
 import type { Facts, Joiner } from './collector.js';
-import { timeAgo, type Rejoin } from './history.js';
+import { timeAgo } from '@vrcnext/plugin-api';
+
+import type { Rejoin } from './history.js';
 import type { Settings } from './settings.js';
 import type { CurrentInstance } from './vrcnext-data.js';
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { instanceKey, rejoinIn, timeAgo, toTimelineEntries } from './history.js';
+import { instanceKey, rejoinIn, toTimelineEntries } from './history.js';
 
 const HERE = 'wrld_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:12345~group(grp_1)~groupAccessType(plus)~region(eu)';
 const SAME_INSTANCE_OTHER_MODIFIERS = 'wrld_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:12345~group(grp_1)';
@@ -40,13 +40,4 @@ test('the same world in another instance, or only this join, is not a rejoin', (
 
 test('no answer from VRCNext is unknown, not no', () => {
   assert.equal(rejoinIn(undefined, HERE, NOW).seenHere, undefined);
-});
-
-test('timeAgo is coarse and human', () => {
-  assert.equal(timeAgo('2026-09-27T11:59:40Z', NOW), 'just now');
-  assert.equal(timeAgo('2026-09-27T11:59:00Z', NOW), '1 minute ago');
-  assert.equal(timeAgo('2026-09-27T11:15:00Z', NOW), '45 minutes ago');
-  assert.equal(timeAgo('2026-09-27T09:00:00Z', NOW), '3 hours ago');
-  assert.equal(timeAgo('2026-09-25T09:00:00Z', NOW), '2 days ago');
-  assert.equal(timeAgo('garbage', NOW), 'just now');
 });

@@ -132,6 +132,7 @@ export type {
   UiApi,
 } from './ui.js';
 
+export { timeAgo } from './time.js';
 
 export { definePlugin } from './plugin.js';
 export type { PluginContext, VrcnextPlugin } from './plugin.js';
