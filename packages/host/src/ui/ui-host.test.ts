@@ -36,6 +36,7 @@ beforeEach(() => {
   switched = [];
   const scope = globalThis as Record<string, unknown>;
   scope['document'] = dom.window.document;
+  scope['HTMLElement'] = dom.window.HTMLElement;
   scope['MutationObserver'] = dom.window.MutationObserver;
   scope['showTab'] = (): void => undefined;
   scope['switchSettingsSection'] = (id: string): void => { switched.push(id); };
@@ -44,6 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   const scope = globalThis as Record<string, unknown>;
   delete scope['document'];
+  delete scope['HTMLElement'];
   delete scope['MutationObserver'];
   delete scope['showTab'];
   delete scope['switchSettingsSection'];
@@ -128,4 +130,65 @@ test('disposing the plugin’s bag removes its section, divider, blocks and side
   assert.equal(doc.querySelectorAll('[data-vrcnext-plugin="demo"]').length, 0);
   assert.equal(doc.querySelectorAll('#navEl > *').length, 0, 'sidebar separator gone too');
   assert.equal(doc.querySelectorAll('#tbMenuItems > *').length, 0, 'menu gone too');
+});
+
+test('the settings schema lands on one card, not on every card the plugin adds', () => {
+  const bag = new DisposableBag();
+  const schema = { loud: { kind: 'boolean' as const, label: 'Loud', default: false } };
+  const values: Record<string, unknown> = { loud: false };
+  const store = {
+    get: (key: string) => values[key],
+    set: (key: string, value: unknown) => { values[key] = value; return Promise.resolve(); },
+    get values() { return values; },
+    onChange: () => (): void => undefined,
+    reset: () => Promise.resolve(),
+  };
+  const pluginUi = host().forPlugin({
+    id: 'demo', name: 'Demo', bag, schema,
+    settings: store,
+  });
+
+  const first = pluginUi.addSettingsCard({ title: 'One', icon: 'tune' });
+  const second = pluginUi.addSettingsCard({ title: 'Two', icon: 'tune' });
+  assert.equal(first.element.querySelectorAll('[data-setting="loud"]').length, 1);
+  assert.equal(second.element.querySelectorAll('[data-setting="loud"]').length, 0);
+
+  // A plugin whose settings belong on a later card says so.
+  const third = pluginUi.addSettingsCard({ title: 'Three', icon: 'tune', settings: true });
+  assert.equal(third.element.querySelectorAll('[data-setting="loud"]').length, 1);
+
+  bag.dispose();
+});
+
+test('a card renders its own content above the generated rows', () => {
+  const bag = new DisposableBag();
+  const schema = { loud: { kind: 'boolean' as const, label: 'Loud', default: false } };
+  const values: Record<string, unknown> = { loud: false };
+  const store = {
+    get: (key: string) => values[key],
+    set: () => Promise.resolve(),
+    get values() { return values; },
+    onChange: () => (): void => undefined,
+    reset: () => Promise.resolve(),
+  };
+  const card = host().forPlugin({
+    id: 'demo', name: 'Demo', bag, schema,
+    settings: store,
+  }).addSettingsCard({
+    title: 'One',
+    icon: 'tune',
+    render: (container) => {
+      const note = container.ownerDocument.createElement('p');
+      note.className = 'mine';
+      container.appendChild(note);
+    },
+  });
+
+  const mine = card.element.querySelector('.mine');
+  const row = card.element.querySelector('[data-setting="loud"]');
+  assert.ok(mine !== null && row !== null);
+  // Node.DOCUMENT_POSITION_FOLLOWING — the row comes after the plugin's own paragraph.
+  assert.equal(mine.compareDocumentPosition(row) & 4, 4);
+
+  bag.dispose();
 });

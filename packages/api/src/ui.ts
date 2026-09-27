@@ -43,8 +43,16 @@ export interface NavTabOptions {
 export interface SettingsCardOptions {
   readonly title: string;
   readonly icon: IconName;
-  /** Renders extra controls below the schema-derived ones. */
+  /** Renders the card's own content, above the schema-derived controls. */
   render?(container: HTMLElement): void;
+  /**
+   * Whether this card carries the plugin's settings schema.
+   *
+   * Defaults to the first settings card the plugin adds and no other, so a plugin with several
+   * cards does not get the same form painted onto each of them. Set it explicitly when the
+   * settings belong on a later card.
+   */
+  readonly settings?: boolean;
   /**
    * Where the card goes. Defaults to the host's **Plugins** section, below its install-and-manage
    * cards; pass a section from {@link UiApi.addSettingsSection} to file it under your own.
@@ -131,7 +139,7 @@ export interface UiApi {
    */
   injectCss(css: string): PanelHandle;
 
-  /** Adds a card to VRCNext's own settings page, below the plugin's generated settings rows. */
+  /** Adds a card to VRCNext's own settings page. The first one carries the generated settings rows. */
   addSettingsCard(options: SettingsCardOptions): PanelHandle;
 
   /**

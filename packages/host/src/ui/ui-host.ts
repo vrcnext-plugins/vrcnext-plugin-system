@@ -166,6 +166,8 @@ class PluginUiImpl implements PluginUi {
   readonly #handles = new Set<PanelHandle>();
   /** Created the first time this plugin files a settings card, and removed with the plugin. */
   #ownSection: SettingsSectionHandle | undefined;
+  /** Whether a settings card has already been given the schema form. */
+  #formDrawn = false;
 
   constructor(pluginId: string, bag: DisposableBag, context: PluginUiContext, shared: Shared) {
     this.#pluginId = pluginId;
@@ -279,8 +281,14 @@ class PluginUiImpl implements PluginUi {
     const card = this.createCard(options.title, options.icon);
     card.setAttribute(PLUGIN_ATTR, this.#pluginId);
 
+    options.render?.(card);
+
+    // The schema goes on one card, not on every card the plugin happens to add — and under the
+    // card's own words rather than above them, so a description introduces its settings.
     const store = this.#settings;
-    if (store !== undefined && this.#schema !== undefined) {
+    const wantsForm = options.settings ?? !this.#formDrawn;
+    if (wantsForm && store !== undefined && this.#schema !== undefined) {
+      this.#formDrawn = true;
       const disposers: (() => void)[] = [];
       const form = renderForm(this.#schema, storeBinding(store), {
         vrchat: this.#shared.vrchat,
@@ -294,7 +302,6 @@ class PluginUiImpl implements PluginUi {
       this.#bag.add(() => { for (const dispose of disposers) dispose(); });
     }
 
-    options.render?.(card);
     const section = options.section ?? this.#settingsSection(options.icon);
     section.attach(card);
     const forget = this.#shared.registerCard(this.#pluginId, section, card);

@@ -338,9 +338,12 @@ export function row(
   }
 
   const name = typeof label === 'string' ? element('span', undefined, label) : label;
-  if (name instanceof HTMLElement) {
-    name.style.flex = '1 1 auto';
-    name.style.minWidth = '0';
+  // Duck-typed rather than `instanceof HTMLElement`: the caller's node may come from another
+  // document, and the constructor is not always a global we can reach.
+  const styled = (name as Partial<HTMLElement>).style;
+  if (styled !== undefined) {
+    styled.flex = '1 1 auto';
+    styled.minWidth = '0';
   }
   root.appendChild(name);
 
