@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import { EventRouter } from '../../events/event-router.js';
-import { QuietChannel } from './quiet-channel.js';
+import { FOLLOW_UP_MS, QuietChannel } from './quiet-channel.js';
 
 interface Fixture {
   readonly channel: QuietChannel;
@@ -72,22 +72,51 @@ test('a swallow: false request lets VRCNext handle its reply too', async () => {
   assert.equal(f.seenByVrcnext.length, 1);
 });
 
-test('the follow-up reply after a cached answer is withheld for a while, then released', async () => {
-  let now = 1_000;
-  const f = fixture({ now: () => now });
-  const pending = f.channel.request({
+function worldRequest(f: Fixture): Promise<unknown> {
+  return f.channel.request({
     action: 'vrcGetWorldDetail',
     expect: 'vrcWorldDetail',
     accept: (p) => ((p as { id?: string }).id === 'wrld_1' ? p : undefined),
   });
+}
+
+test('exactly one follow-up reply after the answer is withheld, then the rule is gone', async () => {
+  const f = fixture();
+  const pending = worldRequest(f);
   f.deliver('vrcWorldDetail', { id: 'wrld_1', fromCache: true });
   await pending;
   f.deliver('vrcWorldDetail', { id: 'wrld_1' });
   assert.equal(f.seenByVrcnext.length, 0, 'the fresh copy is withheld as well');
-  now += 60_000;
   f.deliver('vrcWorldDetail', { id: 'wrld_1' });
-  assert.equal(f.seenByVrcnext.length, 1, 'later replies are VRCNext’s own again');
+  assert.equal(f.seenByVrcnext.length, 1, 'a third reply is VRCNext’s own');
   assert.equal(f.channel.pending, 0);
+});
+
+test('a follow-up later than the window is not withheld', async () => {
+  let now = 1_000;
+  const f = fixture({ now: () => now });
+  const pending = worldRequest(f);
+  f.deliver('vrcWorldDetail', { id: 'wrld_1' });
+  await pending;
+  now += FOLLOW_UP_MS + 1;
+  f.deliver('vrcWorldDetail', { id: 'wrld_1' });
+  assert.equal(f.seenByVrcnext.length, 1);
+});
+
+test('once VRCNext itself sends the action, its reply reaches VRCNext', async () => {
+  const f = fixture();
+  const pending = worldRequest(f);
+  f.deliver('vrcWorldDetail', { id: 'wrld_1' });
+  await pending;
+  f.channel.noteOutbound('vrcGetWorldDetail');
+  f.deliver('vrcWorldDetail', { id: 'wrld_1' });
+  assert.equal(f.seenByVrcnext.length, 1, 'the user opened that world: the reply is theirs');
+
+  const second = worldRequest(f);
+  f.channel.noteOutbound('vrcGetWorldDetail');
+  f.deliver('vrcWorldDetail', { id: 'wrld_1' });
+  await second;
+  assert.equal(f.seenByVrcnext.length, 2, 'a pending rule still resolves, but shares the reply');
 });
 
 test('times out, and an aborted request stops listening', async () => {

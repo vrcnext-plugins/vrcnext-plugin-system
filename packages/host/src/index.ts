@@ -117,6 +117,11 @@ function buildCore(): Core {
   });
   quiet.install();
   const bridge = PhotinoBridge.attach(router);
+  // The host's own sends bypass this; only VRCNext's page (the user) comes through here.
+  bridge.interceptOutbound((action) => {
+    quiet.noteOutbound(action);
+    return undefined;
+  });
   const vrchat = new HostVrchatApi({ router, channel: quiet });
   const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
