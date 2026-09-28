@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // examples/example-plugin is a submodule of vrcnext-example-plugin, which is a standalone
+  // repository: its own tsconfig.json describes a plugin built on its own, not a member of this
+  // workspace. This config is the workspace's view of the same files — the shared strict base,
+  // a project reference to the live packages/api, and build output kept outside the submodule
+  // so checking it here never dirties the checkout.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./examples/example-plugin",
+    "outDir": "./dist/examples/example-plugin",
+    "tsBuildInfoFile": "./dist/examples/example-plugin/.tsbuildinfo",
+    "types": []
+  },
+  "include": ["examples/example-plugin/main.ts", "examples/example-plugin/src/**/*.ts"],
+  "references": [{ "path": "./packages/api" }]
+}

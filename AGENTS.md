@@ -36,7 +36,11 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 
 - **Generic helpers belong in `packages/api`**, exported from `@vrcnext/plugin-api`, never
   copied into a plugin. `timeAgo`, `renderTemplate` and friends are the pattern. Ask "would a
-  second plugin want this?" before writing a utility under `examples/*/src`.
+  second plugin want this?" before writing a utility under `examples/example-plugin/src`.
+- **`examples/example-plugin` is a git submodule** of `vrcnext-example-plugin`. Edit it there and
+  commit inside the submodule, then commit the moved pointer here; there is no copy to sync. The
+  workspace type-checks it through `tsconfig.example.json` rather than the submodule's own
+  `tsconfig.json`, which describes it as the standalone repository it also is.
 - **Every way the host injects or changes VRCNext UI is a `ctx.ui` API**, and the host uses
   that same API for itself (`UiHost.forHost`). Settings sections, dividers, sidebar groups, tabs,
   cards: one implementation, and disabling a plugin removes everything it added.

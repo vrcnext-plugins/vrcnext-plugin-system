@@ -105,11 +105,11 @@ README.md          optional
 The bridge validates this at install and update, and the host validates it again at boot,
 through the same parser (`@vrcnext/plugin-api`'s `parsePluginManifest`).
 
-Start from [`examples/template`](examples/template): copy it into a new repository, rename the
-id, and run its `check` script — its ESLint config mirrors the host's rules and flags the source
-policy below before the bridge does. [`examples/hello-world`](examples/hello-world) is the
-smallest useful plugin; [`examples/kitchen-sink`](examples/kitchen-sink) exercises everything.
-To try a plugin, push it and paste its URL into the Plugins tab.
+Start from [vrcnext-example-plugin](https://github.com/vrcnext-plugins/vrcnext-example-plugin):
+press **Use this template** on GitHub, rename the id, delete the sections you do not need, and
+run its `check` script — its ESLint config mirrors the host's rules and flags the source policy
+below before the bridge does. It exercises every capability, one per file, so removing a file is
+how you narrow it. To try a plugin, sign it, push it and paste its URL into the Plugins tab.
 
 ### Source policy
 
@@ -186,8 +186,8 @@ export const COMPILED_PLUGINS = [{ manifest: m0, plugin: p0 }] as const;
 into the theme folder, then pushes `build` over the socket. The page shows **Rebuilt — reload to
 apply** with a Reload button; it never reloads on its own. The repository's own
 [`scripts/build.sh`](scripts/build.sh) runs the identical flag list with the alias pointed at
-[`packages/host/static-plugins.dev.ts`](packages/host/static-plugins.dev.ts), which lists the two
-examples, so `npm run check` bundles a host that runs plugins.
+[`packages/host/static-plugins.dev.ts`](packages/host/static-plugins.dev.ts), which lists the
+example plugin, so `npm run check` bundles a host that runs a plugin.
 
 At boot the host connects to the bridge (`ws://127.0.0.1:42081/v1/ws`, endpoint and token from
 `localStorage`), sends `hello`, and on `welcome` reads the host namespace of the state store —
@@ -215,11 +215,10 @@ sections and nothing else: sidebar tabs of their own are for plugins.
 | `packages/api` | `@vrcnext/plugin-api` — the typed contract plus pure logic (manifest parser, permission vocabulary). No DOM. |
 | `packages/host` | The runtime injected into VRCNext. `permissions/` is the prompt machinery, `plugins/` the manager and gated context, `state/` the bridge state client. |
 | `packages/host/static-plugins.dev.ts` | The plugin table for the repo's own build. |
-| `examples/template` | Starting point for a plugin repository. |
-| `examples/hello-world`, `examples/kitchen-sink` | Minimal and exhaustive example plugins. |
+| `examples/example-plugin` | A submodule of [vrcnext-example-plugin](https://github.com/vrcnext-plugins/vrcnext-example-plugin): the template plugin, checked here against the live API and bundled into the dev host. Clone with `--recurse-submodules`. |
 | [`vrcnext-club-security-plugin`](https://github.com/vrcnext-plugins/vrcnext-club-security-plugin) | A complete plugin in its own repository: game log, VRChat data, presets, native and Discord notifications, tests. |
 | `install/` | The one-line installers and their README. |
-| `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh` (copies the dev bundle into the theme folder). |
+| `scripts/` | `build.sh`, `check.sh`, `install-into-vrcnext.sh` (copies the dev bundle into the theme folder), `sign-plugin.mjs`. |
 
 Documentation lives in its own repository:
 [vrcnext-plugins.github.io](https://github.com/vrcnext-plugins/vrcnext-plugins.github.io).
@@ -228,9 +227,18 @@ The bridge is [vrcnext-bridge](https://github.com/vrcnext-plugins/vrcnext-bridge
 ## Development
 
 ```bash
+git submodule update --init      # examples/example-plugin; or clone with --recurse-submodules
 npm ci
 npm run check      # typecheck → tooling typecheck → lint → tests → version agreement → build
 ```
+
+`examples/example-plugin` is a submodule of the standalone
+[vrcnext-example-plugin](https://github.com/vrcnext-plugins/vrcnext-example-plugin) repository,
+so there is one copy of it rather than two that drift. The gate type-checks it against the live
+`packages/api` through [`tsconfig.example.json`](tsconfig.example.json) — the workspace's own
+view of those files, kept here so the submodule stays a standalone repository. Changes to the
+plugin are committed in the submodule and pushed there; this repository records which commit of
+it the gate ran against.
 
 Strict by policy: `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
 `typescript-eslint` `strictTypeChecked`, no `any`, no non-null assertions, no `enum`, no lint

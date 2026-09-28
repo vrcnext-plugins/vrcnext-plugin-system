@@ -57,8 +57,9 @@ export default defineConfig([
 
   {
     // Repository tooling that runs under Node rather than in the page: the source policy does
-    // not apply to it (it never reaches a bundle) but the globals do have to be declared.
-    files: ['scripts/**/*.mjs'],
+    // not apply to it (it never reaches a bundle) but the globals do have to be declared. The
+    // `**/` matches the example plugin's own scripts/ too, which arrives as a submodule.
+    files: ['**/scripts/**/*.mjs'],
     languageOptions: {
       globals: { Buffer: 'readonly', process: 'readonly', URL: 'readonly', console: 'readonly' },
     },

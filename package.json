@@ -9,8 +9,7 @@
     "node": ">=20"
   },
   "workspaces": [
-    "packages/*",
-    "examples/*"
+    "packages/*"
   ],
   "scripts": {
     "build": "./scripts/build.sh",

@@ -1,0 +1,3 @@
+[submodule "examples/example-plugin"]
+	path = examples/example-plugin
+	url = https://github.com/vrcnext-plugins/vrcnext-example-plugin.git

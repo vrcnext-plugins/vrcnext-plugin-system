@@ -10,6 +10,6 @@
     "dist"
   ],
   "dependencies": {
-    "@vrcnext/plugin-api": "0.3.0"
+    "@vrcnext/plugin-api": "*"
   }
 }
