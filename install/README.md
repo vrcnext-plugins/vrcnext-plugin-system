@@ -43,8 +43,13 @@ Requirements: `curl` and `tar` (plus `sha256sum` or `shasum`) on Linux/macOS; Wi
    macOS — launchd agent `~/Library/LaunchAgents/io.github.vrcnext-plugins.bridge.plist`;
    Windows — Scheduled Task "VRCNext Bridge" at logon, or `vrcnext-bridge.cmd` in the Startup
    folder if task registration is refused.
-5. Wait for `GET /v1/health` on `127.0.0.1:42081`, read the token, `POST /v1/plugins/build` to
-   produce the first bundle, then print the token and the three steps to finish in VRCNext.
+5. Wait for `GET /v1/health` on `127.0.0.1:42081`, read the token, run
+   `vrcnext-bridge --build-plugins` to produce the first bundle, then print the token and the
+   three steps to finish in VRCNext.
+
+The daemon is started with no flags, so it serves `/v1/ws` and `/v1/health` and nothing else.
+The REST call surface — `GET /v1/describe` and `POST /v1/<service>/<method>` — needs `--rest`,
+which is for scripts and agents rather than for using VRCNext.
 
 Re-running the installer is an upgrade: binaries and host sources are replaced, `plugins/`,
 `state.json` and `token` are kept, and the bundle is rebuilt.

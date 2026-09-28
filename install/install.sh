@@ -365,13 +365,13 @@ done
 [[ -s "$TOKEN_FILE" ]] || die "token file $TOKEN_FILE was not created by the bridge"
 TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 
+# Built by the binary itself rather than over HTTP: the daemon's REST call surface is off unless
+# it is started with --rest, and an install should not have to open a second way in to compile a
+# bundle. Same code, same paths, no socket.
 step "Building the plugin bundle"
 BUILD_OUT="$TMP/build.json"
-HTTP_CODE="$(curl -sS -m 120 -o "$BUILD_OUT" -w '%{http_code}' \
-  -X POST "http://$BRIDGE_ADDR/v1/plugins/build" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}')" \
-  || die "POST /v1/plugins/build failed (bridge unreachable)"
-[[ "$HTTP_CODE" == 2* ]] || die "POST /v1/plugins/build returned HTTP $HTTP_CODE: $(head -c 400 "$BUILD_OUT")"
+"$BRIDGE_BIN" --build-plugins >"$BUILD_OUT" 2>"$TMP/build.err" \
+  || die "building the bundle failed: $(head -c 600 "$TMP/build.err" "$BUILD_OUT")"
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$BUILD_OUT" \
   || die "build failed: $(head -c 600 "$BUILD_OUT")"
 [[ -f "$THEME_DIR/vrcnext-plugin-host.js" ]] \
