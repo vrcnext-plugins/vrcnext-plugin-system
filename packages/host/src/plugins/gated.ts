@@ -180,6 +180,7 @@ export class GatedDeepLinks implements DeepLinkApi {
   }
 
   on(listener: (event: DeepLinkEvent) => boolean | undefined): () => void {
+    this.#gate.requireDeclared('host:events', 'openDeepLink');
     return lazySubscribe(
       this.#gate,
       eventPrompt(this.#gate.subject, 'openDeepLink'),

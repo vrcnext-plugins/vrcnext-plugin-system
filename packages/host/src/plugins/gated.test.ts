@@ -7,7 +7,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { parsePluginManifest, type Logger, type PluginManifest, type VrchatApi, type VrcSelf } from '@vrcnext/plugin-api';
+import {
+  DisposableBag,
+  PermissionError,
+  parsePluginManifest,
+  type DeepLinkApi,
+  type DeepLinkPrefix,
+  type Logger,
+  type PluginManifest,
+  type VrchatApi,
+  type VrcSelf,
+} from '@vrcnext/plugin-api';
 
 import type { BridgeClient } from '../capabilities/native.js';
 
@@ -16,7 +26,7 @@ import type { Decision } from '../permissions/types.js';
 import { GrantStore } from '../permissions/grant-store.js';
 import { PluginGate } from '../permissions/plugin-gate.js';
 import { MemoryStateService } from '../state/state-service.js';
-import { GatedHttp, gatedVrchat } from './gated.js';
+import { GatedDeepLinks, GatedHttp, gatedVrchat } from './gated.js';
 
 const logger: Logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined, scoped: () => logger };
 
@@ -205,4 +215,26 @@ test('an already-aborted signal never reaches the bridge', async () => {
   const f = hangingHttp(new AbortController().signal);
   await assert.rejects(f.api.fetch('https://api.steampowered.com/x', { signal: AbortSignal.abort() }), { name: 'AbortError' });
   assert.deepEqual(f.seen, []);
+});
+
+test('deep links need openDeepLink in plugin.json "events", like the event itself', () => {
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: () => Promise.resolve('allow') },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const gate = new PluginGate(httpManifest(), broker, logger, new AbortController().signal);
+  const inner = { on: () => () => undefined, onPrefix: () => () => undefined } as unknown as DeepLinkApi;
+  const links = new GatedDeepLinks(inner, gate, new DisposableBag());
+  assert.throws(() => links.on(() => undefined), PermissionError);
+  assert.throws(() => links.onPrefix('vrcnext://x' as DeepLinkPrefix, () => undefined), PermissionError);
+
+  const { manifest: declared } = parsePluginManifest({
+    id: 'linker', name: 'Linker', version: '1.0.0', apiVersion: '^0.3.0',
+    permissions: ['host:events'], events: ['openDeepLink'],
+  });
+  assert.ok(declared);
+  const allowed = new GatedDeepLinks(inner, new PluginGate(declared, broker, logger, new AbortController().signal), new DisposableBag());
+  allowed.on(() => undefined)();
 });
