@@ -13,9 +13,11 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 - **Restart VRCNext and reload its page sparingly.** Both re-authenticate against the VRChat
   API. Batch every host change into one deploy, rebuild once, and reload once at the end with
   `vrcnext-eval 'location.reload()'`. Never restart the app when a reload will do.
-- After a change to `packages/*/src`, deploy by copying the sources (tests stripped) into
-  `~/.vrcnext-plugins/host/packages/*/src` and `POST /v1/plugins/build` on the bridge. A plugin
-  is updated by pushing its flat repo and `POST /v1/plugins/update`.
+- After a change to `packages/*/src`, run `./scripts/deploy-to-bridge.sh`: it runs the gate,
+  copies the sources (tests stripped) into `~/.vrcnext-plugins/host/packages/*/src`, finds the
+  bridge's port in the unit's journal and `POST`s `/v1/plugins/build`. It deliberately stops
+  there — reloading the page is the owner's step. A plugin is updated by pushing its own repo and
+  `POST /v1/plugins/update`, which needs the desktop confirmation.
 
 ## Reading VRChat data
 
