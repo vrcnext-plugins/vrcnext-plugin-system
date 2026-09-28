@@ -8,6 +8,7 @@
  */
 
 import {
+  isCredentialHeader,
   type ActionArgs,
   type ActionName,
   type Bridge,
@@ -221,6 +222,24 @@ function toOutboundReply(value: unknown): OutboundReply | undefined {
 
 const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
 
+/**
+ * Refuses a request that would carry this machine's credentials off it.
+ *
+ * Checked here, before the bridge/page decision, because both paths would otherwise have to
+ * remember: the bridge refuses these itself, but the page's `fetch` would send them happily. A
+ * plugin authenticates to an API the way that API says to — a query parameter, or its own header.
+ */
+function refuseCredentials(url: URL, init: RequestInit | undefined): void {
+  if (url.username !== '' || url.password !== '') {
+    throw new PermissionError('network', 'the URL carries credentials in it; use the header the API names instead', url.host);
+  }
+  for (const [name] of new Headers(init?.headers).entries()) {
+    if (isCredentialHeader(name)) {
+      throw new PermissionError('network', `${name} would send this machine's credentials to ${url.host}; use the scheme the API names`, url.host);
+    }
+  }
+}
+
 /** What `init` carries that the bridge can be told about. Anything else has no wire form. */
 function outboundParams(url: URL, init: RequestInit | undefined): Record<string, unknown> {
   const body = init?.body;
@@ -270,6 +289,8 @@ export class GatedHttp implements HttpApi {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       throw new PermissionError('network', `${parsed.protocol} is not http(s)`, parsed.host);
     }
+    // Before the prompt: a request that cannot be made is not worth asking the user about.
+    refuseCredentials(parsed, init);
     await this.#gate.check(networkPrompt(this.#gate.subject, parsed, init));
     // The plugin's lifetime signal is always attached; a caller's own signal is honoured too.
     const signal =
@@ -279,7 +300,10 @@ export class GatedHttp implements HttpApi {
     if (bridge?.status === 'connected') {
       return this.#viaBridge(bridge, parsed, init, signal);
     }
-    return globalThis.fetch(parsed, { ...init, signal });
+    // Without the bridge this is the page's own fetch, which would attach the page's cookies to
+    // a same-site URL and its referrer to any of them. Neither is the plugin's to send, and the
+    // caller cannot loosen it: these come after `init`.
+    return globalThis.fetch(parsed, { ...init, signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
   }
 
   /**

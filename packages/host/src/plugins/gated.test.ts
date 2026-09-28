@@ -126,6 +126,34 @@ const OK_REPLY = {
   body: '{"response":{}}',
 };
 
+test('a request that would carry this machine\'s credentials is refused, and never even asked about', async () => {
+  for (const name of ['Authorization', 'authorization', 'Cookie', 'Proxy-Authorization', 'set-cookie']) {
+    const f = http('allow', OK_REPLY);
+    await assert.rejects(
+      () => f.api.fetch('https://api.steampowered.com/x', { headers: { [name]: 'Bearer abc' } }),
+      (error: unknown) => error instanceof PermissionError && error.message.includes('credentials'),
+      `${name} must be refused`,
+    );
+    assert.deepEqual(f.asked, [], 'a request that cannot be made is not worth a prompt');
+    assert.deepEqual(f.calls, [], 'and never reaches the bridge');
+  }
+});
+
+test('a key the API names is not a credential of this machine', async () => {
+  const f = http('allow', OK_REPLY);
+  await f.api.fetch('https://api.steampowered.com/x', { headers: { 'X-Api-Key': 'abc' } });
+  assert.equal(f.calls.length, 1);
+});
+
+test('credentials written into the URL are refused as well', async () => {
+  const f = http('allow', OK_REPLY);
+  await assert.rejects(
+    () => f.api.fetch('https://user:token@api.steampowered.com/x'),
+    (error: unknown) => error instanceof PermissionError && error.message.includes('credentials'),
+  );
+  assert.deepEqual(f.calls, []);
+});
+
 test('a host declared in plugin.json is still asked about, because the bridge reaches further than the page', async () => {
   const f = http('allow', OK_REPLY);
   const response = await f.api.fetch('https://api.steampowered.com/x');

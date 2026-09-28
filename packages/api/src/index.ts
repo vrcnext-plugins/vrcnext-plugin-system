@@ -22,6 +22,7 @@ export {
 } from './permissions.js';
 export type { Permission, PermissionInfo, PermissionTone, PermissionsApi } from './permissions.js';
 
+export { CREDENTIAL_HEADERS, isCredentialHeader } from './http.js';
 export type { HttpApi } from './http.js';
 export type { ClipboardApi } from './clipboard.js';
 
