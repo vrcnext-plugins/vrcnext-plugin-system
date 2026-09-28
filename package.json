@@ -15,6 +15,7 @@
     "build": "./scripts/build.sh",
     "check": "./scripts/check.sh",
     "typecheck": "tsc --build --force",
+    "prelint": "tsc --build",
     "lint": "eslint .",
     "test": "vitest run",
     "install:vrcnext": "./scripts/install-into-vrcnext.sh"
