@@ -221,7 +221,12 @@ function objectControl(spec: ObjectSetting, binding: Binding, ctx: FormContext):
  */
 function toggledObject(toggle: ObjectToggle, body: HTMLElement, binding: Binding, ctx: FormContext): Control {
   const state = fieldBinding(binding, TOGGLE_KEY);
-  const on = (): boolean => state.get() !== false;
+  // What is stored, and the declared default when nothing is — never "anything but false", which
+  // would draw a switch as on while the value no reader treats as on.
+  const on = (): boolean => {
+    const stored = state.get();
+    return typeof stored === 'boolean' ? stored : toggle.default;
+  };
   const row = widgets.row(
     toggle.label,
     widgets.toggle(on(), (next) => { void state.set(next); }),

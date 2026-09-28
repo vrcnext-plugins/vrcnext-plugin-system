@@ -337,10 +337,25 @@ function coerceMultiSelect(spec: MultiSelectSetting, value: unknown): readonly s
   return ordered;
 }
 
-function coerceObject(fields: SettingsSchema, value: unknown): Record<string, unknown> | undefined {
+/**
+ * An object's stored value, field by field — and its switch, when it has one.
+ *
+ * The switch's state lives under {@link TOGGLE_KEY} beside the fields rather than among them, so
+ * it has to be carried here explicitly: a repair that only walked `fields` would drop the answer
+ * on every save and leave a group that says it is on while nothing reads it as on.
+ */
+function coerceObject(
+  fields: SettingsSchema,
+  value: unknown,
+  toggle?: ObjectToggle,
+): Record<string, unknown> | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
+  if (toggle !== undefined) {
+    const stored = record[TOGGLE_KEY];
+    out[TOGGLE_KEY] = typeof stored === 'boolean' ? stored : toggle.default;
+  }
   for (const [key, spec] of Object.entries(fields)) {
     const coerced = Object.hasOwn(record, key) ? coerceSetting(spec, record[key]) : undefined;
     out[key] = coerced ?? defaultOf(spec);
@@ -389,7 +404,7 @@ export function coerceSetting(spec: SettingSpec, value: unknown): unknown {
     case 'embed':
       return coerceEmbed(value);
     case 'object':
-      return coerceObject(spec.fields, value);
+      return coerceObject(spec.fields, value, spec.toggle);
     case 'list':
       return coerceList(spec, value);
     case 'custom':

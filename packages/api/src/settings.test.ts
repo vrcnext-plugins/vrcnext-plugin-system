@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { coerceSetting, defaultsFor, settingFlag, type SettingsSchema, type SettingsValues } from './settings.js';
+import { coerceSetting, defaultOf, defaultsFor, settingFlag, type SettingSpec, type SettingsSchema, type SettingsValues } from './settings.js';
 import { EMPTY_EMBED } from './settings-embed.js';
 
 const schema = {
@@ -157,4 +157,29 @@ test('settingFlag evaluates booleans and predicates', () => {
   assert.equal(settingFlag(undefined, {}), false);
   assert.equal(settingFlag(true, {}), true);
   assert.equal(settingFlag((v) => v['enabled'] === true, { enabled: true }), true);
+});
+
+test('a switched group keeps its switch through a repair, and defaults it when there is none', () => {
+  const spec = {
+    kind: 'object',
+    label: 'Discord',
+    toggle: { label: 'Post to a webhook', default: false },
+    fields: { webhookUrl: { kind: 'string', label: 'URL', default: '' } },
+  } as const satisfies SettingSpec;
+
+  // The bug this exists for: an object whose switch was stored, repaired, and came back without
+  // it — a group the UI drew as on that every reader saw as off.
+  assert.deepEqual(
+    coerceSetting(spec, { enabled: true, webhookUrl: 'https://discord.com/api/webhooks/1/a' }),
+    { enabled: true, webhookUrl: 'https://discord.com/api/webhooks/1/a' },
+  );
+  assert.deepEqual(coerceSetting(spec, { enabled: false, webhookUrl: '' }), { enabled: false, webhookUrl: '' });
+  assert.deepEqual(coerceSetting(spec, { webhookUrl: '' }), { enabled: false, webhookUrl: '' }, 'absent means the declared default');
+  assert.deepEqual(coerceSetting(spec, { enabled: 'yes', webhookUrl: '' }), { enabled: false, webhookUrl: '' }, 'and so does nonsense');
+  assert.deepEqual(defaultOf(spec), { enabled: false, webhookUrl: '' });
+});
+
+test('an object with no switch gains no switch', () => {
+  const spec = { kind: 'object', label: 'Plain', fields: { a: { kind: 'string', label: 'A', default: '' } } } as const satisfies SettingSpec;
+  assert.deepEqual(coerceSetting(spec, { a: 'x', enabled: true }), { a: 'x' });
 });
