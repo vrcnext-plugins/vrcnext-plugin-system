@@ -193,13 +193,68 @@ export class GatedDeepLinks implements DeepLinkApi {
   }
 }
 
+/** The bridge's `outbound.fetch` answer, before it is turned back into a `Response`. */
+interface OutboundReply {
+  readonly status: number;
+  readonly statusText: string;
+  readonly url: string;
+  readonly headers: Record<string, string>;
+  readonly body: string;
+}
+
+function toOutboundReply(value: unknown): OutboundReply | undefined {
+  if (!isRecord(value)) return undefined;
+  const { status, statusText, url, headers, body } = value;
+  if (typeof status !== 'number' || typeof body !== 'string') return undefined;
+  const pairs = isRecord(headers)
+    ? Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    : [];
+  return {
+    status,
+    statusText: typeof statusText === 'string' ? statusText : '',
+    url: typeof url === 'string' ? url : '',
+    headers: Object.fromEntries(pairs),
+    body,
+  };
+}
+
+/** What `init` carries that the bridge can be told about. Anything else has no wire form. */
+function outboundParams(url: URL, init: RequestInit | undefined): Record<string, unknown> {
+  const body = init?.body;
+  if (body !== undefined && body !== null && typeof body !== 'string') {
+    throw new PermissionError('network', 'only a string body can be sent through the bridge', url.host);
+  }
+  const headers = new Headers(init?.headers);
+  return {
+    url: url.href,
+    method: (init?.method ?? 'GET').toUpperCase(),
+    headers: Object.fromEntries(headers.entries()),
+    ...(typeof body === 'string' ? { body } : {}),
+  };
+}
+
+/**
+ * The only `fetch` a plugin has.
+ *
+ * Requests go through the bridge's `outbound` service whenever it is connected, and fall back to
+ * the page's own `fetch` when it is not. The difference is not a detail: the page may only read
+ * a cross-origin response the server has agreed to share, so an API that sends no CORS headers —
+ * the Steam Web API, most plain JSON endpoints — is simply unreachable from here. The bridge is
+ * not a browser and reaches them.
+ *
+ * Because it reaches further, nothing is assumed: every distinct host is asked about before the
+ * first request to it, whether or not `plugin.json` declared it. A declared host is the plugin
+ * saying where it means to go; the answer is the user's.
+ */
 export class GatedHttp implements HttpApi {
   readonly #gate: PluginGate;
   readonly #signal: AbortSignal;
+  readonly #bridge: BridgeClient | undefined;
 
-  constructor(gate: PluginGate, signal: AbortSignal) {
+  constructor(gate: PluginGate, signal: AbortSignal, bridge?: BridgeClient) {
     this.#gate = gate;
     this.#signal = signal;
+    this.#bridge = bridge;
   }
 
   async fetch(url: string | URL, init?: RequestInit): Promise<Response> {
@@ -213,10 +268,30 @@ export class GatedHttp implements HttpApi {
       throw new PermissionError('network', `${parsed.protocol} is not http(s)`, parsed.host);
     }
     await this.#gate.check(networkPrompt(this.#gate.subject, parsed, init));
+    const bridge = this.#bridge;
+    if (bridge?.status === 'connected') {
+      return this.#viaBridge(bridge, parsed, init);
+    }
     // The plugin's lifetime signal is always attached; a caller's own signal is honoured too.
     const signal =
       init?.signal instanceof AbortSignal ? AbortSignal.any([this.#signal, init.signal]) : this.#signal;
     return globalThis.fetch(parsed, { ...init, signal });
+  }
+
+  async #viaBridge(bridge: BridgeClient, url: URL, init: RequestInit | undefined): Promise<Response> {
+    const reply = toOutboundReply(await bridge.call('outbound', 'fetch', outboundParams(url, init)));
+    if (reply === undefined) throw new TypeError('The bridge answered the request with something else.');
+    // 204 and 304 may carry no body at all, and the Response constructor refuses one for them.
+    const body = reply.status === 204 || reply.status === 304 ? null : reply.body;
+    const response = new Response(body, {
+      status: reply.status,
+      statusText: reply.statusText,
+      headers: reply.headers,
+    });
+    // `url` is read-only on Response and the bridge may have followed redirects, so the final
+    // URL is restored here rather than silently reading as ''.
+    Object.defineProperty(response, 'url', { value: reply.url === '' ? url.href : reply.url });
+    return response;
   }
 }
 

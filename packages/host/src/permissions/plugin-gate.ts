@@ -32,10 +32,17 @@ export class PluginGate implements PermissionsApi {
     this.#logger = logger;
   }
 
-  /** Pre-declared hosts, actions and events are granted at enable. */
+  /**
+   * Pre-declared actions and events are granted at enable.
+   *
+   * `hosts` deliberately is not, although it is declared the same way. A request now leaves this
+   * machine through the bridge rather than the page, which reaches hosts a browser would refuse
+   * to read from — this machine's own network included — so the user is asked about each host
+   * the first time a plugin goes there, and can save that answer. The manifest's list is still
+   * what the enable dialog shows: it is the plugin stating where it means to go.
+   */
   seedDeclared(): void {
-    const { id, hosts, actions, events } = this.#manifest;
-    this.#broker.seed(id, 'network', hosts);
+    const { id, actions, events } = this.#manifest;
     this.#broker.seed(id, 'host:actions', actions);
     this.#broker.seed(id, 'host:events', events);
   }

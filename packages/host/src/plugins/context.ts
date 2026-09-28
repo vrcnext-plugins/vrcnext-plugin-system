@@ -124,7 +124,7 @@ export async function createContext(
       'context-menu',
       new PluginContextMenuApi(deps.contextMenu, manifest.id, bag),
     ),
-    http: new GatedHttp(gate, controller.signal),
+    http: new GatedHttp(gate, controller.signal, deps.native),
     clipboard: new GatedClipboard(gate),
     disposables: bag,
     signal: controller.signal,

@@ -1,6 +1,7 @@
 /**
- * `self()` is the one VRChat member that cannot await its own permission prompt, so it gets its
- * own test: a plugin whose first VRChat call is `self()` must still end up asked.
+ * The two gated members whose behaviour is not simply "await the prompt, then call through":
+ * `vrchat.self()`, which cannot await anything, and `http.fetch`, which leaves this machine
+ * through the bridge when one is connected.
  */
 
 import assert from 'node:assert/strict';
@@ -8,11 +9,14 @@ import { test } from 'vitest';
 
 import { parsePluginManifest, type Logger, type PluginManifest, type VrchatApi, type VrcSelf } from '@vrcnext/plugin-api';
 
+import type { BridgeClient } from '../capabilities/native.js';
+
 import { PermissionBroker } from '../permissions/broker.js';
+import type { Decision } from '../permissions/types.js';
 import { GrantStore } from '../permissions/grant-store.js';
 import { PluginGate } from '../permissions/plugin-gate.js';
 import { MemoryStateService } from '../state/state-service.js';
-import { gatedVrchat } from './gated.js';
+import { GatedHttp, gatedVrchat } from './gated.js';
 
 const logger: Logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined, scoped: () => logger };
 
@@ -62,4 +66,89 @@ test('repeated reads before the answer ask only once', async () => {
   f.api.self();
   await settle();
   assert.equal(f.asked.length, 1);
+});
+
+function httpManifest(): PluginManifest {
+  const { manifest: parsed } = parsePluginManifest({
+    id: 'bio-updater',
+    name: 'Bio Updater',
+    version: '1.0.0',
+    apiVersion: '^0.3.0',
+    permissions: ['network'],
+    hosts: ['api.steampowered.com'],
+  });
+  assert.ok(parsed);
+  return parsed;
+}
+
+/** A bridge that is connected and records what `outbound.fetch` was asked for. */
+function fakeBridge(reply: unknown): { bridge: BridgeClient; calls: { service: string; params: unknown }[] } {
+  const calls: { service: string; params: unknown }[] = [];
+  const bridge = {
+    status: 'connected',
+    call: (service: string, _method: string, params: unknown) => {
+      calls.push({ service, params });
+      return Promise.resolve(reply);
+    },
+  } as unknown as BridgeClient;
+  return { bridge, calls };
+}
+
+function http(answer: Decision, reply: unknown): { api: GatedHttp; asked: string[]; calls: { service: string; params: unknown }[] } {
+  const asked: string[] = [];
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: (request) => { asked.push(request.title); return Promise.resolve(answer); } },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const gate = new PluginGate(httpManifest(), broker, logger);
+  gate.seedDeclared();
+  const { bridge, calls } = fakeBridge(reply);
+  return { api: new GatedHttp(gate, new AbortController().signal, bridge), asked, calls };
+}
+
+const OK_REPLY = {
+  status: 200,
+  statusText: 'OK',
+  url: 'https://api.steampowered.com/x',
+  headers: { 'content-type': 'application/json' },
+  body: '{"response":{}}',
+};
+
+test('a host declared in plugin.json is still asked about, because the bridge reaches further than the page', async () => {
+  const f = http('allow', OK_REPLY);
+  const response = await f.api.fetch('https://api.steampowered.com/x');
+  assert.deepEqual(f.asked, ['Plugin Bio Updater (bio-updater) wants to request data from api.steampowered.com']);
+  assert.equal(response.status, 200);
+  assert.equal(response.url, 'https://api.steampowered.com/x');
+  assert.equal(await response.text(), '{"response":{}}');
+});
+
+test('the request goes to the bridge, not the page, and carries method and headers', async () => {
+  const f = http('allow', OK_REPLY);
+  await f.api.fetch('https://api.steampowered.com/x', { method: 'post', headers: { 'X-Key': 'abc' }, body: 'hi' });
+  assert.equal(f.calls.length, 1);
+  const call = f.calls[0];
+  assert.ok(call);
+  assert.equal(call.service, 'outbound');
+  assert.deepEqual(call.params, {
+    url: 'https://api.steampowered.com/x',
+    method: 'POST',
+    headers: { 'x-key': 'abc' },
+    body: 'hi',
+  });
+});
+
+test('a denied host reaches neither the bridge nor the page', async () => {
+  const f = http('deny', OK_REPLY);
+  await assert.rejects(() => f.api.fetch('https://api.steampowered.com/x'));
+  assert.deepEqual(f.calls, []);
+});
+
+test('a non-http scheme is refused before the user is troubled with it', async () => {
+  const f = http('allow', OK_REPLY);
+  await assert.rejects(() => f.api.fetch('file:///etc/passwd'));
+  assert.deepEqual(f.asked, []);
+  assert.deepEqual(f.calls, []);
 });

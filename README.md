@@ -42,7 +42,7 @@ uninstall steps are in [install/README.md](install/README.md).
 | **Host events** — VRCNext's event stream, verified payloads typed | `ctx.events` | `host:events` |
 | **Host actions** — send actions, request/response | `ctx.bridge` | `host:actions` |
 | **Outbound interception** — observe or drop actions VRCNext sends | `ctx.bridge.interceptOutbound` | `host:intercept` |
-| **HTTP** — the only `fetch` a plugin has | `ctx.http` | `network` |
+| **HTTP** — the only `fetch` a plugin has; routed through the bridge, so CORS does not apply | `ctx.http` | `network` |
 | **VRCNext Bridge** — VR overlay + desktop notifications, any bridge service | `ctx.native` | `native` |
 | **OSC** — through VRCNext's sockets *(Windows only in VRCNext)* | `ctx.osc` | `osc` |
 | **VRChat game log** — live stream and backlog | `ctx.gameLog` | `gamelog` |
@@ -98,7 +98,8 @@ README.md          optional
   "optionalPermissions": ["network"],         // asked for later via ctx.permissions.request
   "actions": ["getFriends"],        // VRCNext actions granted at enable (host:actions)
   "events": ["friendOnline"],       // host events granted at enable (host:events)
-  "hosts": ["api.example.com"]      // hosts granted at enable (network); no wildcards
+  "hosts": ["api.example.com"]      // where the plugin means to go (network); no wildcards,
+                                    // and still confirmed by the user at first use
 }
 ```
 
@@ -139,7 +140,7 @@ time the plugin touches it, one modal at a time:
 
 | Category | Asked | Title |
 | :--- | :--- | :--- |
-| `network` | per host | *Plugin {name} ({id}) wants to request data from {host}* — or *send data to* for anything but GET/HEAD; details show method, URL, headers, body |
+| `network` | per host, declared or not | *Plugin {name} ({id}) wants to request data from {host}* — or *send data to* for anything but GET/HEAD; details show method, URL, headers, body |
 | `host:actions` | per action name | *… wants to call VRCNext action {action}*, payload in details |
 | `host:events` | per event name | *… wants to listen to {event}* |
 | `host:intercept` | once per plugin | *… wants to observe and drop actions VRCNext sends to its backend* |
@@ -255,6 +256,13 @@ Plugins run with the **full authority of the VRCNext page**: the user's VRChat s
 and settings. The permission model makes each capability declared and each concrete use
 confirmed; the source policy keeps plugins on the `ctx.*` path. Neither is a sandbox. See
 [Security model](https://vrcnext-plugins.github.io/security).
+
+`ctx.http` goes through the bridge's `outbound` service rather than the page, because the page
+can only read from hosts that allow cross-origin reads and most plain HTTP APIs do not. That is
+more reach than a browser has — this machine's own network included — so **no host is
+pre-granted**, not even one listed in `hosts`: the user is asked about each one the first time a
+plugin goes there, and may save the answer. Declaring a host says where the plugin means to go.
+Only the user says it may.
 
 ## License
 
