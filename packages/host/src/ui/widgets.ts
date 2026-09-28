@@ -415,10 +415,12 @@ export function button(options: {
   readonly active?: boolean;
   readonly disabled?: boolean;
   readonly round?: boolean;
+  readonly title?: string;
 }): HTMLButtonElement {
   const base = options.round === true ? 'vrcn-button-round' : 'vrcn-button';
   const node = element('button', options.active === true ? `${base} active` : base);
   if (options.disabled === true) node.disabled = true;
+  if (options.title !== undefined) node.title = options.title;
   if (options.icon !== undefined) {
     const icon = iconSpan(options.icon);
     // Matches the inline sizing VRCNext applies to icons inside its buttons.

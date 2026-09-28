@@ -94,6 +94,11 @@ export interface UiButtonOptions {
   readonly disabled?: boolean;
   /** Compact circular variant. Pair with `icon` and an empty `label`. */
   readonly round?: boolean;
+  /**
+   * Hover text. A card with four buttons and no paragraph explaining them is easier to use than
+   * one with two buttons and two paragraphs — this is where the paragraph goes.
+   */
+  readonly title?: string;
 }
 
 export interface UiTextFieldOptions {
