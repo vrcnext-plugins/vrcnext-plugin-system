@@ -42,7 +42,27 @@ import type { QuietChannel } from './quiet-channel.js';
 
 /** How long a detail answer is reused. Long enough for a settings card to draw, short enough to notice a status change. */
 const DETAIL_TTL_MS = 60_000;
+/** How many detail answers are kept; the least recently used goes first. */
+const DETAIL_MAX_ENTRIES = 200;
 const SEARCH_PAGE = 20;
+
+/** `promise`, or the signal's reason as soon as it aborts, whichever comes first. */
+function raceSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      const reason: unknown = signal.reason;
+      reject(reason instanceof Error ? reason : new DOMException('The lookup was aborted.', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
 
 interface Cached<T> {
   readonly at: number;
@@ -200,18 +220,26 @@ export class HostVrchatApi implements VrchatApi {
         ...request,
         swallow: false,
         accept: (payload) => mirror.read(payload),
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
       }),
+      options?.signal,
     );
   }
 
-  /** One in-flight request per key; identical concurrent calls share the answer. */
-  #shared<T>(key: string, start: () => Promise<T>): Promise<T> {
-    const pending = this.#inFlight.get(key);
-    if (pending !== undefined) return pending as Promise<T>;
-    const promise = start().finally(() => { this.#inFlight.delete(key); });
-    this.#inFlight.set(key, promise);
-    return promise;
+  /**
+   * One in-flight request per key; identical concurrent calls share the answer.
+   *
+   * The shared request itself runs unsignalled: whoever started it must not be able to cancel it
+   * for everyone else. Each caller races its own signal instead, so an abort rejects that caller
+   * alone and the request carries on for the rest (it ends at the channel's own timeout).
+   */
+  #shared<T>(key: string, start: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    signal?.throwIfAborted();
+    let pending = this.#inFlight.get(key) as Promise<T> | undefined;
+    if (pending === undefined) {
+      pending = start().finally(() => { this.#inFlight.delete(key); });
+      this.#inFlight.set(key, pending);
+    }
+    return signal === undefined ? pending : raceSignal(pending, signal);
   }
 
   /** A quiet lookup, remembered for {@link DETAIL_TTL_MS}. */
@@ -221,17 +249,24 @@ export class HostVrchatApi implements VrchatApi {
     options: VrcLookupOptions | undefined,
   ): Promise<T> {
     const cached = this.#details.get(key);
-    if (cached !== undefined && options?.cached !== false && this.#now() - cached.at < DETAIL_TTL_MS) {
-      return cached.value as T;
+    if (cached !== undefined) {
+      this.#details.delete(key);
+      if (options?.cached !== false && this.#now() - cached.at < DETAIL_TTL_MS) {
+        // Re-inserted so the map's order is least recently used first.
+        this.#details.set(key, cached);
+        return cached.value as T;
+      }
     }
     return this.#shared(key, async () => {
-      const value = await this.#deps.channel.request<T>({
-        ...request,
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
-      });
+      const value = await this.#deps.channel.request<T>(request);
       this.#details.set(key, { at: this.#now(), value });
+      while (this.#details.size > DETAIL_MAX_ENTRIES) {
+        const oldest = this.#details.keys().next();
+        if (oldest.done === true) break;
+        this.#details.delete(oldest.value);
+      }
       return value;
-    });
+    }, options?.signal);
   }
 
   /** A lookup whose absence is an answer: a timeout or refusal becomes `undefined`. */
@@ -307,8 +342,8 @@ export class HostVrchatApi implements VrchatApi {
         expect: 'vrcBlockedList',
         swallow: false,
         accept: (payload) => (Array.isArray(payload) ? payload.length : undefined),
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
       }),
+      options?.signal,
     );
     return known();
   }

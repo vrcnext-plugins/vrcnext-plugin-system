@@ -158,3 +158,39 @@ test('user groups are named from your own groups when VRCNext only gives ids', a
   const groups = await f.api.userGroups(USER);
   assert.deepEqual(groups.map((g) => [g.id, g.name, g.memberCount]), [['grp_1', 'Club', 5], ['grp_2', '', 1]]);
 });
+
+test('a shared lookup is not cancelled by the caller that started it', async () => {
+  const router = new EventRouter();
+  const requests: QuietRequest<unknown>[] = [];
+  let answer: (payload: unknown) => void = () => undefined;
+  const channel = {
+    request: <T>(request: QuietRequest<T>): Promise<T> => {
+      requests.push(request);
+      return new Promise<T>((resolve) => { answer = (payload) => { resolve(request.accept(payload) as T); }; });
+    },
+  } as QuietChannel;
+  const api = new HostVrchatApi({ router, channel });
+  const controller = new AbortController();
+  const first = api.world(WORLD, { signal: controller.signal });
+  const second = api.world(WORLD);
+  assert.equal(requests.length, 1, 'identical lookups share one request');
+  assert.equal(requests[0]?.signal, undefined, 'the shared request carries no caller’s signal');
+  controller.abort();
+  assert.equal(await first, undefined, 'the aborted caller is let go at once, as any lookup that got no answer');
+  answer({ id: WORLD, name: 'Home' });
+  assert.equal((await second)?.name, 'Home');
+});
+
+test('the detail cache is bounded, dropping the least recently used', async () => {
+  const f = fake();
+  const ids = Array.from({ length: 201 }, (_, i) => `usr_${String(i).padStart(8, '0')}-1234-1234-1234-123456789abc`);
+  f.replies.set('vrcFriendDetail', ids.map((id) => ({ id, displayName: id })));
+  for (const id of ids.slice(0, 200)) await f.api.user(id);
+  await f.api.user(ids[0] ?? '');
+  assert.equal(f.requests.length, 200, 'a recent entry is served from cache');
+  await f.api.user(ids[200] ?? '');
+  await f.api.user(ids[0] ?? '');
+  assert.equal(f.requests.length, 201, 'the most recently used entry survived the eviction');
+  await f.api.user(ids[1] ?? '');
+  assert.equal(f.requests.length, 202, 'the least recently used entry was evicted');
+});
