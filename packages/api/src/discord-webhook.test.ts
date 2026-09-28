@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { webhookPayload, type DiscordWebhookPayload } from './discord-embed.js';
+import { discordWebhookPayload, type DiscordWebhookPayload } from './discord-embed.js';
 import type { HttpApi } from './http.js';
 import type { Logger } from './logger.js';
 import { isDiscordWebhookUrl, postWebhook, webhookFailure } from './discord-webhook.js';
 
 const URL_OK = 'https://discord.com/api/webhooks/123456789/abcDEF-ghi_jkl';
-const PAYLOAD: DiscordWebhookPayload = webhookPayload({ title: 'Hi', description: 'there' });
+const PAYLOAD: DiscordWebhookPayload = discordWebhookPayload({ title: 'Hi', description: 'there' });
 
 interface Taken {
   readonly lines: string[];

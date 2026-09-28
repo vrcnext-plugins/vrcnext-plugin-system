@@ -1,7 +1,7 @@
 /**
  * Posting to a Discord webhook.
  *
- * {@link renderEmbed} and {@link webhookPayload} build what to send; this sends it. Every plugin
+ * {@link renderEmbed} and {@link discordWebhookPayload} build what to send; this sends it. Every plugin
  * that posts to Discord wants the same four things around that one request — a URL it can trust,
  * the payload written to the log before it leaves, a status turned into something the user can
  * act on, and a promise that never rejects — so they live here rather than in each plugin.

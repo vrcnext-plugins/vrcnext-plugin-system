@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
+import { discordWebhookPayload, parseEmbedColor, renderEmbed } from './discord-embed.js';
 import { EMPTY_EMBED } from './settings-embed.js';
 
 const VALUES = { name: 'Tupper', ok: true, resultColor: 'green', pic: 'https://x.test/a.png', empty: '' };
@@ -57,8 +57,8 @@ test('texts are cut to Discord limits', () => {
   assert.equal(embed?.title?.length, 256);
 });
 
-test('webhookPayload never allows mentions', () => {
-  assert.deepEqual(webhookPayload({ title: 'T' }, { username: 'Bot' }), {
+test('discordWebhookPayload never allows mentions', () => {
+  assert.deepEqual(discordWebhookPayload({ title: 'T' }, { username: 'Bot' }), {
     username: 'Bot',
     embeds: [{ title: 'T' }],
     allowed_mentions: { parse: [] },

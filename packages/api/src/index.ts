@@ -87,7 +87,7 @@ export type {
 export { ENTITY_SCOPES, coerceEntity, entityScopes, isEntityId } from './settings-entity.js';
 export { EMBED_COLORS, EMBED_LIMITS, EMPTY_EMBED, coerceEmbed, completeEmbed } from './settings-embed.js';
 export type { EmbedField } from './settings-embed.js';
-export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
+export { discordWebhookPayload, parseEmbedColor, renderEmbed } from './discord-embed.js';
 export { discordCode, discordTimestamp } from './discord-text.js';
 export { isDiscordWebhookUrl, postWebhook, webhookFailure } from './discord-webhook.js';
 export type { PostWebhookOptions, PostWebhookResult } from './discord-webhook.js';

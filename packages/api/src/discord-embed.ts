@@ -127,8 +127,8 @@ export function renderEmbed(
   });
 }
 
-/** A webhook body carrying one embed. */
-export function webhookPayload(embed: DiscordEmbed, options: { readonly username?: string; readonly content?: string } = {}): DiscordWebhookPayload {
+/** A Discord webhook body carrying one embed. */
+export function discordWebhookPayload(embed: DiscordEmbed, options: { readonly username?: string; readonly content?: string } = {}): DiscordWebhookPayload {
   return compact<DiscordWebhookPayload>({
     username: options.username,
     content: options.content,
