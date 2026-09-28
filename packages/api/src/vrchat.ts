@@ -79,7 +79,12 @@ export function trustRank(tags: readonly string[]): TrustRank {
 export interface VrcUserSummary {
   readonly id: string;
   readonly displayName: string;
-  /** Profile picture, through VRCNext's image cache. */
+  /**
+   * Profile picture, through VRCNext's image cache — a `http://localhost:<port>/imgcache/…`
+   * address that only resolves on this machine. Fine in the page; useless in anything that
+   * leaves it. For a Discord embed or a webhook use {@link publicImageUrl} on
+   * `VrcUser.currentAvatarImageUrl`, which VRChat serves itself.
+   */
   readonly imageUrl: string;
   /** `active`, `join me`, `ask me`, `busy`, `offline`. */
   readonly status: string;
