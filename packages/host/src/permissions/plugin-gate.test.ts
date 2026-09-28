@@ -54,7 +54,7 @@ test('a declared event runs its effect synchronously; an undeclared one runs aft
   assert.deepEqual(order, ['declared']);
   await new Promise((resolve) => { setTimeout(resolve, 0); });
   assert.deepEqual(order, ['declared', 'asked']);
-  assert.deepEqual(asked, ['Plugin Kitchen Sink (kitchen-sink) wants to listen to oscParams']);
+  assert.deepEqual(asked, ['Plugin Kitchen Sink (kitchen-sink) wants to listen to the VRCNext event oscParams']);
 });
 
 test('request() grants an optional category and has() reflects it; a required one is not requestable twice', async () => {

@@ -22,14 +22,26 @@ const MODAL_CSS = `
 }
 .vrcnx-modal { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
 .vrcnx-modal-title { font-weight: 600; color: var(--tx0); font-size: calc(14px + var(--fs-off, 0px)); }
-.vrcnx-modal details { margin: 8px 0; }
+.vrcnx-ask { margin: 2px 0 10px; }
+.vrcnx-ask-lead { color: var(--tx2); font-size: calc(12px + var(--fs-off, 0px)); }
+/* The name the answer turns on. The casing is reset because the card header above it is
+   uppercased by VRCNext's theme, and a host read in capitals is a host misread. */
+.vrcnx-ask-headline {
+  margin-top: 2px; color: var(--tx0); font-weight: 700; text-transform: none;
+  font-size: calc(18px + var(--fs-off, 0px)); line-height: 1.25;
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.vrcnx-modal details { margin: 10px 0 0; }
 .vrcnx-modal summary { cursor: pointer; color: var(--tx2); font-size: calc(12px + var(--fs-off, 0px)); }
 .vrcnx-modal pre {
   margin: 4px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-input);
   color: var(--tx2); font-size: calc(11px + var(--fs-off, 0px)); white-space: pre-wrap;
   word-break: break-word; max-height: 240px; overflow: auto;
 }
-.vrcnx-modal-buttons { margin-top: 12px; justify-content: flex-end; }
+.vrcnx-modal-buttons { margin-top: 14px; justify-content: flex-end; flex-wrap: wrap; }
+/* A label above its value, not a caption beside it: the values here are long. */
+.vrcnx-modal .sf-section-label { margin-top: 8px; }
+.vrcnx-modal details > .sf-section-label:first-of-type { margin-top: 4px; }
 `;
 
 function ensureStyles(): void {

@@ -34,7 +34,15 @@ export interface PromptRequest {
   readonly kind: Permission;
   /** The concrete thing being asked about, or `*` for a once-per-plugin category. */
   readonly target: string;
+  /** The whole sentence, for anything that wants one line: `lead` and `headline` joined. */
   readonly title: string;
+  /** What the plugin wants, as a verb phrase, with the thing it wants it from left off. */
+  readonly lead: string;
+  /**
+   * The one thing worth reading first — a host, an action name. Shown on its own line, large,
+   * because it is what the answer turns on; absent for a category that names no target.
+   */
+  readonly headline?: string;
   readonly tone: PermissionTone;
   /** Collapsed by default in the modal. */
   readonly details: readonly PromptDetail[];

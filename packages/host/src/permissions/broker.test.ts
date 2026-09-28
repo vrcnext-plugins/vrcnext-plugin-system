@@ -10,7 +10,7 @@ import { PermissionError, type PluginId } from '@vrcnext/plugin-api';
 import { MemoryStateService } from '../state/state-service.js';
 import { PermissionBroker } from './broker.js';
 import { GrantStore } from './grant-store.js';
-import { actionPrompt, bridgePrompt, networkPrompt } from './prompts.js';
+import { actionPrompt, bridgePrompt, gamelogPrompt, networkPrompt } from './prompts.js';
 import type { Decision, PermissionPrompt, PromptRequest } from './types.js';
 
 const plugin = { id: 'friend-alerts' as PluginId, name: 'Friend alerts' };
@@ -177,4 +177,35 @@ test('prompt titles follow the documented wording', () => {
   assert.equal(bridgePrompt(plugin, 'notify', 'send', {}).title, 'Plugin Friend alerts (friend-alerts) wants to call the bridge: notify/send');
   const big = bridgePrompt(plugin, 'notify', 'send', { blob: 'x'.repeat(10_000) });
   assert.match(big.details[0]?.value ?? '', /more characters not shown/);
+});
+
+test('the headline is the name the answer turns on, and the lead reads into it', () => {
+  const prompt = github();
+  assert.equal(prompt.headline, 'api.github.com');
+  assert.equal(prompt.lead, 'wants to request data from');
+  assert.equal(`Plugin ${plugin.name} (${plugin.id}) ${prompt.lead} ${prompt.headline ?? ''}`, prompt.title);
+});
+
+test('a request carrying no headers and no body shows neither, and the method rides with the URL', () => {
+  const details = networkPrompt(plugin, new URL('https://api.github.com/x'), undefined).details;
+  assert.deepEqual(details.map((detail) => detail.label), ['Request']);
+  assert.equal(details[0]?.value, 'GET https://api.github.com/x');
+});
+
+test('what a request does carry is still shown, each under its own label', () => {
+  const details = networkPrompt(plugin, new URL('https://api.github.com/x'), {
+    method: 'post',
+    headers: { 'X-Thing': 'yes' },
+    body: 'hello',
+  }).details;
+  assert.deepEqual(details.map((detail) => detail.label), ['Request', 'Headers', 'Body']);
+  assert.equal(details[0]?.value, 'POST https://api.github.com/x');
+  assert.equal(details[2]?.value, 'hello');
+});
+
+test('a prompt that names no target has no headline, and its lead carries the whole sentence', () => {
+  const prompt = gamelogPrompt(plugin);
+  assert.equal(prompt.headline, undefined);
+  assert.equal(prompt.lead, 'wants to read the VRChat game log');
+  assert.equal(prompt.title, 'Plugin Friend alerts (friend-alerts) wants to read the VRChat game log');
 });
