@@ -35,11 +35,12 @@ async function settled(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => { setTimeout(resolve, 0); });
 }
 
-test('toRemoteRequest accepts only an integer id and string code', () => {
-  assert.deepEqual(toRemoteRequest({ id: 3, code: '1' }), { id: 3, code: '1' });
-  assert.equal(toRemoteRequest({ id: '3', code: '1' }), undefined);
-  assert.equal(toRemoteRequest({ id: 1.5, code: '1' }), undefined);
-  assert.equal(toRemoteRequest({ id: 3 }), undefined);
+test('toRemoteRequest accepts only a 22-character base64url id and string code', () => {
+  assert.deepEqual(toRemoteRequest({ id: 'AAAAAAAAAAAAAAAAAAAAAA', code: '1' }), { id: 'AAAAAAAAAAAAAAAAAAAAAA', code: '1' });
+  assert.equal(toRemoteRequest({ id: 3, code: '1' }), undefined);
+  assert.equal(toRemoteRequest({ id: 'short', code: '1' }), undefined);
+  assert.equal(toRemoteRequest({ id: 'AAAAAAAAAAAAAAAAAAAAA=', code: '1' }), undefined);
+  assert.equal(toRemoteRequest({ id: 'AAAAAAAAAAAAAAAAAAAAAA' }), undefined);
   assert.equal(toRemoteRequest('nope'), undefined);
 });
 
@@ -71,16 +72,16 @@ test('serialise keeps JSON, stringifies the rest, and truncates the huge', () =>
 test('attachRemoteControl answers a push with remote/result carrying the same id', async () => {
   const { native, calls, push } = fakeNative();
   attachRemoteControl({ native, logger: silent, scope: { host: { apiVersion: '0.2.0' } } });
-  push(REMOTE_EVENT, { id: 7, code: 'return host.apiVersion' });
+  push(REMOTE_EVENT, { id: 'AAAAAAAAAAAAAAAAAAAAAA', code: 'return host.apiVersion' });
   await settled();
-  assert.deepEqual(calls, [{ id: 7, ok: true, value: '0.2.0' }]);
+  assert.deepEqual(calls, [{ id: 'AAAAAAAAAAAAAAAAAAAAAA', ok: true, value: '0.2.0' }]);
 });
 
 test('attachRemoteControl reports a failing snippet and ignores other pushes', async () => {
   const { native, calls, push } = fakeNative();
   attachRemoteControl({ native, logger: silent, scope: {} });
   push('build', { ok: true });
-  push(REMOTE_EVENT, { id: 8, code: 'throw new Error("x")' });
+  push(REMOTE_EVENT, { id: 'AAAAAAAAAAAAAAAAAAAAAB', code: 'throw new Error("x")' });
   await settled();
-  assert.deepEqual(calls, [{ id: 8, ok: false, error: 'Error: x' }]);
+  assert.deepEqual(calls, [{ id: 'AAAAAAAAAAAAAAAAAAAAAB', ok: false, error: 'Error: x' }]);
 });

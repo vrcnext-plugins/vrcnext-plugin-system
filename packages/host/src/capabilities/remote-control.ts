@@ -22,7 +22,8 @@ export const REMOTE_EVENT = 'remote';
 export const MAX_RESULT_CHARS = 512 * 1024;
 
 export interface RemoteRequest {
-  readonly id: number;
+  /** The bridge's 128-bit random id, as 22 base64url characters. */
+  readonly id: string;
   readonly code: string;
 }
 
@@ -30,11 +31,13 @@ export type RemoteOutcome =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: string };
 
+const EVAL_ID = /^[A-Za-z0-9_-]{22}$/;
+
 /** Narrows a `remote` push payload. */
 export function toRemoteRequest(data: unknown): RemoteRequest | undefined {
   if (typeof data !== 'object' || data === null) return undefined;
   const { id, code } = data as { id?: unknown; code?: unknown };
-  if (typeof id !== 'number' || !Number.isInteger(id) || typeof code !== 'string') return undefined;
+  if (typeof id !== 'string' || !EVAL_ID.test(id) || typeof code !== 'string') return undefined;
   return { id, code };
 }
 
@@ -128,7 +131,7 @@ export function attachRemoteControl(deps: RemoteControlDeps): () => void {
       try {
         await deps.native.call('remote', 'result', reply);
       } catch (error) {
-        deps.logger.warn(`Could not return remote result ${String(request.id)} to the bridge.`, error);
+        deps.logger.warn(`Could not return remote result ${request.id} to the bridge.`, error);
       }
     })();
   });
