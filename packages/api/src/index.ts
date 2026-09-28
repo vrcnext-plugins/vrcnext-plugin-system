@@ -89,6 +89,8 @@ export { EMBED_COLORS, EMBED_LIMITS, EMPTY_EMBED, coerceEmbed, completeEmbed } f
 export type { EmbedField } from './settings-embed.js';
 export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
 export { discordCode, discordTimestamp } from './discord-text.js';
+export { isDiscordWebhookUrl, postWebhook, webhookFailure } from './discord-webhook.js';
+export type { PostWebhookOptions, PostWebhookResult } from './discord-webhook.js';
 export type { DiscordTimeStyle } from './discord-text.js';
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
