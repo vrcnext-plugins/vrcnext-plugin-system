@@ -285,12 +285,33 @@ export interface VrcFriendInstance {
   readonly friends: readonly VrcUserSummary[];
 }
 
-/** One of VRCNext's timeline records about a user. */
+/**
+ * One of VRCNext's timeline records about a user.
+ *
+ * The four fields at the top are on every record; the rest depend on `type` and are absent
+ * when the record does not carry them. `formatUserEvent` reads all of them, so a plugin does
+ * not have to know which type carries what.
+ */
 export interface VrcTimelineEvent {
   readonly type: string;
   readonly timestamp: string;
   readonly location: string;
   readonly worldName: string;
+  /** VRCNext's own id for the record, stable across reads. */
+  readonly id?: string;
+  readonly worldId?: string;
+  /** The user the record is about, for the types that name one. */
+  readonly userId?: string;
+  readonly userName?: string;
+  /** The finer type: a moderation action (`block`, `mute`) or a VRChat notification type. */
+  readonly notifType?: string;
+  readonly notifTitle?: string;
+  readonly senderId?: string;
+  readonly senderName?: string;
+  /** Free text, and for `moderation` the `on`/`off` flag saying whether the action was undone. */
+  readonly message?: string;
+  /** When an `instance_join` ended; `''` while it is still going. */
+  readonly leftAt?: string;
 }
 
 export interface VrcSearchPage<T> {

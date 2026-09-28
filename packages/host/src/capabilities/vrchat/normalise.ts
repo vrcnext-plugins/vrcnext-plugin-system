@@ -379,5 +379,18 @@ export function timelineEvent(value: unknown): VrcTimelineEvent | undefined {
     timestamp: str(r['timestamp']),
     location: str(r['location']),
     worldName: str(r['worldName']),
+    // The rest of what `BuildTimelinePayload` sends. A record only carries the ones its type
+    // has, so these are what tells a `moderation` record from an `unblock` and a notification
+    // from who sent it; without them every such line reads as the bare type name.
+    id: str(r['id']),
+    worldId: str(r['worldId']),
+    userId: str(r['userId']),
+    userName: str(r['userName']),
+    notifType: str(r['notifType']),
+    notifTitle: str(r['notifTitle']),
+    senderId: str(r['senderId']),
+    senderName: str(r['senderName']),
+    message: str(r['message']),
+    leftAt: str(r['leftAt']),
   };
 }
