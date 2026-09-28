@@ -9,15 +9,17 @@
  * Verified against VRCNext's `oscSend` / `oscSendRaw` actions and `oscParams` / `oscAvatarParams`
  * events.
  *
- * > [!WARNING]
- * > **OSC is Windows-only in VRCNext.** `MessageRouter.IsWindowsOnlyAction` drops any action
- * > whose name starts with `osc` followed by an uppercase letter, so `oscSend`, `oscSendRaw`,
- * > `oscConnect` and `oscDisconnect` never reach the backend on Linux. VRCNext's own OSC Tool
- * > tab is hidden there for the same reason, and its Action Flow OSC blocks are equally inert —
- * > they emit the same two actions.
+ * > [!NOTE]
+ * > **OSC is Windows-only in VRCNext itself.** `MessageRouter.IsWindowsOnlyAction` drops any
+ * > action whose name starts with `osc` followed by an uppercase letter, so `oscSend`,
+ * > `oscSendRaw`, `oscConnect` and `oscDisconnect` never reach the backend on Linux. VRCNext's
+ * > own OSC Tool tab is hidden there for the same reason.
  * >
- * > There is no workaround from the page. Check {@link OscApi.available} before building
- * > behaviour on OSC, and treat it as a Windows-only feature.
+ * > The host falls back to the bridge's `osc` service, which holds the same sockets VRCNext
+ * > would have: VRChat listens on 9000 and sends to 9001 either way. Nothing below changes
+ * > shape, and a plugin cannot tell which path carried a message. What it still must check is
+ * > {@link OscApi.available}, which is false on Linux when the bridge is not connected or is
+ * > older than the service.
  */
 
 export const OSC_VALUE_KINDS = ['bool', 'int', 'float'] as const;
@@ -45,12 +47,15 @@ export interface OscAvatarChangeEvent {
 
 export interface OscApi {
   /**
-   * `false` on Linux, where VRCNext filters every `osc*` action out before it reaches the
-   * backend. Every method below is a no-op (logged, not silent) when this is `false`.
+   * Whether OSC can be carried at all: by VRCNext on Windows, or by the bridge's `osc` service
+   * elsewhere. False on Linux with no bridge connected, or with one predating the service.
+   *
+   * Every method below is a no-op (logged, not silent) when this is `false`. It can change
+   * while a plugin runs, because the bridge can connect and drop.
    */
   readonly available: boolean;
 
-  /** Starts VRCNext's OSC service if it is not already running. */
+  /** Starts OSC if it is not already running: VRCNext's service, or the bridge's receive port. */
   connect(): void;
   disconnect(): void;
 

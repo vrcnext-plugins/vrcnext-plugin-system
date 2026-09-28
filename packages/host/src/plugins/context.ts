@@ -97,6 +97,9 @@ export async function createContext(
     bag,
     logger,
     available: !deps.isLinux(),
+    // The raw client: this call is already gated on `osc` by the wrapper around the API, and
+    // gating it a second time as `native` would ask the user two questions for one action.
+    native: deps.native,
   });
   const router = new PluginRouter(deps.routes, manifest.id, deps.origin, (dispose) => { bag.add(dispose); });
 

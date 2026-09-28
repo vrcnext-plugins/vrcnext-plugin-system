@@ -109,7 +109,8 @@ export class AboutPanel {
     const bridge = (): HTMLElement =>
       this.#deps.native.status === 'connected' ? badge('ok', 'Via bridge') : badge('warn', 'Bridge not connected');
     for (const [label, badgeEl] of [
-      ['OSC', linux ? badge('warn', 'Windows only') : badge('ok', 'Available')],
+      // Windows-only in VRCNext, but the bridge holds the sockets itself where VRCNext will not.
+      ['OSC', linux ? bridge() : badge('ok', 'Available')],
       ['Desktop notifications', linux ? bridge() : badge('ok', 'Available')],
       ['VR overlay notifications', bridge()],
       ['In-app toasts, modals', badge('ok', 'Available')],

@@ -82,7 +82,7 @@ test('every platform row gets its own badge, so none of them is left blank', () 
   const container = dom.window.document.getElementById('host') as unknown as HTMLElement;
   new AboutPanel(h.deps).render(container);
   const rows = [...container.querySelectorAll('.sf-toggle-row')].filter((row) =>
-    ['Desktop notifications', 'VR overlay notifications'].some((label) => row.textContent.startsWith(label)));
-  assert.equal(rows.length, 2);
+    ['OSC', 'Desktop notifications', 'VR overlay notifications'].some((label) => row.textContent.startsWith(label)));
+  assert.equal(rows.length, 3);
   for (const row of rows) assert.ok(row.querySelector('.vrcn-badge'), `${row.textContent} lost its badge`);
 });
