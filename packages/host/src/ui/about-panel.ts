@@ -94,7 +94,7 @@ export class AboutPanel {
       row(
         'Verbose debug logging',
         toggle(debugHub.enabled, (next) => { debugHub.enabled = next; }),
-        'Mirrors console errors and UI interactions into the host log and the bridge’s plugins.log.',
+        'Writes debug lines from the host and from plugins — the picture a report chose, the payload a webhook is about to get — and mirrors console errors and UI interactions, into the host log and the bridge’s plugins.log.',
       ),
     );
     return panel;

@@ -2,8 +2,11 @@
  * Debug and diagnostics hub.
  *
  * When enabled via settings:
- * - Mirrors uncaught `console.error` and `console.warn` into the host's {@link LogSink} under
- *   scope `"console"`, which streams them in real-time to the native daemon (`plugins.log`).
+ * - Lets `debug` records through the host's {@link LogSink} at all, from the host and from every
+ *   plugin's `ctx.logger.debug`. With the switch off they are dropped rather than written, so one
+ *   plugin explaining itself in detail does not fill `plugins.log` for everyone.
+ * - Mirrors uncaught `console.error` and `console.warn` into the sink under scope `"console"`,
+ *   which streams them in real-time to the native daemon (`plugins.log`).
  * - Emits detailed UI interaction events (navigation clicks, popout triggers, menu actions)
  *   under scope `"ui"` at debug level.
  */
@@ -34,6 +37,7 @@ export class DebugHub implements Disposable {
     if (this.#enabled === value) return;
     this.#enabled = value;
     this.#persistState();
+    this.#applyLevel();
     if (value) {
       this.#installHook();
       this.#sink.write('info', 'debug', 'Debug logging enabled.', []);
@@ -55,11 +59,17 @@ export class DebugHub implements Disposable {
       const stored = globalThis.localStorage.getItem(STORAGE_KEY);
       if (stored === 'true') {
         this.#enabled = true;
+        this.#applyLevel();
         this.#installHook();
       }
     } catch {
       // localStorage may be restricted in some environments.
     }
+  }
+
+  /** What the switch is for: whether a `debug` record is written at all. */
+  #applyLevel(): void {
+    this.#sink.minLevel = this.#enabled ? 'debug' : 'info';
   }
 
   #persistState(): void {

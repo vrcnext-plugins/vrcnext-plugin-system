@@ -71,3 +71,22 @@ test('logs UI events only when enabled', () => {
   assert.equal(uiRecord.message, 'Button clicked: Sidebar');
   assert.equal(uiRecord.level, 'debug');
 });
+
+test('the switch decides whether a debug record is written at all', () => {
+  store.clear();
+  const ownSink = new LogSink();
+  const ownHub = new DebugHub(ownSink);
+  assert.equal(ownSink.minLevel, 'info', 'off by default: nobody asked for the detail');
+
+  ownSink.write('debug', 'club-security', 'avatar thumbnail: using avatar.thumbnailImageUrl', []);
+  assert.equal(ownSink.records.some((r) => r.level === 'debug'), false, 'dropped, not merely hidden');
+
+  ownHub.enabled = true;
+  assert.equal(ownSink.minLevel, 'debug');
+  ownSink.write('debug', 'club-security', 'avatar thumbnail: using avatar.thumbnailImageUrl', []);
+  assert.equal(ownSink.records.some((r) => r.level === 'debug'), true);
+
+  ownHub.enabled = false;
+  assert.equal(ownSink.minLevel, 'info');
+  ownHub.dispose();
+});

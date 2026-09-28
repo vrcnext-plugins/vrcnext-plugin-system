@@ -63,7 +63,14 @@ export function formatRecord(record: LogRecord): string {
 
 export class LogSink {
   #records: LogRecord[] = [];
-  #minLevel: LogLevel = 'debug';
+  /**
+   * Everything from `info` up, until the owner asks for more.
+   *
+   * `debug` is for someone reading along on purpose — the picture a report chose, the payload a
+   * webhook is about to get. Writing it always would fill `plugins.log` with detail nobody asked
+   * for, so {@link DebugHub} raises and lowers this with the "Verbose debug logging" switch.
+   */
+  #minLevel: LogLevel = 'info';
   readonly #subscribers = new Set<(record: LogRecord) => void>();
 
   get minLevel(): LogLevel {
