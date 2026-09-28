@@ -35,6 +35,26 @@ function cacheKey(pluginId: PluginId, kind: Permission, target: string): string 
   return `${pluginId}\0${kind}\0${target}`;
 }
 
+/** `promise`, or the signal's reason as soon as it aborts, whichever comes first. */
+function raceAbort(promise: Promise<void>, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => { reject(abortReason(signal)); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      () => { signal.removeEventListener('abort', onAbort); resolve(); },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+function abortReason(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error ? reason : new DOMException('The plugin was disabled.', 'AbortError');
+}
+
 export class PermissionBroker {
   readonly #deps: BrokerDeps;
   readonly #decisions = new Map<string, Verdict>();
@@ -71,26 +91,33 @@ export class PermissionBroker {
   /**
    * Resolve once the target is allowed, asking the user if nothing has decided it yet.
    *
+   * `signal` is the requesting plugin's lifetime. Once it aborts the call rejects with its
+   * reason, and a prompt still waiting in the queue is dropped instead of shown: a plugin that
+   * was disabled has nothing left to ask for. A modal already on screen stays until answered,
+   * and its answer is still recorded, but nobody waits on it.
+   *
    * @throws {PermissionError} when denied, now or earlier this session, or after an uninstall.
    */
-  async ensure(request: PromptRequest): Promise<void> {
+  async ensure(request: PromptRequest, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const key = cacheKey(request.plugin.id, request.kind, request.target);
     const cached = this.#decisions.get(key);
     if (cached === 'allow') return;
     if (cached === 'deny') throw PermissionBroker.#denied(request);
 
-    const shared = this.#inFlight.get(key);
-    if (shared !== undefined) return shared;
-
-    const pending = this.#ask(request, key).finally(() => { this.#inFlight.delete(key); });
-    this.#inFlight.set(key, pending);
-    return pending;
+    let pending = this.#inFlight.get(key);
+    if (pending === undefined) {
+      pending = this.#ask(request, key, signal).finally(() => { this.#inFlight.delete(key); });
+      this.#inFlight.set(key, pending);
+    }
+    return signal === undefined ? pending : raceAbort(pending, signal);
   }
 
-  async #ask(request: PromptRequest, key: string): Promise<void> {
+  async #ask(request: PromptRequest, key: string, signal: AbortSignal | undefined): Promise<void> {
     // A prompt that was queued behind another may already be answered by that one's "save":
     // re-check after our turn comes rather than asking twice.
     const decision = await this.#enqueue(async () => {
+      signal?.throwIfAborted();
       const now = this.#decisions.get(key);
       if (now === 'allow') return 'allow';
       if (now === 'deny') return 'deny';

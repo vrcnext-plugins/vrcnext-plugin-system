@@ -24,12 +24,18 @@ export class PluginGate implements PermissionsApi {
   readonly #manifest: PluginManifest;
   readonly #broker: PermissionBroker;
   readonly #logger: Logger;
+  readonly #signal: AbortSignal;
 
-  constructor(manifest: PluginManifest, broker: PermissionBroker, logger: Logger) {
+  /**
+   * @param signal The plugin's lifetime. Once it aborts, nothing that was waiting on a prompt
+   *   runs: {@link check} rejects and {@link whenAllowed} drops its effect.
+   */
+  constructor(manifest: PluginManifest, broker: PermissionBroker, logger: Logger, signal: AbortSignal) {
     this.subject = { id: manifest.id, name: manifest.name };
     this.#manifest = manifest;
     this.#broker = broker;
     this.#logger = logger;
+    this.#signal = signal;
   }
 
   /**
@@ -61,7 +67,7 @@ export class PluginGate implements PermissionsApi {
       throw new PermissionError(permission, 'not declared in optionalPermissions');
     }
     try {
-      await this.#broker.ensure(categoryPrompt(this.subject, permission));
+      await this.#broker.ensure(categoryPrompt(this.subject, permission), this.#signal);
       return true;
     } catch (error) {
       if (error instanceof PermissionError) return false;
@@ -105,21 +111,32 @@ export class PluginGate implements PermissionsApi {
   /** For async APIs: resolves once the target is allowed. */
   async check(request: PromptRequest): Promise<void> {
     this.requireCategory(request.kind);
-    await this.#broker.ensure(request);
+    await this.#broker.ensure(request, this.#signal);
   }
 
   /**
    * For sync APIs: runs `effect` now when the target is already allowed, otherwise after the
-   * user allows it. A denial is logged; the caller has already returned.
+   * user allows it. A denial is logged; the caller has already returned. An effect whose plugin
+   * was disabled while the prompt was open never runs.
    */
   whenAllowed(request: PromptRequest, effect: () => void): void {
     this.requireCategory(request.kind);
+    if (this.#signal.aborted) {
+      this.#logger.debug('Dropped: the plugin is no longer running.');
+      return;
+    }
     if (this.#broker.isAllowed(request.plugin.id, request.kind, request.target)) {
       effect();
       return;
     }
-    void this.#broker.ensure(request).then(effect, (error: unknown) => {
-      this.#logger.warn(error instanceof Error ? error.message : String(error));
-    });
+    void this.#broker.ensure(request, this.#signal).then(
+      () => {
+        if (!this.#signal.aborted) effect();
+      },
+      (error: unknown) => {
+        if (this.#signal.aborted) return;
+        this.#logger.warn(error instanceof Error ? error.message : String(error));
+      },
+    );
   }
 }

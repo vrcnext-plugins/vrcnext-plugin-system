@@ -34,7 +34,7 @@ function gate(answer: Decision): { gate: PluginGate; asked: string[] } {
     onUninstall: () => Promise.resolve(),
     log: () => undefined,
   });
-  const g = new PluginGate(manifest(), broker, logger);
+  const g = new PluginGate(manifest(), broker, logger, new AbortController().signal);
   g.seedDeclared();
   return { gate: g, asked };
 }
@@ -108,8 +108,61 @@ test('"*" declares the whole stream, for onAny', () => {
     onUninstall: () => Promise.resolve(),
     log: () => undefined,
   });
-  const g = new PluginGate(parsed, broker, logger);
+  const g = new PluginGate(parsed, broker, logger, new AbortController().signal);
   g.seedDeclared();
   g.requireDeclared('host:events', '*');
   g.requireDeclared('host:events', 'anythingAtAll');
+});
+
+function pendingGate(): { gate: PluginGate; lifetime: AbortController; answer: (decision: Decision) => void; asked: string[] } {
+  const asked: string[] = [];
+  let answer: (decision: Decision) => void = () => undefined;
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: {
+      ask: (request) => {
+        asked.push(request.title);
+        return new Promise<Decision>((resolve) => { answer = resolve; });
+      },
+    },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const lifetime = new AbortController();
+  const g = new PluginGate(manifest(), broker, logger, lifetime.signal);
+  g.seedDeclared();
+  return { gate: g, lifetime, answer: (decision) => { answer(decision); }, asked };
+}
+
+test('an effect whose plugin was disabled while the prompt was open never runs', async () => {
+  const f = pendingGate();
+  let ran = false;
+  f.gate.whenAllowed(eventPrompt(f.gate.subject, 'oscParams'), () => { ran = true; });
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  f.lifetime.abort(new Error('Plugin deactivated.'));
+  f.answer('allow');
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  assert.equal(ran, false);
+});
+
+test('check() rejects once the plugin is disabled, even though the user allowed it afterwards', async () => {
+  const f = pendingGate();
+  const pending = f.gate.check(eventPrompt(f.gate.subject, 'oscParams'));
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  f.lifetime.abort(new Error('Plugin deactivated.'));
+  await assert.rejects(pending, /Plugin deactivated/);
+  f.answer('allow');
+});
+
+test('a prompt still queued when its plugin is disabled is never shown', async () => {
+  const f = pendingGate();
+  const first = f.gate.check(eventPrompt(f.gate.subject, 'oscParams'));
+  const second = f.gate.check(eventPrompt(f.gate.subject, 'friendOnline'));
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  f.lifetime.abort(new Error('Plugin deactivated.'));
+  f.answer('allow');
+  await assert.rejects(first);
+  await assert.rejects(second);
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  assert.equal(f.asked.length, 1);
 });

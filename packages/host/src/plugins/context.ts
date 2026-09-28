@@ -78,7 +78,7 @@ export async function createContext(
   bag.add(() => { controller.abort(new Error('Plugin deactivated.')); });
 
   const logger = createLogger(deps.sink, manifest.id);
-  const gate = new PluginGate(manifest, deps.broker, logger);
+  const gate = new PluginGate(manifest, deps.broker, logger, controller.signal);
   gate.seedDeclared();
 
   const schema: SettingsSchema = plugin.settings ?? {};

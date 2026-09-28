@@ -48,7 +48,7 @@ function fixture(): { api: VrchatApi; asked: string[] } {
     log: () => undefined,
   });
   const inner = { self: () => SELF } as unknown as VrchatApi;
-  return { api: gatedVrchat(inner, new PluginGate(manifest(), broker, logger)), asked };
+  return { api: gatedVrchat(inner, new PluginGate(manifest(), broker, logger, new AbortController().signal)), asked };
 }
 
 test('self() starts the permission prompt instead of silently answering undefined forever', async () => {
@@ -102,7 +102,7 @@ function http(answer: Decision, reply: unknown): { api: GatedHttp; asked: string
     onUninstall: () => Promise.resolve(),
     log: () => undefined,
   });
-  const gate = new PluginGate(httpManifest(), broker, logger);
+  const gate = new PluginGate(httpManifest(), broker, logger, new AbortController().signal);
   gate.seedDeclared();
   const { bridge, calls } = fakeBridge(reply);
   return { api: new GatedHttp(gate, new AbortController().signal, bridge), asked, calls };
@@ -168,7 +168,7 @@ function hangingHttp(lifetime: AbortSignal): { api: GatedHttp; seen: (AbortSigna
     onUninstall: () => Promise.resolve(),
     log: () => undefined,
   });
-  const gate = new PluginGate(httpManifest(), broker, logger);
+  const gate = new PluginGate(httpManifest(), broker, logger, new AbortController().signal);
   const seen: (AbortSignal | undefined)[] = [];
   const bridge = {
     status: 'connected',
