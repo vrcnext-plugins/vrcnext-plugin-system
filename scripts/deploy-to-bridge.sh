@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Needs a bridge started with --rest: the rebuild is POSTed so the page is told about it and
-# shows "Rebuilt — reload to apply". Without --rest the same build is `vrcnext-bridge
+# Needs a bridge started with --dev: the rebuild is POSTed so the page is told about it and
+# shows "Rebuilt — reload to apply". Without --dev the same build is `vrcnext-bridge
 # --build-plugins`, which writes the same bundle but tells nobody.
 # Deploys this working tree's host sources to the local bridge and rebuilds the bundle.
 #

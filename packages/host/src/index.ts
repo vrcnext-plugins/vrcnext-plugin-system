@@ -337,7 +337,7 @@ export function boot(): Promise<HostHandle> {
         },
       };
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
-      // Only reachable when the bridge runs with `--remote`; otherwise no push ever arrives.
+      // Only reachable when the bridge runs with `--dev`; otherwise no push ever arrives.
       bag.add(attachRemoteControl({ native: core.native, logger: core.logger, scope: { host: handle, manager: core.manager } }));
 
       // VRCNext fires this when the user disables the theme.

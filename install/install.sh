@@ -366,7 +366,7 @@ done
 TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 
 # Built by the binary itself rather than over HTTP: the daemon's REST call surface is off unless
-# it is started with --rest, and an install should not have to open a second way in to compile a
+# it is started with --dev, and an install should not have to open a second way in to compile a
 # bundle. Same code, same paths, no socket.
 step "Building the plugin bundle"
 BUILD_OUT="$TMP/build.json"

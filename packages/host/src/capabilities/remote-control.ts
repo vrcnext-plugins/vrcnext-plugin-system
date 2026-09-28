@@ -1,7 +1,7 @@
 /**
  * Answers the bridge's `remote` pushes: run a snippet in this page, send the result back.
  *
- * The bridge only offers its `remote` service when started with `--remote`, and only a caller
+ * The bridge only offers its `remote` service when started with `--dev`, and only a caller
  * holding the pairing token can reach `remote/eval`. That caller — a script, an agent, `curl` —
  * gets to inspect and operate the page without a synthetic mouse, which is the whole point:
  * nobody has to give up their pointer so that a tab can be opened and read.

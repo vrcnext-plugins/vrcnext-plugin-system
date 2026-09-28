@@ -48,7 +48,7 @@ Requirements: `curl` and `tar` (plus `sha256sum` or `shasum`) on Linux/macOS; Wi
    three steps to finish in VRCNext.
 
 The daemon is started with no flags, so it serves `/v1/ws` and `/v1/health` and nothing else.
-The REST call surface — `GET /v1/describe` and `POST /v1/<service>/<method>` — needs `--rest`,
+The REST call surface — `GET /v1/describe` and `POST /v1/<service>/<method>` — needs `--dev`,
 which is for scripts and agents rather than for using VRCNext.
 
 Re-running the installer is an upgrade: binaries and host sources are replaced, `plugins/`,
