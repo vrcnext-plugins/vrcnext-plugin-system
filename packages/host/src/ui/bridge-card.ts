@@ -86,8 +86,8 @@ export function buildBridgeCard(deps: BridgeCardDeps): HTMLElement {
   if (status !== 'connected') {
     panel.appendChild(sectionLabel('Pairing token'));
     const tokenField = textField({
-      value: native.token,
-      placeholder: 'paste the token here',
+      value: '',
+      placeholder: native.paired ? 'paste a new token to replace the saved one' : 'paste the token here',
       onCommit: () => undefined,
     });
     tokenField.type = 'password';

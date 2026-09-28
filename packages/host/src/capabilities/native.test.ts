@@ -190,7 +190,8 @@ test('setToken persists nothing on failure but reconnects with the new token', (
   assert.ok(second && second !== first);
   second.open();
   assert.equal(second.last()['token'], 'better');
-  assert.equal(bridge.token, 'better');
+  assert.equal(bridge.paired, true);
+  assert.equal('token' in bridge, false, 'the token cannot be read back');
 });
 
 test('drops back and reconnects when the daemon goes away for any other reason', () => {

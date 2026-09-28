@@ -90,8 +90,11 @@ export function storedEndpoint(): string {
   return readStored(ENDPOINT_KEY) ?? DEFAULT_NATIVE_ENDPOINT;
 }
 
-/** The stored pairing token, or empty. */
-export function storedToken(): string {
+/**
+ * The stored pairing token, or empty. Read once, by the one {@link BridgeClient}, which keeps it
+ * in a private field and never hands it out again.
+ */
+function storedToken(): string {
   return readStored(TOKEN_KEY) ?? '';
 }
 
@@ -211,8 +214,14 @@ export class BridgeClient {
     return this.#endpoint;
   }
 
-  get token(): string {
-    return this.#token;
+  /**
+   * Whether a pairing token is set. The token itself has no getter: it lives in a private field
+   * and goes only into the hello, so nothing that can reach this client — the host handle, a
+   * plugin holding a reference — can read it back. localStorage still has it, for the next
+   * load; the bridge's source policy keeps plugin code from reading that.
+   */
+  get paired(): boolean {
+    return this.#token !== '';
   }
 
   /** What the bridge said about itself in its welcome, or `undefined` before the first one. */

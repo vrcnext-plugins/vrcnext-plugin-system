@@ -46,9 +46,14 @@ const GLOBAL_KEY = '__vrcnextPluginHost';
 const BOOT_KEY = '__vrcnextPluginHostBooting';
 const THEME_ID = 'vrcnext-plugin-system';
 
+/**
+ * What `globalThis.__vrcnextPluginHost` holds, and so what any script on the page — plugins
+ * included — can reach. Kept to what is needed: the API version, and `shutdown` for a boot to
+ * tell a running host apart and for VRCNext's theme unload. The plugin manager, the bridge
+ * client and the rest are not here; the remote-control scope gets the manager on its own.
+ */
 export interface HostHandle {
   readonly apiVersion: string;
-  readonly manager: PluginManager;
   shutdown(): Promise<void>;
 }
 
@@ -318,7 +323,6 @@ export function boot(): Promise<HostHandle> {
 
       const handle: HostHandle = {
         apiVersion: API_VERSION,
-        manager: core.manager,
         shutdown: async (): Promise<void> => {
           core.debugHub.dispose();
           await core.manager.shutdown();
@@ -334,7 +338,7 @@ export function boot(): Promise<HostHandle> {
       };
       (globalThis as Record<string, unknown>)[GLOBAL_KEY] = handle;
       // Only reachable when the bridge runs with `--remote`; otherwise no push ever arrives.
-      bag.add(attachRemoteControl({ native: core.native, logger: core.logger, scope: { host: handle } }));
+      bag.add(attachRemoteControl({ native: core.native, logger: core.logger, scope: { host: handle, manager: core.manager } }));
 
       // VRCNext fires this when the user disables the theme.
       document.documentElement.addEventListener(
