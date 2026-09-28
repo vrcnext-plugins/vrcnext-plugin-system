@@ -51,6 +51,16 @@ export class TemplateError extends Error {
 // ---------------------------------------------------------------------------------------------
 // Expressions
 
+/**
+ * How deeply expressions and `{% if %}` blocks may nest. Far beyond any real message; low enough
+ * that neither the parser nor the evaluator can run out of stack on a hostile template.
+ */
+export const MAX_TEMPLATE_DEPTH = 32;
+
+function tooDeep(): TemplateError {
+  return new TemplateError(`The template nests deeper than ${String(MAX_TEMPLATE_DEPTH)} levels`);
+}
+
 type Expr =
   | { readonly kind: 'literal'; readonly value: TemplateValue }
   | { readonly kind: 'name'; readonly path: readonly string[] }
@@ -114,11 +124,29 @@ class ExpressionParser {
     this.#tokens = lexExpression(source);
   }
 
+  #depth = 0;
+
   static parse(source: string): Expr {
     const parser = new ExpressionParser(source);
     const expr = parser.#conditional();
     if (parser.#peek().type !== 'end') throw new TemplateError(`Unexpected "${parser.#peek().text}" in expression`);
+    checkDepth(expr);
     return expr;
+  }
+
+  /**
+   * Every recursive path through the grammar passes through here, so the parser's own stack is
+   * bounded. Left-leaning chains (`a + b + c`, `x | f | g`) nest without recursing; {@link
+   * checkDepth} bounds those.
+   */
+  #nested<T>(parse: () => T): T {
+    if (this.#depth >= MAX_TEMPLATE_DEPTH) throw tooDeep();
+    this.#depth += 1;
+    try {
+      return parse();
+    } finally {
+      this.#depth -= 1;
+    }
   }
 
   #peek(): Token {
@@ -144,6 +172,10 @@ class ExpressionParser {
   }
 
   #conditional(): Expr {
+    return this.#nested(() => this.#conditionalBody());
+  }
+
+  #conditionalBody(): Expr {
     const first = this.#or();
     if (this.#accept('?')) {
       const then = this.#conditional();
@@ -171,7 +203,7 @@ class ExpressionParser {
   }
 
   #not(): Expr {
-    if (this.#accept('not') || this.#accept('!')) return { kind: 'unary', op: 'not', operand: this.#not() };
+    if (this.#accept('not') || this.#accept('!')) return { kind: 'unary', op: 'not', operand: this.#nested(() => this.#not()) };
     return this.#comparison();
   }
 
@@ -193,7 +225,7 @@ class ExpressionParser {
   }
 
   #unary(): Expr {
-    if (this.#accept('-')) return { kind: 'unary', op: 'neg', operand: this.#unary() };
+    if (this.#accept('-')) return { kind: 'unary', op: 'neg', operand: this.#nested(() => this.#unary()) };
     return this.#postfix();
   }
 
@@ -215,6 +247,7 @@ class ExpressionParser {
   #filter(input: Expr): Expr {
     const name = this.#take();
     if (name.type !== 'name') throw new TemplateError('Expected a filter name after "|"');
+    filterNamed(name.text);
     const args: Expr[] = [];
     if (this.#accept(':') || this.#accept('(')) {
       const parenthesised = this.#tokens[this.#pos - 1]?.text === '(';
@@ -249,6 +282,25 @@ class ExpressionParser {
         throw new TemplateError(`Unexpected "${token.text}" in expression`);
       case 'end':
         throw new TemplateError('Unexpected end of expression');
+    }
+  }
+}
+
+/** Walks the tree without recursing and refuses one deeper than {@link MAX_TEMPLATE_DEPTH}. */
+function checkDepth(root: Expr): void {
+  const stack: (readonly [Expr, number])[] = [[root, 1]];
+  for (let top = stack.pop(); top !== undefined; top = stack.pop()) {
+    const [expr, depth] = top;
+    if (depth > MAX_TEMPLATE_DEPTH) throw tooDeep();
+    const next = depth + 1;
+    switch (expr.kind) {
+      case 'unary': stack.push([expr.operand, next]); break;
+      case 'binary': stack.push([expr.left, next], [expr.right, next]); break;
+      case 'cond': stack.push([expr.test, next], [expr.then, next], [expr.otherwise, next]); break;
+      case 'filter': stack.push([expr.input, next], ...expr.args.map((arg) => [arg, next] as const)); break;
+      case 'literal':
+      case 'name':
+        break;
     }
   }
 }
@@ -294,6 +346,13 @@ const FILTERS: Readonly<Record<string, Filter>> = {
   get: (v, [key]) => (isRecord(v) && Object.hasOwn(v, stringify(key)) ? v[stringify(key)] : undefined),
 };
 
+/** Own properties only: `constructor` or `toString` is not a filter, whatever the prototype says. */
+function filterNamed(name: string): Filter {
+  const filter = Object.hasOwn(FILTERS, name) ? FILTERS[name] : undefined;
+  if (filter === undefined) throw new TemplateError(`Unknown filter "${name}"`);
+  return filter;
+}
+
 function lookup(values: TemplateValues, path: readonly string[]): TemplateValue {
   let current: TemplateValue = values;
   for (const key of path) {
@@ -325,8 +384,7 @@ function evaluate(expr: Expr, values: TemplateValues): TemplateValue {
     }
     case 'cond': return truthy(evaluate(expr.test, values)) ? evaluate(expr.then, values) : evaluate(expr.otherwise, values);
     case 'filter': {
-      const filter = FILTERS[expr.name];
-      if (filter === undefined) throw new TemplateError(`Unknown filter "${expr.name}"`);
+      const filter = filterNamed(expr.name);
       return filter(evaluate(expr.input, values), expr.args.map((arg) => evaluate(arg, values)));
     }
     case 'binary': return evaluateBinary(expr, values);
@@ -351,38 +409,59 @@ type Node =
   | { readonly kind: 'output'; readonly expr: Expr }
   | { readonly kind: 'if'; readonly branches: readonly { readonly test: Expr | undefined; readonly body: readonly Node[] }[] };
 
-const TAG = /\{\{([\s\S]*?)\}\}|\{%([\s\S]*?)%\}|\{([A-Za-z_][\w.-]*)\}/g;
+/** The `{name}` shorthand, tried at a single `{`. Sticky, so it never scans past that spot's word. */
+const SIMPLE_TAG = /[A-Za-z_][\w.-]*\}/y;
 
 interface RawTag {
   readonly kind: 'text' | 'output' | 'block';
   readonly text: string;
 }
 
+/**
+ * Splits a template into text and tags with one pass of `indexOf`, so the time it takes is linear
+ * in the template's length even when it is thousands of unclosed `{{`: the first one that has no
+ * closer ends the scan with an error.
+ */
 function splitTemplate(template: string): RawTag[] {
   const parts: RawTag[] = [];
-  let last = 0;
-  for (const match of template.matchAll(TAG)) {
-    const at = match.index;
-    if (at > last) parts.push(textPart(template.slice(last, at)));
-    const [whole, output, block, simple] = match;
-    if (output !== undefined) parts.push({ kind: 'output', text: output.trim() });
-    else if (block !== undefined) parts.push({ kind: 'block', text: block.trim() });
-    else parts.push({ kind: 'output', text: simple ?? '' });
-    last = at + whole.length;
+  let text = '';
+  let i = 0;
+  while (i < template.length) {
+    const open = template.indexOf('{', i);
+    if (open < 0) break;
+    text += template.slice(i, open);
+    const next = template[open + 1];
+    if (next === '{' || next === '%') {
+      const closer = next === '{' ? '}}' : '%}';
+      const close = template.indexOf(closer, open + 2);
+      if (close < 0) throw new TemplateError(`A "{${next}" tag is not closed`);
+      if (text !== '') parts.push({ kind: 'text', text });
+      text = '';
+      parts.push({ kind: next === '{' ? 'output' : 'block', text: template.slice(open + 2, close).trim() });
+      i = close + 2;
+      continue;
+    }
+    SIMPLE_TAG.lastIndex = open + 1;
+    const simple = SIMPLE_TAG.exec(template);
+    if (simple === null) {
+      text += '{';
+      i = open + 1;
+      continue;
+    }
+    if (text !== '') parts.push({ kind: 'text', text });
+    text = '';
+    parts.push({ kind: 'output', text: simple[0].slice(0, -1) });
+    i = open + 1 + simple[0].length;
   }
-  if (last < template.length) parts.push(textPart(template.slice(last)));
+  text += template.slice(i);
+  if (text !== '') parts.push({ kind: 'text', text });
   return parts;
-}
-
-/** Literal text; a tag opener left in it means a tag that never closed. */
-function textPart(text: string): RawTag {
-  if (text.includes('{{') || text.includes('{%')) throw new TemplateError('A "{{" or "{%" tag is not closed');
-  return { kind: 'text', text };
 }
 
 class TemplateParser {
   readonly #parts: RawTag[];
   #pos = 0;
+  #ifDepth = 0;
 
   constructor(template: string) {
     this.#parts = splitTemplate(template);
@@ -404,7 +483,14 @@ class TemplateParser {
       if (part.kind === 'text') { nodes.push({ kind: 'text', text: part.text }); this.#pos += 1; continue; }
       if (part.kind === 'output') { nodes.push({ kind: 'output', expr: ExpressionParser.parse(part.text) }); this.#pos += 1; continue; }
       const [word] = part.text.split(/\s+/, 1);
-      if (word === 'if') { this.#pos += 1; nodes.push(this.#ifBlock(part.text.slice(2))); continue; }
+      if (word === 'if') {
+        if (this.#ifDepth >= MAX_TEMPLATE_DEPTH) throw tooDeep();
+        this.#pos += 1;
+        this.#ifDepth += 1;
+        nodes.push(this.#ifBlock(part.text.slice(2)));
+        this.#ifDepth -= 1;
+        continue;
+      }
       if (inIf && (word === 'elif' || word === 'elseif' || word === 'else' || word === 'endif')) return nodes;
       throw new TemplateError(`Unknown block "{% ${part.text} %}"`);
     }
@@ -482,15 +568,31 @@ function assemble(chunks: readonly Chunk[], dropEmpty: boolean): string {
  * missing value is never an error: it renders empty.
  */
 export function renderTemplate(template: string, values: TemplateValues, options: RenderOptions = {}): string {
-  const chunks: Chunk[] = [];
-  renderNodes(TemplateParser.parse(template), values, chunks);
-  return assemble(chunks, options.dropEmptyLines ?? true);
+  return asTemplateError(() => {
+    const chunks: Chunk[] = [];
+    renderNodes(TemplateParser.parse(template), values, chunks);
+    return assemble(chunks, options.dropEmptyLines ?? true);
+  });
+}
+
+/**
+ * The depth limit should leave nothing to run out of stack, but a value is the caller's data
+ * and a deeply nested one is still stringified; a stack overflow is reported as the template's
+ * error rather than escaping as a `RangeError`.
+ */
+function asTemplateError<T>(run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof RangeError) throw new TemplateError(`The template could not be rendered: ${error.message}`);
+    throw error;
+  }
 }
 
 /** Parses without rendering, so a settings page can report a broken template as it is typed. */
 export function validateTemplate(template: string): TemplateError | undefined {
   try {
-    TemplateParser.parse(template);
+    asTemplateError(() => TemplateParser.parse(template));
     return undefined;
   } catch (error) {
     return error instanceof TemplateError ? error : new TemplateError(String(error));
@@ -520,6 +622,6 @@ export function templatePlaceholders(template: string): readonly string[] {
       if (node.kind === 'if') node.branches.forEach(visitBranch);
     }
   };
-  walk(TemplateParser.parse(template));
+  walk(asTemplateError(() => TemplateParser.parse(template)));
   return [...seen];
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { TemplateError, renderTemplate, templatePlaceholders, validateTemplate } from './template.js';
+import { MAX_TEMPLATE_DEPTH, TemplateError, renderTemplate, templatePlaceholders, validateTemplate } from './template.js';
 
 const V = { name: 'Tupper', rejoin: true, inGroup: undefined, pcRank: 'Good', count: 3, tags: ['a', 'b'], avatar: '', nested: { deep: 'x' } };
 
@@ -61,4 +61,41 @@ test('no way out of the values: prototypes and functions are not reachable', () 
 
 test('templatePlaceholders lists names once, in order, including those inside blocks', () => {
   assert.deepEqual(templatePlaceholders('{b} {{ a | default: c }} {% if b and d.e %}{{ b }}{% endif %}'), ['b', 'a', 'c', 'd']);
+});
+
+test('a name on Object.prototype is not a filter', () => {
+  for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+    assert.throws(() => renderTemplate(`{{ name | ${name} }}`, V), /Unknown filter/);
+    assert.ok(validateTemplate(`{{ name | ${name} }}`) instanceof TemplateError, name);
+  }
+});
+
+test('nesting deeper than the limit is a TemplateError, never a RangeError', () => {
+  const deep = (n: number, open: string, close: string): string => `{{ ${open.repeat(n)}name${close.repeat(n)} }}`;
+  assert.equal(renderTemplate(deep(MAX_TEMPLATE_DEPTH - 2, '(', ')'), V), 'Tupper');
+  const cases = [
+    deep(10_000, '(', ')'),
+    `{{ ${'not '.repeat(10_000)}name }}`,
+    `{{ ${'-'.repeat(10_000)}count }}`,
+    `{{ name${' + name'.repeat(10_000)} }}`,
+    `{{ name${' | upper'.repeat(10_000)} }}`,
+    `${'{% if rejoin %}'.repeat(10_000)}x${'{% endif %}'.repeat(10_000)}`,
+  ];
+  for (const template of cases) {
+    assert.throws(() => renderTemplate(template, V), TemplateError);
+    assert.ok(validateTemplate(template) instanceof TemplateError);
+    assert.throws(() => templatePlaceholders(template), TemplateError);
+  }
+});
+
+test('thousands of unclosed "{{" fail fast instead of scanning quadratically', () => {
+  const template = '{{'.repeat(20_000);
+  const started = performance.now();
+  assert.throws(() => renderTemplate(template, V), /not closed/);
+  assert.ok(validateTemplate('{ {{ '.repeat(10_000)) instanceof TemplateError);
+  assert.ok(performance.now() - started < 200, 'linear scan');
+});
+
+test('a lone brace is literal text and the shorthand still works beside it', () => {
+  assert.equal(renderTemplate('{ {name} } {1}', V), '{ Tupper } {1}');
 });
