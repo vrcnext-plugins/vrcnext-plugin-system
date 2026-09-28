@@ -3,8 +3,8 @@
  *
  * The closed row is what a user scans: name, version, what it is, and the switch. Everything
  * that is only interesting when you are asking a question about one plugin — where it came
- * from, what it may do, what you have already allowed it, which commits it is behind — is
- * inside. A plugin can also be installed on the bridge but absent from this bundle (installed
+ * from, who signed it, what it may do, what you have already allowed it, which commits it is
+ * behind — is inside. A plugin can also be installed on the bridge but absent from this bundle (installed
  * since the page loaded), or the reverse; both are stated rather than hidden, so the greyed
  * switch has a visible reason.
  */
@@ -91,6 +91,20 @@ function sourceRow(view: PluginView, deps: PluginRowDeps): HTMLElement | undefin
     button({ label: 'Open', icon: 'open_in_new', onClick: () => { deps.openUrl(url); } }),
     url,
   );
+}
+
+/**
+ * Which signing key this plugin is pinned to.
+ *
+ * The fingerprint is shown in full rather than shortened: its only use is being compared, by
+ * eye, against what the author publishes, and a fingerprint you cannot compare is decoration.
+ */
+function signatureRow(view: PluginView): HTMLElement | undefined {
+  const keyId = view.installed?.keyId;
+  if (keyId === undefined) return undefined;
+  return keyId === ''
+    ? row('Signed by', badge('warning', 'Not pinned'), 'Installed before signatures were required. The next update pins it to whichever key signs it.')
+    : row('Signed by', undefined, keyId);
 }
 
 function updateRows(view: PluginView, deps: PluginRowDeps): readonly HTMLElement[] {
@@ -195,6 +209,8 @@ export function buildPluginRow(view: PluginView, deps: PluginRowDeps): HTMLEleme
   for (const node of updateRows(view, deps)) body.appendChild(node);
   const source = sourceRow(view, deps);
   if (source !== undefined) body.appendChild(source);
+  const signature = signatureRow(view);
+  if (signature !== undefined) body.appendChild(signature);
   if (view.manifest === undefined && view.installed !== undefined) {
     body.appendChild(description('Installed, but not in the bundle this page loaded. Reload VRCNext to run it.'));
   }

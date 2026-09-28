@@ -11,11 +11,19 @@
  * | `update`        | `{id}`  | `{plugin?: InstalledPlugin}`                  |
  * | `uninstall`     | `{id}`  | `{}`                                          |
  * | `build`         | `{}`    | `BuildResult`                                 |
+ * | `keys`          | `{}`    | `{keys: TrustedKey[]}`                        |
+ * | `forget_key`    | `{keyId}` | `{}`                                        |
  *
  * Pushes: `progress {op, id, step, message}`, `build BuildResult`, `plugins {plugins}`.
  *
- * `install`, `update` and `uninstall` are confirmed by the bridge on the desktop before they
- * run, so those three calls wait far longer than a local round trip. Their errors are
+ * Every tree the bridge installs has to carry a valid `plugin.sig`, and the key that signed it
+ * has to be one the user has accepted at the desktop prompt. That is why an install can produce
+ * two confirmations — one for the repository, one for a key this machine has not seen — and why
+ * an update signed by a different key than the plugin was installed under produces a third.
+ * `keyId` on an installed plugin is the key it is pinned to.
+ *
+ * `install`, `update`, `uninstall` and `forget_key` are confirmed by the bridge on the desktop
+ * before they run, so those calls wait far longer than a local round trip. Their errors are
  * `bad_request` with a stable code at the front of the message; {@link describeError} turns the
  * ones a user can act on into sentences.
  */
@@ -47,6 +55,22 @@ export interface InstalledPlugin {
   readonly hosts: readonly string[];
   readonly installedAt: string;
   readonly updatedAt: string;
+  /** Fingerprint of the signing key this plugin is pinned to; empty for a pre-signing install. */
+  readonly keyId: string;
+}
+
+/** A signing key the user has accepted, as the bridge remembers it. */
+export interface TrustedKey {
+  readonly keyId: string;
+  readonly publicKey: string;
+  /** What the key was first accepted for: the plugin id and the URL it came from. */
+  readonly label: string;
+  readonly trustedAt: number;
+  readonly lastUsedAt: number;
+  /** Every plugin ever seen signed by this key. */
+  readonly seenFor: readonly string[];
+  /** Plugins currently installed and pinned to it. */
+  readonly installed: readonly string[];
 }
 
 export interface ChangelogEntry {
@@ -108,6 +132,7 @@ export function toInstalledPlugin(raw: unknown): InstalledPlugin | undefined {
     hosts: strings(raw['hosts']),
     installedAt: str(raw['installedAt']),
     updatedAt: str(raw['updatedAt']),
+    keyId: str(raw['keyId']),
   };
 }
 
@@ -133,6 +158,20 @@ function toUpdate(raw: unknown): PluginUpdate | undefined {
         ? [{ commit: str(entry['commit']), summary: str(entry['summary']), time: str(entry['time']) }]
         : [],
     ),
+  };
+}
+
+function toTrustedKey(raw: unknown): TrustedKey | undefined {
+  if (!isRecord(raw) || typeof raw['keyId'] !== 'string') return undefined;
+  const num = (value: unknown): number => (typeof value === 'number' ? value : 0);
+  return {
+    keyId: raw['keyId'],
+    publicKey: str(raw['publicKey']),
+    label: str(raw['label']),
+    trustedAt: num(raw['trustedAt']),
+    lastUsedAt: num(raw['lastUsedAt']),
+    seenFor: strings(raw['seenFor']),
+    installed: strings(raw['installed']),
   };
 }
 
@@ -172,6 +211,10 @@ export function describeError(error: unknown): string {
   if (message.startsWith('manifest_invalid')) return `plugin.json is invalid: ${message.slice('manifest_invalid:'.length).trim()}`;
   if (message.startsWith('policy')) return `Refused by the source policy: ${message.slice('policy:'.length).trim()}`;
   if (message.startsWith('already_installed')) return 'That plugin is already installed.';
+  if (message.startsWith('unsigned')) {
+    return `The repository is not signed by its author, or the signature does not match its files: ${message.slice('unsigned:'.length).trim()}`;
+  }
+  if (message.startsWith('not_trusted')) return 'That signing key is not one this machine trusts.';
   return message;
 }
 
@@ -218,5 +261,19 @@ export class PluginsService {
 
   async build(): Promise<BuildResult> {
     return toBuildResult(await this.#call('plugins', 'build', {}));
+  }
+
+  async keys(): Promise<readonly TrustedKey[]> {
+    const result = await this.#call('plugins', 'keys', {});
+    const list = isRecord(result) ? result['keys'] : undefined;
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((entry) => {
+      const key = toTrustedKey(entry);
+      return key === undefined ? [] : [key];
+    });
+  }
+
+  async forgetKey(keyId: string): Promise<void> {
+    await this.#call('plugins', 'forget_key', { keyId }, CONFIRMED);
   }
 }

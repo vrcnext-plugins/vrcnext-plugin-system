@@ -1,0 +1,49 @@
+# Template for a plugin repository's .github/workflows/sign.yml.
+#
+# Copy this file and scripts/sign-plugin.mjs into the plugin repository, and put the signing key
+# (the 64 hex characters from `sign-plugin.mjs keygen`) in a repository secret named
+# VRCNEXT_SIGNING_KEY. Settings → Secrets and variables → Actions → New repository secret.
+#
+# The secret never leaves the runner: the signature is made there and only plugin.sig is pushed
+# back. Between a code push and this job finishing, the branch is briefly unsigned and the bridge
+# will refuse to install it — sign locally and commit plugin.sig alongside the code if that
+# matters (`node scripts/sign-plugin.mjs sign --key <your key file>`).
+name: Sign
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: [plugin.sig]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sign-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sign the tracked tree
+        env:
+          VRCNEXT_SIGNING_KEY: ${{ secrets.VRCNEXT_SIGNING_KEY }}
+        run: |
+          test -n "$VRCNEXT_SIGNING_KEY" || { echo "VRCNEXT_SIGNING_KEY is not set"; exit 1; }
+          node scripts/sign-plugin.mjs sign
+          node scripts/sign-plugin.mjs verify
+
+      - name: Commit plugin.sig if it changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --quiet -- plugin.sig && { echo "signature unchanged"; exit 0; }
+          git add plugin.sig
+          git commit -m "Sign $(git rev-parse --short HEAD^{commit})"
+          git push

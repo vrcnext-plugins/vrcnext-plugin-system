@@ -2,8 +2,9 @@
  * The manage half of the Plugins section in VRCNext's Settings tab.
  *
  * Until the bridge is connected this is only the Bridge card. Connected, it is a status strip,
- * the installed plugins as rows that open, and the install field with its progress list — in
- * that order, because "what do I have" is asked far more often than "add another". Every
+ * the installed plugins as rows that open, the install field with its progress list, and the
+ * signing keys this machine has accepted — in that order, because "what do I have" is asked far
+ * more often than "add another", and the keys are reference material you go looking for. Every
  * plugin's own settings card is attached below these by the host. Rendering is a full redraw of
  * a small list, which is cheap and avoids a diffing layer; what the user has opened is kept in
  * `#expanded` so a redraw does not fold their rows.
@@ -21,11 +22,12 @@ import {
   STEP_AWAITING_CONFIRMATION,
   toProgress,
   type Progress,
+  type TrustedKey,
 } from '../plugins/plugins-service.js';
 import { buildBridgeCard } from './bridge-card.js';
 import { element } from './dom.js';
 import { buildPluginRows, type PluginView } from './plugin-row.js';
-import { button, card, controlRow, description, panelLayout, statusCard, textField } from './widgets.js';
+import { button, card, controlRow, description, emptyState, panelLayout, row, statusCard, textField } from './widgets.js';
 
 export interface ManagerPanelDeps {
   readonly manager: PluginManager;
@@ -51,6 +53,8 @@ export class ManagerPanel {
   /** Which plugin rows are open. Kept across the full redraws below. */
   readonly #expanded = new Set<string>();
   #checkedUpdates = false;
+  /** The trusted keys, as last read from the bridge; `undefined` until the first read lands. */
+  #keys: readonly TrustedKey[] | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(deps: ManagerPanelDeps) {
@@ -84,7 +88,70 @@ export class ManagerPanel {
       root.replaceChildren(buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }));
       return;
     }
-    root.replaceChildren(this.#buildStatusCard(), this.#buildList(), this.#buildInstallCard());
+    root.replaceChildren(
+      this.#buildStatusCard(),
+      this.#buildList(),
+      this.#buildInstallCard(),
+      this.#buildKeysCard(),
+    );
+    if (this.#keys === undefined) this.#loadKeys();
+  }
+
+  /** Read the trusted keys once per panel, and again whenever one is forgotten. */
+  #loadKeys(): void {
+    this.#keys = [];
+    void this.#deps.manager
+      .keys()
+      .then((keys) => {
+        this.#keys = keys;
+        this.refresh();
+      })
+      .catch((error: unknown) => {
+        this.#deps.onError(`Could not read the signing keys: ${describeError(error)}`);
+      });
+  }
+
+  /**
+   * Every signing key this machine has accepted, and what it signed.
+   *
+   * Forgetting one uninstalls nothing: it only means the next thing that key signs is confirmed
+   * again, which is the honest description of what the trust store does.
+   */
+  #buildKeysCard(): HTMLElement {
+    const panel = card('Signing keys', 'key');
+    panel.appendChild(
+      description(
+        'A plugin can only be installed or updated if its repository carries a valid signature, ' +
+          'and only under the key it was installed with. These are the keys you have accepted. ' +
+          'Compare a fingerprint against the one its author publishes before trusting it.',
+      ),
+    );
+    const keys = this.#keys ?? [];
+    if (keys.length === 0) {
+      panel.appendChild(emptyState('No keys accepted yet.'));
+      return panel;
+    }
+    for (const key of keys) {
+      const used = key.installed.length === 0 ? `Nothing installed · first seen for ${key.label}` : `Used by ${key.installed.join(', ')}`;
+      panel.appendChild(
+        row(
+          key.keyId,
+          button({
+            label: 'Forget',
+            icon: 'delete',
+            disabled: this.#busy,
+            onClick: () => {
+              this.#run(async () => {
+                await this.#deps.manager.forgetKey(key.keyId);
+                this.#loadKeys();
+              });
+            },
+          }),
+          used,
+        ),
+      );
+    }
+    return panel;
   }
 
   #onPush(event: string, data: unknown): void {

@@ -22,7 +22,7 @@ import { HOST_NS, type StateService } from '../state/state-service.js';
 import type { CompiledPlugin } from './compiled.js';
 import { createContext, type BuiltContext, type ContextDeps } from './context.js';
 import { orderByDependency } from './dependency-order.js';
-import type { InstalledPlugin, PluginUpdate, PluginsService } from './plugins-service.js';
+import type { InstalledPlugin, PluginUpdate, PluginsService, TrustedKey } from './plugins-service.js';
 
 const ENABLED_PREFIX = 'enabled:';
 
@@ -218,6 +218,17 @@ export class PluginManager {
   /** One at a time: the bridge confirms each on the desktop. Stops at the first failure. */
   async updateAll(): Promise<void> {
     for (const update of [...this.#updates]) await this.update(update.id);
+  }
+
+  /** The signing keys this machine has accepted. Read straight through; nothing is cached. */
+  async keys(): Promise<readonly TrustedKey[]> {
+    return this.#deps.service.keys();
+  }
+
+  /** Stop trusting a key. Confirmed on the desktop; nothing is uninstalled. */
+  async forgetKey(keyId: string): Promise<void> {
+    await this.#deps.service.forgetKey(keyId);
+    this.#changed();
   }
 
   async uninstall(id: PluginId): Promise<void> {

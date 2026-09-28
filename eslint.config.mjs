@@ -56,6 +56,15 @@ export default defineConfig([
   },
 
   {
+    // Repository tooling that runs under Node rather than in the page: the source policy does
+    // not apply to it (it never reaches a bundle) but the globals do have to be declared.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { Buffer: 'readonly', process: 'readonly', URL: 'readonly', console: 'readonly' },
+    },
+  },
+
+  {
     files: ['**/*.test.ts'],
     rules: {
       // Table-driven test bodies are clearer whole than split.
