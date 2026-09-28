@@ -84,9 +84,11 @@ export { ENTITY_SCOPES, coerceEntity, entityScopes, isEntityId } from './setting
 export { EMBED_COLORS, EMBED_LIMITS, EMPTY_EMBED, coerceEmbed, completeEmbed } from './settings-embed.js';
 export type { EmbedField } from './settings-embed.js';
 export { parseEmbedColor, renderEmbed, webhookPayload } from './discord-embed.js';
+export { discordCode, discordTimestamp } from './discord-text.js';
+export type { DiscordTimeStyle } from './discord-text.js';
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
-export { PERFORMANCE_RANKS, TRUST_RANKS, rankIndex, trustRank } from './vrchat.js';
+export { PERFORMANCE_RANKS, RANK_EMOJI, TRUST_RANKS, rankEmoji, rankIndex, rankLabel, trustRank } from './vrchat.js';
 export { trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
 export type { TrustCriterion, TrustInput, TrustScore } from './trust.js';
 export type {
@@ -193,8 +195,8 @@ export type {
   UiApi,
 } from './ui.js';
 
-export { formatDuration, timeAgo } from './time.js';
-export type { TimeInput } from './time.js';
+export { formatDuration, newestFirst, timeAgo } from './time.js';
+export type { Timestamped, TimeInput } from './time.js';
 export { INSTANCE_TYPES, INSTANCE_TYPE_LABELS, instanceTypeLabel, isGroupInstance, parseLocation } from './location.js';
 export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';

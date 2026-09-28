@@ -24,6 +24,28 @@ export function rankIndex(rank: string): number | undefined {
   return index < 0 ? undefined : index;
 }
 
+/** The traffic-light colour VRChat gives each rank, as one emoji. `⚪` when unknown. */
+export const RANK_EMOJI: Readonly<Record<PerformanceRank, string>> = {
+  Excellent: '🟢', Good: '🔵', Medium: '🟡', Poor: '🟠', VeryPoor: '🔴', '': '⚪',
+};
+
+/**
+ * The rank as a reader says it: `Very Poor`, not `VeryPoor`; `Unknown` for `''`.
+ *
+ * VRChat spells the worst rank as one word and nobody reads it that way, so the camel hump is
+ * split. Any other string is passed through the same rule rather than rejected, because a rank
+ * VRChat adds later should still print.
+ */
+export function rankLabel(rank: string): string {
+  return rank === '' ? 'Unknown' : rank.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+/** {@link RANK_EMOJI} for a rank that may be any string; `⚪` for one VRChat has not named. */
+export function rankEmoji(rank: string): string {
+  const known: Readonly<Partial<Record<string, string>>> = RANK_EMOJI;
+  return known[rank] ?? RANK_EMOJI[''];
+}
+
 /**
  * VRChat's trust ranks as VRCNext names them, best first.
  *

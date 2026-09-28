@@ -29,6 +29,13 @@ export type IconName = string;
 export interface PanelHandle extends Disposable {
   /** Root element of the injected panel. Owned by the plugin; cleared on dispose. */
   readonly element: HTMLElement;
+  /**
+   * Whether the panel is the one on screen.
+   *
+   * VRCNext shows one tab at a time, so a plugin can stop work the user cannot see — a poll, a
+   * clock, a redraw — while its tab is in the background. `false` until the tab is first opened.
+   */
+  readonly visible: boolean;
 }
 
 export interface NavTabOptions {
@@ -38,6 +45,12 @@ export interface NavTabOptions {
   render(container: HTMLElement): void | Promise<void>;
   /** Groups the entry under an existing sidebar group, e.g. `Tools`. */
   readonly group?: string;
+  /**
+   * Called whenever this tab becomes the visible one or stops being it, including when the user
+   * switches to one of VRCNext's own tabs. Use it to start and stop work that only matters while
+   * the panel is on screen; {@link PanelHandle.visible} is the same state to read on demand.
+   */
+  onVisibility?(visible: boolean): void;
 }
 
 export interface SettingsCardOptions {

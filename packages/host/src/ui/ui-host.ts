@@ -183,10 +183,25 @@ class PluginUiImpl implements PluginUi {
     return this.#namespace === undefined ? id : `${this.#namespace}.${id}`;
   }
 
-  #track(handle: PanelHandle): PanelHandle {
+  #track<H extends PanelHandle>(handle: H): H {
     this.#handles.add(handle);
     this.#bag.add(handle);
     return handle;
+  }
+
+  /**
+   * A tracked {@link PanelHandle}.
+   *
+   * `visible` answers "can the user see this?", which for most panels is simply whether it is
+   * still in the document — the one place that knows better (a nav tab, which VRCNext hides by
+   * taking the `active` class off it) passes its own test.
+   */
+  #panel(element: HTMLElement, dispose: () => void, isVisible?: () => boolean): PanelHandle {
+    return this.#track({
+      element,
+      get visible(): boolean { return isVisible === undefined ? element.isConnected : isVisible(); },
+      dispose,
+    });
   }
 
   addNavTab(options: NavTabOptions): PanelHandle {
@@ -205,14 +220,28 @@ class PluginUiImpl implements PluginUi {
 
     const button = this.#buildNavButton(options, tab, render);
     const detachNav = attachNavButton(button);
+    const isVisible = (): boolean => tab.classList.contains(CLASSES.tabActive);
 
-    return this.#track({
-      element: tab,
-      dispose: (): void => {
-        detachNav();
-        tab.remove();
-      },
+    // VRCNext's showTab() moves the `active` class between tabs, including to its own; watching
+    // the attribute is the only way to hear about a switch the plugin did not make.
+    let wasVisible = isVisible();
+    const watcher = new MutationObserver(() => {
+      const visible = isVisible();
+      if (visible === wasVisible) return;
+      wasVisible = visible;
+      try {
+        options.onVisibility?.(visible);
+      } catch (error) {
+        globalThis.console.error(`[vrcnext-plugins:${this.#pluginId}] tab onVisibility failed`, error);
+      }
     });
+    watcher.observe(tab, { attributes: true, attributeFilter: ['class'] });
+
+    return this.#panel(tab, (): void => {
+      watcher.disconnect();
+      detachNav();
+      tab.remove();
+    }, isVisible);
   }
 
   #buildNavButton(options: NavTabOptions, tab: HTMLElement, render: () => void): HTMLButtonElement {
@@ -257,12 +286,9 @@ class PluginUiImpl implements PluginUi {
     });
     observer.observe(dashboard, { childList: true });
 
-    return this.#track({
-      element: card,
-      dispose: (): void => {
-        observer.disconnect();
-        card.remove();
-      },
+    return this.#panel(card, (): void => {
+      observer.disconnect();
+      card.remove();
     });
   }
 
@@ -271,10 +297,8 @@ class PluginUiImpl implements PluginUi {
     style.setAttribute(PLUGIN_ATTR, this.#pluginId);
     style.textContent = css;
     document.head.appendChild(style);
-    return this.#track({
-      element: style,
-      dispose: (): void => { style.remove(); },
-    });
+    // A stylesheet is never something the user looks at, so it is never "visible".
+    return this.#panel(style, (): void => { style.remove(); }, () => false);
   }
 
   addSettingsCard(options: SettingsCardOptions): PanelHandle {
@@ -306,13 +330,10 @@ class PluginUiImpl implements PluginUi {
     section.attach(card);
     const forget = this.#shared.registerCard(this.#pluginId, section, card);
 
-    return this.#track({
-      element: card,
-      dispose: (): void => {
-        forget();
-        card.remove();
-      },
-    });
+    return this.#panel(card, (): void => {
+      forget();
+      card.remove();
+    }, () => section.active && card.isConnected);
   }
 
   /**
@@ -344,6 +365,7 @@ class PluginUiImpl implements PluginUi {
       element: binding.navItem,
       sectionId: binding.sectionId,
       get active(): boolean { return binding.isActive(); },
+      get visible(): boolean { return binding.isActive(); },
       attach: (block): void => {
         // A card another plugin files here keeps its own owner; only unowned blocks become ours.
         if (!block.hasAttribute(PLUGIN_ATTR)) block.setAttribute(PLUGIN_ATTR, this.#pluginId);
@@ -365,7 +387,7 @@ class PluginUiImpl implements PluginUi {
   addSettingsDivider(): PanelHandle {
     const divider = this.#shared.settingsNav.addDivider();
     divider.setAttribute(PLUGIN_ATTR, this.#pluginId);
-    return this.#track({ element: divider, dispose: (): void => { divider.remove(); } });
+    return this.#panel(divider, (): void => { divider.remove(); });
   }
 
   addSidebarGroup(options: SidebarGroupOptions): PanelHandle {
@@ -381,7 +403,7 @@ class PluginUiImpl implements PluginUi {
     });
     const group = nav.mount();
     group.setAttribute(PLUGIN_ATTR, this.#pluginId);
-    return this.#track({ element: group, dispose: (): void => { nav.dispose(); } });
+    return this.#panel(group, (): void => { nav.dispose(); });
   }
 
   toast(options: ToastOptions): void {

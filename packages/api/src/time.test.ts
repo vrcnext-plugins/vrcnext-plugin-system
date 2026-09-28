@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { timeAgo } from './time.js';
+import { newestFirst, timeAgo } from './time.js';
 
 const DAY = 86_400_000;
 
@@ -24,4 +24,22 @@ test('past days it reports months, then years', () => {
   assert.equal(timeAgo(now - 364 * DAY, now), '12 months ago');
   assert.equal(timeAgo(now - 400 * DAY, now), '1 year ago');
   assert.equal(timeAgo(new Date(now - 800 * DAY), now), '2 years ago');
+});
+
+test('newestFirst orders by timestamp and drops what cannot be read', () => {
+  const events = [
+    { timestamp: '2026-09-27T10:00:00Z', name: 'middle' },
+    { timestamp: 'not a date', name: 'unreadable' },
+    { timestamp: '2026-09-27T11:00:00Z', name: 'newest' },
+    { timestamp: '2026-09-26T10:00:00Z', name: 'oldest' },
+  ];
+  assert.deepEqual(newestFirst(events).map((e) => e.name), ['newest', 'middle', 'oldest']);
+  assert.deepEqual(newestFirst(undefined), []);
+  assert.deepEqual(newestFirst([]), []);
+});
+
+test('newestFirst takes a timestamp however it is held', () => {
+  const now = Date.now();
+  const items = [{ timestamp: now - 1000 }, { timestamp: new Date(now) }];
+  assert.deepEqual(newestFirst(items), [items[1], items[0]]);
 });

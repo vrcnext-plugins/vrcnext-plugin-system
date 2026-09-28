@@ -9,6 +9,7 @@
  */
 
 import {
+  PERFORMANCE_RANKS,
   parseLocation,
   type PerformanceRank,
   type VrcAvatar,
@@ -56,12 +57,10 @@ export function each<T>(value: unknown, read: (item: unknown) => T | undefined):
   });
 }
 
-const RANKS: readonly PerformanceRank[] = ['Excellent', 'Good', 'Medium', 'Poor', 'VeryPoor'];
-
 /** VRCNext spells ranks as VRChat does (`VeryPoor`); anything else is unknown. */
 export function rank(value: unknown): PerformanceRank {
   const text = str(value);
-  const found = RANKS.find((r) => r.toLowerCase() === text.toLowerCase());
+  const found = PERFORMANCE_RANKS.find((r) => r.toLowerCase() === text.toLowerCase());
   return found ?? '';
 }
 

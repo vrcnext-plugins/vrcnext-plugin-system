@@ -51,3 +51,25 @@ export function formatDuration(ms: number): string {
   if (days < 365) return say(Math.floor(days / 30), 'month');
   return say(Math.floor(days / 365), 'year');
 }
+
+/** Anything with a timestamp: a timeline event, a log line, a report. */
+export interface Timestamped {
+  readonly timestamp: TimeInput;
+}
+
+/**
+ * The same items, newest first, without the ones whose timestamp does not parse.
+ *
+ * VRCNext's timeline arrives in no guaranteed order and "the newest event" is the question
+ * almost every caller has, so ordering it belongs here rather than in each plugin. A record
+ * with an unreadable timestamp cannot be placed in the order at all — sorting it would put it
+ * somewhere arbitrary — so it is dropped rather than silently ranked as 1970.
+ */
+export function newestFirst<T extends Timestamped>(items: readonly T[] | undefined): readonly T[] {
+  if (items === undefined) return [];
+  return items
+    .map((item) => ({ item, at: millis(item.timestamp) }))
+    .filter((entry) => Number.isFinite(entry.at))
+    .sort((a, b) => b.at - a.at)
+    .map((entry) => entry.item);
+}
