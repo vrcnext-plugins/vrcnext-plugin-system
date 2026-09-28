@@ -64,6 +64,15 @@ const PROFILE_FIELDS: Readonly<Record<string, string>> = {
 /** How long apart two profile edits can be and still be one visit to the profile editor. */
 const PROFILE_WINDOW_MS = 10 * 60 * 1000;
 
+/** How far apart a meeting and a visit can be and still be the same arrival. */
+const ARRIVAL_WINDOW_MS = 5 * 60 * 1000;
+
+/** The types that say a player arrived somewhere without saying anything else about it. */
+const VISIT_TYPES: ReadonlySet<string> = new Set(['instance_join', 'friend_gps']);
+
+/** The types that say a player arrived somewhere *and* that you were there too. */
+const MEETING_TYPES: ReadonlySet<string> = new Set(['meet_again', 'first_meet']);
+
 /** `a`, `a and b`, `a, b and c` — an English list, because this is read as a sentence. */
 function listOf(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
@@ -316,7 +325,36 @@ export function recentUserEvents(
     .map((id) => seen.get(id))
     .filter((entry): entry is { event: VrcTimelineEvent; repeats: number } => entry !== undefined)
     .map((entry) => ({ event: entry.event, repeats: entry.repeats, group: [entry.event] }));
-  return mergeProfileEdits(collapsed).slice(0, Math.max(limit, 0));
+  return dropVisitsExplainedByMeetings(mergeProfileEdits(collapsed)).slice(0, Math.max(limit, 0));
+}
+
+/**
+ * A visit is dropped when a meeting already accounts for it.
+ *
+ * VRCNext files both for one arrival: `instance_join` because they went somewhere, and
+ * `meet_again` because you were there when they did. They are not duplicates to the dedup above
+ * — different types, so different keys — but they are one thing that happened, and the log said
+ * it twice. The meeting survives, because "Met again in `Jellybean`" is everything "Visited
+ * `Jellybean`" says and more.
+ */
+function dropVisitsExplainedByMeetings(entries: readonly TimelineEntry[]): TimelineEntry[] {
+  const meetings = entries
+    .filter((entry) => MEETING_TYPES.has(entry.event.type))
+    .map((entry) => ({ place: placeKey(entry.event), at: Date.parse(entry.event.timestamp) }));
+  if (meetings.length === 0) return [...entries];
+  return entries.filter((entry) => {
+    if (!VISIT_TYPES.has(entry.event.type)) return true;
+    const place = placeKey(entry.event);
+    const at = Date.parse(entry.event.timestamp);
+    return !meetings.some(
+      (meeting) => meeting.place === place && Math.abs(meeting.at - at) <= ARRIVAL_WINDOW_MS,
+    );
+  });
+}
+
+/** Where a record happened, as one comparable string. */
+function placeKey(event: VrcTimelineEvent): string {
+  return parseLocation(event.location).key || event.location || event.worldName;
 }
 
 /** Whether a record is one field of a profile edit, as opposed to the app starting or stopping. */

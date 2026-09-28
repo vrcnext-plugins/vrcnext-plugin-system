@@ -114,3 +114,38 @@ test('starting and closing VRChat never merges into an edit', () => {
   ], { time: 'none' });
   assert.deepEqual(lines, ['Closed VRChat', 'Updated their bio']);
 });
+
+/** A record of `type` at one place and time, as VRCNext files it. */
+function at(type: string, location: string, worldName: string, timestamp: string): VrcTimelineEvent {
+  return { id: `${type}-${timestamp}`, type, timestamp, location, worldName };
+}
+
+const JELLY = 'wrld_11111111-1111-1111-1111-111111111111:52792~hidden(usr_1)';
+
+test('a meeting and the visit it explains are one arrival, and the meeting is the one kept', () => {
+  const lines = userEventLines([
+    at('instance_join', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
+    at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:01Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, ['Met again in "Jellybean" #52792 (Friends+ (legacy))']);
+});
+
+test('a visit somewhere you did not meet them stays', () => {
+  const other = 'wrld_22222222-2222-2222-2222-222222222222:11111~public';
+  const lines = userEventLines([
+    at('instance_join', other, 'Worlds Apart', '2026-09-28T11:00:00Z'),
+    at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, [
+    'Met again in "Jellybean" #52792 (Friends+ (legacy))',
+    'Visited "Worlds Apart" #11111 (Public)',
+  ]);
+});
+
+test('a visit to the same world hours before a meeting is its own arrival', () => {
+  const lines = userEventLines([
+    at('instance_join', JELLY, 'Jellybean', '2026-09-28T06:00:00Z'),
+    at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
+  ], { time: 'none' });
+  assert.equal(lines.length, 2, 'six hours apart is two visits, not one described twice');
+});
