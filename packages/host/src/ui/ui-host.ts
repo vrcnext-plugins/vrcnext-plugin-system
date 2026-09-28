@@ -58,11 +58,19 @@ export interface PluginUiOptions {
   readonly bag: DisposableBag;
   readonly settings?: SettingsStore<SettingsSchema> | undefined;
   readonly schema?: SettingsSchema | undefined;
+  /**
+   * The plugin's own gated VRChat API, which feeds `pickEntity`: whatever the picker returns
+   * goes to the plugin, so it needs the `vrchat` permission and is prompted for like any lookup.
+   */
+  readonly vrchat: VrchatApi;
 }
 
 export interface UiHostOptions {
   readonly toast: (options: ToastOptions) => void;
-  /** Feeds the entity pickers. Ungated: the picker acts for the user, not the plugin. */
+  /**
+   * Feeds the entity pickers of settings forms and the host's own UI. Ungated: a settings form
+   * is drawn and filled by the user. A plugin's `pickEntity` uses its gated API instead.
+   */
   readonly vrchat: VrchatApi;
   /** Where sidebar and menu interactions are logged, for the debug hub. */
   readonly onUiEvent?: (action: string, detail?: string) => void;
@@ -123,13 +131,18 @@ export class UiHost {
   }
 
   forPlugin(options: PluginUiOptions): PluginUi {
-    const { id, name, bag, settings, schema } = options;
-    return new PluginUiImpl(id, bag, { settings, schema, namespace: id, name }, this.#shared);
+    const { id, name, bag, settings, schema, vrchat } = options;
+    return new PluginUiImpl(id, bag, { settings, schema, namespace: id, name, vrchat }, this.#shared);
   }
 
   /** UI owned by the host itself. Its ids are not namespaced: they are the page's own. */
   forHost(bag: DisposableBag): PluginUi {
-    return new PluginUiImpl('host', bag, { namespace: undefined, name: 'Plugin System' }, this.#shared);
+    return new PluginUiImpl(
+      'host',
+      bag,
+      { namespace: undefined, name: 'Plugin System', vrchat: this.#shared.vrchat },
+      this.#shared,
+    );
   }
 
   /** The settings card a plugin added, if any. */
@@ -153,6 +166,8 @@ interface PluginUiContext {
   readonly namespace: string | undefined;
   /** What the plugin is called, which is what its settings section is labelled. */
   readonly name: string;
+  /** What `pickEntity` looks entities up through. */
+  readonly vrchat: VrchatApi;
 }
 
 class PluginUiImpl implements PluginUi {
@@ -163,6 +178,7 @@ class PluginUiImpl implements PluginUi {
   readonly #namespace: string | undefined;
   readonly #name: string;
   readonly #shared: Shared;
+  readonly #vrchat: VrchatApi;
   readonly #handles = new Set<PanelHandle>();
   /** Created the first time this plugin files a settings card, and removed with the plugin. */
   #ownSection: SettingsSectionHandle | undefined;
@@ -177,6 +193,7 @@ class PluginUiImpl implements PluginUi {
     this.#namespace = context.namespace;
     this.#name = context.name;
     this.#shared = shared;
+    this.#vrchat = context.vrchat;
   }
 
   #pageId(id: string): string {
@@ -411,7 +428,7 @@ class PluginUiImpl implements PluginUi {
   }
 
   pickEntity(options: EntityPickOptions): Promise<readonly string[] | undefined> {
-    return openPicker(this.#shared.vrchat, options);
+    return openPicker(this.#vrchat, options);
   }
 
   createCard(title: string, icon: string): HTMLElement {

@@ -44,7 +44,7 @@ beforeEach(() => {
 afterEach(() => { dom.window.close(); });
 
 function ui(): ReturnType<UiHost['forPlugin']> {
-  return host.forPlugin({ id: 'club-security', name: 'Club Security', bag: { add: () => undefined } as never });
+  return host.forPlugin({ id: 'club-security', name: 'Club Security', vrchat: {} as never, bag: { add: () => undefined } as never });
 }
 
 /** MutationObserver callbacks are microtasks; let them run. */

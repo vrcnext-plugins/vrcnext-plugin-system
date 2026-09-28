@@ -87,7 +87,8 @@ export async function createContext(
   });
   bag.add(() => { void settings.flush(); });
 
-  const ui = deps.ui.forPlugin({ id: manifest.id, name: manifest.name, bag, settings, schema });
+  const vrchat = gatedVrchat(deps.vrchat, gate);
+  const ui = deps.ui.forPlugin({ id: manifest.id, name: manifest.name, bag, settings, schema, vrchat });
   bag.add(() => { ui.disposeAll(); });
 
   const osc = new HostOscApi({
@@ -116,7 +117,7 @@ export async function createContext(
     osc: new GatedOsc(osc, gate, bag),
     native: new GatedNative(deps.native, gate),
     gameLog: new GatedGameLog(new HostGameLogApi(deps.bridge, deps.router, bag), gate, bag),
-    vrchat: gatedVrchat(deps.vrchat, gate),
+    vrchat,
     deepLinks: new GatedDeepLinks(new PluginDeepLinkApi(deps.deepLinks, bag), gate, bag),
     router: categoryGuarded(gate, 'routes', router),
     contextMenu: categoryGuarded(

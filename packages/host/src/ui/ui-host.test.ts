@@ -59,7 +59,7 @@ test('the host’s ids are the page’s own; a plugin’s are namespaced', () =>
   const ui = host();
   const hostBag = new DisposableBag();
   const plugins = ui.forHost(hostBag).addSettingsSection({ id: 'plugins', label: 'Plugins', icon: 'extension' });
-  const mine = ui.forPlugin({ id: 'demo', name: 'Demo', bag: new DisposableBag() }).addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
+  const mine = ui.forPlugin({ id: 'demo', name: 'Demo', vrchat: {} as never, bag: new DisposableBag() }).addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
 
   assert.equal(plugins.sectionId, 'plugins');
   assert.equal(mine.sectionId, 'demo.main');
@@ -69,7 +69,7 @@ test('the host’s ids are the page’s own; a plugin’s are namespaced', () =>
 
 test('a plugin’s settings card goes into a section of its own, named after it', () => {
   const ui = host();
-  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', bag: new DisposableBag() });
+  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', vrchat: {} as never, bag: new DisposableBag() });
 
   const defaulted = pluginUi.addSettingsCard({ title: 'Default', icon: 'tune' });
   assert.equal(defaulted.element.dataset['section'], 'demo.settings');
@@ -96,7 +96,7 @@ test('the divider above the plugin sections is hidden while no plugin has any', 
   assert.equal(divider.element.style.display, 'none');
 
   const bag = new DisposableBag();
-  ui.forPlugin({ id: 'demo', name: 'Demo', bag }).addSettingsCard({ title: 'Default', icon: 'tune' });
+  ui.forPlugin({ id: 'demo', name: 'Demo', vrchat: {} as never, bag }).addSettingsCard({ title: 'Default', icon: 'tune' });
   assert.equal(divider.element.style.display, '');
 
   bag.dispose();
@@ -106,7 +106,7 @@ test('the divider above the plugin sections is hidden while no plugin has any', 
 test('disposing the plugin’s bag removes its section, divider, blocks and sidebar group', () => {
   const ui = host();
   const bag = new DisposableBag();
-  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', bag });
+  const pluginUi = ui.forPlugin({ id: 'demo', name: 'Demo', vrchat: {} as never, bag });
   pluginUi.addSettingsDivider();
   const section = pluginUi.addSettingsSection({ id: 'main', label: 'Demo', icon: 'science' });
   const block = dom.window.document.createElement('div');
@@ -144,7 +144,7 @@ test('the settings schema lands on one card, not on every card the plugin adds',
     reset: () => Promise.resolve(),
   };
   const pluginUi = host().forPlugin({
-    id: 'demo', name: 'Demo', bag, schema,
+    id: 'demo', name: 'Demo', vrchat: {} as never, bag, schema,
     settings: store,
   });
 
@@ -172,7 +172,7 @@ test('a card renders its own content above the generated rows', () => {
     reset: () => Promise.resolve(),
   };
   const card = host().forPlugin({
-    id: 'demo', name: 'Demo', bag, schema,
+    id: 'demo', name: 'Demo', vrchat: {} as never, bag, schema,
     settings: store,
   }).addSettingsCard({
     title: 'One',
@@ -191,4 +191,18 @@ test('a card renders its own content above the generated rows', () => {
   assert.equal(mine.compareDocumentPosition(row) & 4, 4);
 
   bag.dispose();
+});
+
+test('pickEntity looks entities up through the plugin’s own VRChat API, not the host’s', async () => {
+  const called: string[] = [];
+  const mine = new Proxy({}, {
+    get: (_target, property) => () => {
+      called.push(String(property));
+      return Promise.reject(new Error('refused by the gate'));
+    },
+  }) as VrchatApi;
+  const pluginUi = host().forPlugin({ id: 'demo', name: 'Demo', vrchat: mine, bag: new DisposableBag() });
+  void pluginUi.pickEntity({ kind: 'user', scopes: ['friends'] });
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  assert.ok(called.length > 0, 'the plugin’s API was asked');
 });
