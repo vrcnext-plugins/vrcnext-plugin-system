@@ -340,6 +340,9 @@ export function openPicker(vrchat: VrchatApi, options: PickerOptions): Promise<r
       void refresh();
     },
   });
+  // The chips choose what is listed and the field narrows it: two steps, not one control in two
+  // halves. Flush against each other they read as one, and the field looks like part of the row.
+  chips.style.marginBottom = '10px';
   void refresh();
 
   return showModal<'done' | 'cancel'>({

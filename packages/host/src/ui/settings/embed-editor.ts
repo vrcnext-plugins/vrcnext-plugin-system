@@ -8,6 +8,7 @@ import { completeEmbed, type EmbedField, type EmbedSetting, type EmbedTemplate }
 
 import { element } from '../dom.js';
 import * as widgets from '../widgets.js';
+import { variablesCard } from './variables-card.js';
 import type { Binding } from './binding.js';
 import type { Control, FormContext } from './form.js';
 import { commit } from './form.js';
@@ -83,9 +84,7 @@ export function embedControl(spec: EmbedSetting, binding: Binding, error: Return
       icon: 'restart_alt',
       onClick: () => { commit(binding, completeEmbed(spec.default), error, ctx); },
     })));
-    if (spec.variables !== undefined && spec.variables.length > 0) {
-      rows.push(widgets.description(`Variables: ${spec.variables.map((v) => `{${v}}`).join(' ')}`));
-    }
+    if (spec.variables !== undefined) rows.push(variablesCard(spec.variables));
     widgets.setChildren(body, rows);
   };
   draw();

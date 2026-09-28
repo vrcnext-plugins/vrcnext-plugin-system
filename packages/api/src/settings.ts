@@ -55,6 +55,16 @@ export interface SelectOption<V extends string> {
 /** A yes/no that may depend on the plugin's other settings; re-evaluated after every change. */
 export type SettingPredicate = boolean | ((values: Readonly<Record<string, unknown>>) => boolean);
 
+/**
+ * The placeholders a setting's text may use: the name, and what it holds.
+ *
+ * The description is not decoration. It is the only place a user finds out what `rejoinAgo`
+ * means without reading the plugin's README, so the host shows it on hover and lets the name be
+ * copied in its `{...}` form. A setting that declares these also gets its text checked against
+ * them, so a typo is visible while it is being typed rather than in the output an hour later.
+ */
+export type SettingVariables = Readonly<Record<string, string>>;
+
 export interface SettingBase {
   readonly label: string;
   readonly description?: string;
@@ -62,6 +72,13 @@ export interface SettingBase {
   readonly hidden?: SettingPredicate;
   /** Rendered, but not editable. */
   readonly disabled?: SettingPredicate;
+  /**
+   * Placeholders this setting's text may contain, as `name` to a one-line description.
+   *
+   * Declaring them turns on the variables card under the control and the check that every
+   * `{name}` written there is one of these.
+   */
+  readonly variables?: SettingVariables;
 }
 
 export interface BooleanSetting extends SettingBase {
@@ -128,13 +145,32 @@ export interface MultiSelectSetting<V extends string = string> extends SettingBa
   readonly max?: number;
 }
 
+/**
+ * A switch on an object's header that gates everything inside it.
+ *
+ * The state lives under `enabled` beside the object's own fields, so a plugin reads
+ * `values.report.enabled` and the fields it guards in one place rather than keeping a loose
+ * boolean next to them and hoping the two stay in step.
+ */
+export interface ObjectToggle {
+  /** What the switch says, e.g. `Use a custom report template`. */
+  readonly label: string;
+  readonly default: boolean;
+  readonly description?: string;
+}
+
 /** A nested object: its `fields` render indented under the label. */
 export interface ObjectSetting<F extends SettingsSchema = SettingsSchema> extends SettingBase {
   readonly kind: 'object';
   readonly fields: F;
   /** Starts folded. */
   readonly collapsed?: boolean;
+  /** Turns the object into a switched group: its fields show only while the switch is on. */
+  readonly toggle?: ObjectToggle;
 }
+
+/** Where an {@link ObjectToggle} keeps its state inside the object's value. */
+export const TOGGLE_KEY = 'enabled';
 
 /**
  * A list of objects, each shaped like `item`. Rendered as cards the user can add, remove,
@@ -225,7 +261,10 @@ export type InferSetting<S extends SettingSpec> =
   : S extends StringSetting ? string
   : S extends EmbedSetting ? EmbedTemplate
   : S extends EntitySetting ? (S extends { readonly multiple: true } ? readonly string[] : string)
-  : S extends ObjectSetting<infer F> ? SettingsValues<F>
+  : S extends ObjectSetting<infer F>
+    ? (S extends { readonly toggle: ObjectToggle }
+        ? SettingsValues<F> & { readonly [TOGGLE_KEY]: boolean }
+        : SettingsValues<F>)
   : S extends ListSetting<infer I> ? readonly SettingsValues<I>[]
   : S extends CustomSetting<infer T> ? T
   : never;
@@ -258,7 +297,10 @@ export function settingFlag(flag: SettingPredicate | undefined, values: Readonly
 
 /** The default of one spec: structured kinds are completed field by field. */
 export function defaultOf(spec: SettingSpec): unknown {
-  if (spec.kind === 'object') return defaultsFor(spec.fields);
+  if (spec.kind === 'object') {
+    const fields = defaultsFor(spec.fields);
+    return spec.toggle === undefined ? fields : { ...fields, [TOGGLE_KEY]: spec.toggle.default };
+  }
   if (spec.kind === 'embed') return completeEmbed(spec.default);
   return spec.default;
 }

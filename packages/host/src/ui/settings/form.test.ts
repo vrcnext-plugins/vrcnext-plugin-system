@@ -24,8 +24,20 @@ const schema = {
   mode: { kind: 'select', label: 'Mode', default: 'a', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] },
   days: { kind: 'multiselect', label: 'Days', default: ['mon'], options: [{ value: 'mon', label: 'Mon' }, { value: 'tue', label: 'Tue' }] },
   owner: { kind: 'user', label: 'Owner', default: USER },
-  embed: { kind: 'embed', label: 'Embed', default: { title: 'Hi' }, variables: ['name'] },
+  embed: { kind: 'embed', label: 'Embed', default: { title: 'Hi' }, variables: { name: 'Who joined' } },
   discord: { kind: 'object', label: 'Discord', fields: { url: { kind: 'string', label: 'URL', default: '' } } },
+  note: {
+    kind: 'string',
+    label: 'Note',
+    default: '',
+    variables: { name: 'Who joined', world: 'Where they are' },
+  },
+  report: {
+    kind: 'object',
+    label: 'Report',
+    toggle: { label: 'Use a custom report', default: false },
+    fields: { body: { kind: 'string', label: 'Body', default: 'Hello {name}' } },
+  },
   presets: {
     kind: 'list',
     label: 'Presets',
@@ -206,4 +218,47 @@ test('outside writes refresh the controls', async () => {
   assert.equal(row(root, 'mode').querySelector('select')?.value, 'b');
   assert.equal(row(root, 'at').querySelector('input')?.value, '07:30');
   assert.equal(row(root, 'enabled').querySelector('input')?.checked, false);
+});
+
+test('a setting that declares variables gets a chip per variable, with its description on hover', () => {
+  const { root } = mount(memoryStore());
+  const chips = [...row(root, 'note').querySelectorAll('.vrcnx-var')];
+  assert.deepEqual(chips.map((chip) => chip.textContent), ['{name}', '{world}']);
+  assert.equal(chips[0]?.getAttribute('title'), 'Who joined');
+});
+
+test('text naming a variable the plugin does not provide is marked, and still kept', async () => {
+  const store = memoryStore();
+  const { root } = mount(store);
+  const field = row(root, 'note').querySelector('input');
+  assert.ok(field instanceof dom.window.HTMLInputElement);
+
+  field.value = '{name} is here';
+  field.dispatchEvent(new dom.window.Event('input'));
+  assert.equal(field.classList.contains('vrcnx-text-invalid'), false);
+
+  field.value = '{nmae} is here';
+  field.dispatchEvent(new dom.window.Event('input'));
+  assert.equal(field.classList.contains('vrcnx-text-invalid'), true, 'the border goes red as it is typed');
+
+  field.dispatchEvent(new dom.window.Event('change'));
+  await Promise.resolve();
+  assert.equal(store.get('note'), '{nmae} is here', 'half-typed text is never thrown away');
+});
+
+test('a toggled object hides its fields while it is off, and keeps what they held', async () => {
+  const store = memoryStore();
+  const { root } = mount(store);
+  const nested = row(root, 'report').querySelector('.vrcnx-nested');
+  assert.ok(nested instanceof dom.window.HTMLElement);
+  assert.equal(nested.style.display, 'none', 'off by default');
+  assert.deepEqual(store.get('report'), { enabled: false, body: 'Hello {name}' });
+
+  const toggle = row(root, 'report').querySelector('input[type="checkbox"]');
+  assert.ok(toggle instanceof dom.window.HTMLInputElement);
+  toggle.checked = true;
+  toggle.dispatchEvent(new dom.window.Event('change'));
+  await Promise.resolve();
+  assert.equal(nested.style.display, '');
+  assert.deepEqual(store.get('report'), { enabled: true, body: 'Hello {name}' }, 'the field keeps its value');
 });

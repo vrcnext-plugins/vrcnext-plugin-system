@@ -44,7 +44,7 @@ export type { ActionArgs, ActionName, Bridge, RequestOptions } from './bridge.js
 export { LOG_LEVELS } from './logger.js';
 export type { Logger, LogLevel } from './logger.js';
 
-export { coerceSetting, defaultOf, defaultsFor, defineCustomSetting, settingFlag } from './settings.js';
+export { TOGGLE_KEY, coerceSetting, defaultOf, defaultsFor, defineCustomSetting, settingFlag } from './settings.js';
 export type {
   AvatarScope,
   AvatarSetting,
@@ -68,7 +68,9 @@ export type {
   SelectOption,
   SelectSetting,
   SettingBase,
+  ObjectToggle,
   SettingPredicate,
+  SettingVariables,
   SettingSpec,
   SettingsSchema,
   SettingsStore,
@@ -202,6 +204,8 @@ export { formatUserEvent, recentUserEvents, userEventLines } from './timeline.js
 export type { TimelineEntry, TimelineFormat, TimelineTextOptions } from './timeline.js';
 export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';
+export { textProblem } from './setting-text.js';
+export type { TextProblem } from './setting-text.js';
 export type { RenderOptions, TemplateValue, TemplateValues } from './template.js';
 
 export { definePlugin } from './plugin.js';

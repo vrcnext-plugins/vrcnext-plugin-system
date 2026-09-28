@@ -40,8 +40,6 @@ export interface EmbedSetting extends SettingBase {
   readonly kind: 'embed';
   /** Anything left out is empty. */
   readonly default: Partial<EmbedTemplate>;
-  /** Placeholder names to list under the editor, so the user knows what they can write. */
-  readonly variables?: readonly string[];
 }
 
 /** Named colours a `color` template may render to. */

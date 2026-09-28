@@ -8,14 +8,17 @@
  */
 
 import {
+  TOGGLE_KEY,
   defaultOf,
   settingFlag,
+  textProblem,
   type CustomSetting,
   type CustomSettingHost,
   type ListSetting,
   type MultiSelectSetting,
   type NumberSetting,
   type ObjectSetting,
+  type ObjectToggle,
   type SelectSetting,
   type SettingSpec,
   type SettingsSchema,
@@ -25,6 +28,7 @@ import {
 
 import { element } from '../dom.js';
 import * as widgets from '../widgets.js';
+import { markText, variablesCard } from './variables-card.js';
 import { fieldBinding, itemBinding, type Binding, type Values } from './binding.js';
 import { embedControl } from './embed-editor.js';
 import { entityControl } from './entity-picker.js';
@@ -95,18 +99,35 @@ function numberControl(spec: NumberSetting, binding: Binding, error: ReturnType<
   return { element: input };
 }
 
+/**
+ * Check as the user types, not on blur.
+ *
+ * A red border that appears only after leaving the field tells someone their typo was fine
+ * until they looked away. Nothing is stored here: an invalid template is still committed, and
+ * the mark says so — refusing to save half-typed text would lose the rest of it.
+ */
+function watchText(field: HTMLInputElement | HTMLTextAreaElement, spec: SettingSpec, error: ReturnType<typeof widgets.errorLine>, ctx: FormContext): void {
+  if (spec.variables === undefined) return;
+  const check = (): void => { markText(field, error, textProblem(field.value, spec.variables)); };
+  field.addEventListener('input', check);
+  ctx.track(() => { field.removeEventListener('input', check); });
+  check();
+}
+
 function stringControl(spec: StringSetting, binding: Binding, error: ReturnType<typeof widgets.errorLine>, ctx: FormContext): Control {
   const value = String(binding.get());
   const onCommit = (next: string): void => { commit(binding, next, error, ctx); };
   const placeholder = spec.placeholder === undefined ? {} : { placeholder: spec.placeholder };
   if (spec.multiline === true) {
     const area = widgets.textArea({ value, rows: 6, ...placeholder, onCommit });
+    watchText(area, spec, error, ctx);
     ctx.track(binding.onChange((next) => {
       if (document.activeElement !== area) area.value = String(next);
     }));
     return { element: area, stacked: true };
   }
   const input = widgets.textField({ value, ...placeholder, onCommit });
+  watchText(input, spec, error, ctx);
   if (spec.format === 'password') input.type = 'password';
   if (spec.format === 'url') input.type = 'url';
   if (spec.maxLength !== undefined) input.maxLength = spec.maxLength;
@@ -183,12 +204,35 @@ function customControl(spec: CustomSetting, binding: Binding, error: ReturnType<
 function objectControl(spec: ObjectSetting, binding: Binding, ctx: FormContext): Control {
   const body = element('div', 'vrcnx-nested');
   body.appendChild(renderForm(spec.fields, binding, ctx));
+  if (spec.toggle !== undefined) return toggledObject(spec.toggle, body, binding, ctx);
   if (spec.collapsed !== true) return { element: body, stacked: true };
   const details = element('details');
   const summary = element('summary', 'set-desc', 'Show');
   summary.style.cursor = 'pointer';
   details.append(summary, body);
   return { element: details, stacked: true };
+}
+
+/**
+ * An object behind a switch: the fields exist either way, but are only shown while it is on.
+ *
+ * Hidden rather than removed, because the values are the user's. Turning "use a custom
+ * template" off and on again should give back the template they wrote, not an empty box.
+ */
+function toggledObject(toggle: ObjectToggle, body: HTMLElement, binding: Binding, ctx: FormContext): Control {
+  const state = fieldBinding(binding, TOGGLE_KEY);
+  const on = (): boolean => state.get() !== false;
+  const row = widgets.row(
+    toggle.label,
+    widgets.toggle(on(), (next) => { void state.set(next); }),
+    toggle.description,
+  );
+  const sync = (): void => { body.style.display = on() ? '' : 'none'; };
+  sync();
+  ctx.track(state.onChange(sync));
+  const wrapper = element('div');
+  wrapper.append(row, body);
+  return { element: wrapper, stacked: true };
 }
 
 /** A schema's rows, in a container that re-evaluates `hidden`/`disabled` after every change. */
@@ -266,6 +310,10 @@ export function renderSetting(
 ): { readonly row: HTMLElement; readonly fieldset: HTMLFieldSetElement } {
   const error = widgets.errorLine();
   const control = buildControl(spec, binding, error, ctx);
+  // The embed editor draws its own card inside the editor, beside the texts it applies to.
+  const variables = spec.variables !== undefined && spec.kind !== 'embed'
+    ? variablesCard(spec.variables)
+    : undefined;
   const fieldset = element('fieldset');
   // `min-width: min-content` rather than 0: a fieldset is not subject to the automatic minimum
   // size flex gives every other item, so with 0 the row happily squeezes a fixed-width control
@@ -276,6 +324,7 @@ export function renderSetting(
     fieldset.style.minWidth = '0';
   }
   fieldset.append(control.element, error);
+  if (variables !== undefined) fieldset.appendChild(variables);
   const row = widgets.row(spec.label, fieldset, spec.description, { stacked: control.stacked === true });
   row.classList.add(control.stacked === true ? 'vrcnx-row-stacked' : 'vrcnx-row-inline');
   row.dataset['setting'] = key;
