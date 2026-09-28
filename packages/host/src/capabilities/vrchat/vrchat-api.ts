@@ -99,6 +99,16 @@ export interface VrchatApiDeps {
   readonly router: EventRouter;
   readonly channel: QuietChannel;
   readonly now?: () => number;
+  /**
+   * Told, at debug, what a lookup's reply actually contained.
+   *
+   * VRCNext's replies are not the VRChat API's objects: it rewrites picture addresses to its own
+   * local cache, and a field the API documents may simply not be in what it pushes. When a plugin
+   * reports something missing, the first honest question is what arrived — and nothing recorded
+   * it. Only the field names and the addresses among them are logged; the rest of a profile is
+   * the user's business and does not belong in a log file.
+   */
+  readonly onReply?: (note: string) => void;
 }
 
 export class HostVrchatApi implements VrchatApi {
@@ -258,7 +268,16 @@ export class HostVrchatApi implements VrchatApi {
       }
     }
     return this.#shared(key, async () => {
-      const value = await this.#deps.channel.request<T>(request);
+      // Wrapped around `accept` rather than around the answer: by the time a reply has been
+      // accepted it has been normalised, and the question this exists to answer is what VRCNext
+      // sent before anything of ours touched it.
+      const value = await this.#deps.channel.request<T>({
+        ...request,
+        accept: (payload) => {
+          this.#noteReply(request.action, payload);
+          return request.accept(payload);
+        },
+      });
       this.#details.set(key, { at: this.#now(), value });
       while (this.#details.size > DETAIL_MAX_ENTRIES) {
         const oldest = this.#details.keys().next();
@@ -267,6 +286,22 @@ export class HostVrchatApi implements VrchatApi {
       }
       return value;
     }, options?.signal);
+  }
+
+  /** What came back, as names and addresses only. */
+  #noteReply(action: string, value: unknown): void {
+    const note = this.#deps.onReply;
+    if (note === undefined) return;
+    const record = n.rec(value);
+    if (record === undefined) {
+      note(`${action}: replied with ${typeof value}`);
+      return;
+    }
+    const urls = Object.entries(record)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && /^https?:/i.test(entry[1]))
+      .map(([field, url]) => `${field}=${url}`);
+    note(`${action}: fields ${Object.keys(record).join(', ')}`);
+    if (urls.length > 0) note(`${action}: addresses ${urls.join(' | ')}`);
   }
 
   /** A lookup whose absence is an answer: a timeout or refusal becomes `undefined`. */

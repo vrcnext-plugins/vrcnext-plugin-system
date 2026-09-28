@@ -21,7 +21,7 @@ interface Fake {
   readonly replies: Map<string, unknown[]>;
 }
 
-function fake(): Fake {
+function fake(onReply?: (note: string) => void): Fake {
   const router = new EventRouter();
   const requests: QuietRequest<unknown>[] = [];
   const replies = new Map<string, unknown[]>();
@@ -35,7 +35,7 @@ function fake(): Fake {
       return Promise.reject(new Error(`no reply for ${request.expect}`));
     },
   } as QuietChannel;
-  const api = new HostVrchatApi({ router, channel });
+  const api = new HostVrchatApi(onReply === undefined ? { router, channel } : { router, channel, onReply });
   return { api, router, requests, replies };
 }
 
@@ -193,4 +193,23 @@ test('the detail cache is bounded, dropping the least recently used', async () =
   assert.equal(f.requests.length, 201, 'the most recently used entry survived the eviction');
   await f.api.user(ids[1] ?? '');
   assert.equal(f.requests.length, 202, 'the least recently used entry was evicted');
+});
+
+test('a reply is reported as its raw field names and the addresses in it, nothing else', async () => {
+  const notes: string[] = [];
+  const f = fake((note) => { notes.push(note); });
+  f.replies.set('vrcAvatarDetail', [{
+    id: 'avtr_1',
+    name: 'Ava',
+    // What VRCNext actually sends: its own cache, not the addresses VRChat serves.
+    imageUrl: 'http://localhost:51956/imgcache/Avatars/avtr_1.png?v=1',
+    thumbnailImageUrl: 'http://localhost:51956/imgcache/Avatars/avtr_1.png?v=1',
+    description: 'something the user wrote',
+  }]);
+  await f.api.avatar('avtr_1');
+
+  const all = notes.join('\n');
+  assert.match(all, /vrcGetAvatarDetail: fields .*thumbnailImageUrl/);
+  assert.match(all, /addresses .*imgcache/);
+  assert.ok(!all.includes('something the user wrote'), 'a value that is not an address stays out of the log');
 });

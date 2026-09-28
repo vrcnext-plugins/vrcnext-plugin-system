@@ -128,7 +128,11 @@ function buildCore(): Core {
     quiet.noteOutbound(action);
     return undefined;
   });
-  const vrchat = new HostVrchatApi({ router, channel: quiet });
+  const vrchat = new HostVrchatApi({
+    router,
+    channel: quiet,
+    onReply: (note) => { sink.write('debug', 'vrchat', note, []); },
+  });
   const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
   const debugHub = new DebugHub(sink);
