@@ -241,11 +241,12 @@ export class ManagerPanel {
     panel.appendChild(controlRow(input, install));
     panel.appendChild(
       description(
-        'A flat git repository over https with plugin.json and main.ts at its root. The bridge ' +
-          'clones it, checks its manifest and source policy, asks you to confirm on the desktop, ' +
-          'and rebuilds the bundle. Each update is confirmed the same way, one plugin at a time, ' +
-          'and the new code runs after you reload VRCNext. Plugins run with the authority of this ' +
-          'page — there is no sandbox.',
+        'A flat git repository over https with plugin.json, main.ts and plugin.sig at its root. ' +
+          'The bridge clones it, checks its manifest and source policy, verifies the author\u2019s ' +
+          'signature, asks you to confirm on the desktop, and rebuilds the bundle. Each update is ' +
+          'confirmed the same way, one plugin at a time, and must be signed by the same key; the ' +
+          'new code runs after you reload VRCNext. Plugins run with the authority of this page — ' +
+          'there is no sandbox.',
       ),
     );
     const progress = this.#buildProgress();

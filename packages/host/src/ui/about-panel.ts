@@ -118,7 +118,8 @@ export class AboutPanel {
         'A plugin runtime for VRCNext that installs as a custom theme and never modifies VRCNext ' +
           'itself. The VRCNext Bridge compiles the host and every installed plugin into one bundle; ' +
           'plugins run with the full authority of this page, so each capability is declared and ' +
-          'each concrete use is confirmed the first time.',
+          'each concrete use is confirmed the first time. Code only arrives from a repository ' +
+          'signed by a key you have accepted, and only source the bridge could read and scan.',
       ),
     );
     panel.appendChild(

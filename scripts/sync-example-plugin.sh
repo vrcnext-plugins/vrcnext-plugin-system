@@ -19,9 +19,13 @@ DEST="${1:-$ROOT/../vrcnext-example-plugin}"
 [[ -d "$DEST/.git" ]] || { echo "not a checkout: $DEST" >&2; exit 1; }
 
 rsync -a --delete "$SRC/src/" "$DEST/src/"
-for file in main.ts plugin.json README.md eslint.config.mjs .gitignore; do
+for file in main.ts plugin.json eslint.config.mjs .gitignore; do
   cp "$SRC/$file" "$DEST/$file"
 done
+
+# The README's first block points readers from the workspace copy at the flat repository, which
+# is where they already are once it is copied. Drop it, and nothing else.
+sed '/^> \*\*You are probably looking for/,/^$/d' "$SRC/README.md" > "$DEST/README.md"
 
 echo "Synced into $DEST. Re-sign before committing:"
 echo "  (cd $DEST && node scripts/sign-plugin.mjs sign --key ~/.vrcnext-plugins/signing-key.txt)"

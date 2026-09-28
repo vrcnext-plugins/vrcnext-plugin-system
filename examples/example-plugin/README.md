@@ -3,6 +3,12 @@
 A working VRCNext plugin that uses **every capability the host provides**, one per file, so you
 can start from it and delete what you do not need.
 
+> **You are probably looking for <https://github.com/vrcnext-plugins/vrcnext-example-plugin>.**
+> That is the published form of this directory: a flat repository you can install, and the one
+> GitHub offers as a template. This copy is the canonical source — it lives here so the plugin
+> system's own gate type-checks it against the live `packages/api` and bundles it in development
+> — and `scripts/sync-example-plugin.sh` copies it across.
+
 > Press **Use this template** on GitHub, or clone it. It installs and runs as-is — enable it and
 > you get a nav tab, a dashboard card, a settings section, context-menu entries, OSC, the game
 > log, notifications and an in-page HTTP route, all of them live.

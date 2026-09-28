@@ -258,10 +258,11 @@ export class GatedNative implements NativeApi {
 
 /**
  * Asked once per plugin. Every method awaits that one answer; `self()` is synchronous, so it
- * answers `undefined` until the grant is in rather than prompting.
+ * starts the prompt and answers `undefined` until the grant is in.
  */
 export function gatedVrchat(inner: VrchatApi, gate: PluginGate): VrchatApi {
   const request = vrchatPrompt(gate.subject);
+  let asked = false;
   return new Proxy(inner, {
     get(target, property, receiver): unknown {
       const member: unknown = Reflect.get(target, property, receiver);
@@ -269,7 +270,16 @@ export function gatedVrchat(inner: VrchatApi, gate: PluginGate): VrchatApi {
       if (property === 'self') {
         return (): unknown => {
           gate.requireCategory('vrchat');
-          return gate.isAllowed(request) ? Reflect.apply(member, target, []) : undefined;
+          if (gate.isAllowed(request)) return Reflect.apply(member, target, []);
+          // Synchronous, so it cannot await the prompt — start it and answer `undefined` until
+          // the answer is in. Without this a plugin whose first VRChat call is `self()` would
+          // never be asked at all: it would read `undefined`, conclude nobody is signed in, and
+          // return before reaching the awaited call that would have prompted.
+          if (!asked) {
+            asked = true;
+            gate.whenAllowed(request, () => undefined);
+          }
+          return undefined;
         };
       }
       return async (...args: unknown[]): Promise<unknown> => {
