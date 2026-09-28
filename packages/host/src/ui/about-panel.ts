@@ -4,6 +4,11 @@
  * Built entirely from {@link widgets}, which are VRCNext's own markup. It deliberately states
  * what the host *cannot* do alongside what it can, so a user does not have to discover the
  * platform gates by watching a plugin silently do nothing.
+ *
+ * Counts are four numbers, not four full-width rows: a label on the left and a digit on the far
+ * right spends a whole line on a character. The bridge's own card states the connection, the
+ * version and the services, so nothing here repeats them — the same fact in two places is one
+ * fact that can be wrong in two places.
  */
 
 import { API_VERSION } from '../api-version.js';
@@ -12,7 +17,7 @@ import type { DebugHub } from '../log/debug-hub.js';
 import type { LogSink } from '../log/log-sink.js';
 import type { PluginManager } from '../plugins/plugin-manager.js';
 import { buildBridgeCard } from './bridge-card.js';
-import { badge, button, card, controlRow, description, grid, panelLayout, row, toggle, value } from './widgets.js';
+import { badge, button, card, controlRow, description, grid, panelLayout, row, stat, toggle, value } from './widgets.js';
 
 const REPO_URL = 'https://github.com/vrcnext-plugins/vrcnext-plugin-system';
 const DOCS_URL = 'https://vrcnext-plugins.github.io/';
@@ -39,7 +44,13 @@ export class AboutPanel {
     const layout = panelLayout();
     container.replaceChildren(layout);
     this.#root = layout;
-    this.#unsubscribe ??= this.#deps.native.onStatus(() => { this.refresh(); });
+    // Both, and not just the bridge: the counts below are wrong for the life of the page
+    // otherwise, because nothing is installed or enabled yet at the moment this first renders.
+    if (this.#unsubscribe === undefined) {
+      const offStatus = this.#deps.native.onStatus(() => { this.refresh(); });
+      const offManager = this.#deps.manager.onChange(() => { this.refresh(); });
+      this.#unsubscribe = () => { offStatus(); offManager(); };
+    }
     this.refresh();
   }
 
@@ -55,26 +66,37 @@ export class AboutPanel {
       buildBridgeCard({ native: this.#deps.native, openUrl: this.#deps.openUrl }),
       // Two columns whenever they fit (320px keeps them with the friends panel open), never more:
       // four narrow cards in a row read worse than two rows of two.
-      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildDiagnostics(), this.#buildAbout()], 320, 2),
+      grid([this.#buildStatus(), this.#buildPlatform(), this.#buildAbout()], 320, 2),
     );
   }
 
   #buildStatus(): HTMLElement {
     const panel = card('Status', 'info');
-    const { manager, sink, native } = this.#deps;
+    const { manager, sink, debugHub } = this.#deps;
     const enabled = manager.compiled.filter((p) => manager.isEnabled(p.manifest.id)).length;
-    for (const [label, text] of [
-      ['Plugin API version', API_VERSION],
-      ['Bridge', native.status.replace(/_/g, ' ')],
-      ['Bridge version', native.describe()?.version ?? '—'],
-      ['Plugins in this bundle', String(manager.compiled.length)],
-      ['Plugins installed', String(manager.installed.length)],
-      ['Plugins enabled', String(enabled)],
-      ['Log records held', String(sink.records.length)],
-      ['Page origin', globalThis.location.origin],
-    ] as const) {
-      panel.appendChild(row(label, value(text)));
+    // Installed but not in the bundle means installed since this page loaded, which is worth
+    // pointing at: those plugins cannot run until VRCNext is restarted.
+    const pending = manager.installed.length - manager.compiled.length;
+    panel.appendChild(
+      grid([
+        stat('Installed', String(manager.installed.length)),
+        stat('In this bundle', String(manager.compiled.length)),
+        stat('Enabled', String(enabled), enabled === 0 ? 'warning' : 'ok'),
+        stat('Log records', String(sink.records.length)),
+      ], 92),
+    );
+    if (pending > 0) {
+      panel.appendChild(description(`${String(pending)} installed plugin(s) are not in this bundle yet; restart VRCNext to run them.`));
     }
+    panel.appendChild(row('Plugin API version', value(API_VERSION)));
+    panel.appendChild(row('Page origin', value(globalThis.location.origin)));
+    panel.appendChild(
+      row(
+        'Verbose debug logging',
+        toggle(debugHub.enabled, (next) => { debugHub.enabled = next; }),
+        'Mirrors console errors and UI interactions into the host log and the bridge’s plugins.log.',
+      ),
+    );
     return panel;
   }
 
@@ -82,32 +104,20 @@ export class AboutPanel {
     const panel = card('Platform support', 'desktop_windows');
     const linux = this.#deps.isLinux();
     panel.appendChild(description(linux ? 'Running on Linux.' : 'Running on Windows.'));
-    const bridge = this.#deps.native.status === 'connected' ? badge('ok', 'Via bridge') : badge('warn', 'Bridge not connected');
+    // A fresh element per row: a DOM node appended twice is *moved*, which silently emptied
+    // whichever row asked for the bridge badge first.
+    const bridge = (): HTMLElement =>
+      this.#deps.native.status === 'connected' ? badge('ok', 'Via bridge') : badge('warn', 'Bridge not connected');
     for (const [label, badgeEl] of [
       ['OSC', linux ? badge('warn', 'Windows only') : badge('ok', 'Available')],
-      ['Desktop notifications', linux ? bridge : badge('ok', 'Available')],
-      ['VR overlay notifications', bridge],
+      ['Desktop notifications', linux ? bridge() : badge('ok', 'Available')],
+      ['VR overlay notifications', bridge()],
       ['In-app toasts, modals', badge('ok', 'Available')],
       ['Host events, actions, game log', badge('ok', 'Available')],
       ['UI, context menus, routes', badge('ok', 'Available')],
     ] as const) {
       panel.appendChild(row(label, badgeEl));
     }
-    return panel;
-  }
-
-  #buildDiagnostics(): HTMLElement {
-    const panel = card('Diagnostics', 'bug_report');
-    panel.appendChild(
-      description(
-        'When enabled, browser console errors and warnings are mirrored into the host log, and ' +
-          'UI interaction events are recorded. Everything logged is also mirrored to the bridge’s ' +
-          'plugins.log.',
-      ),
-    );
-    panel.appendChild(
-      row('Verbose debug logging', toggle(this.#deps.debugHub.enabled, (next) => { this.#deps.debugHub.enabled = next; })),
-    );
     return panel;
   }
 

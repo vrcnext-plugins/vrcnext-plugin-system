@@ -71,15 +71,36 @@ function headersText(headers: HeadersInit | undefined): string {
   return lines.length === 0 ? '' : lines.join('\n');
 }
 
+/**
+ * What a method does, in words.
+ *
+ * The method is named in every case, because it is half of what is being asked: the answer is
+ * saved against it, and "send data to" alone would make a DELETE look like the POST the user
+ * already agreed to.
+ */
+function networkVerb(method: string): string {
+  if (method === 'GET') return 'fetch data from';
+  if (method === 'HEAD') return 'check what is at';
+  return `send a ${method} request to`;
+}
+
+/**
+ * A host is asked about once per method.
+ *
+ * Reading a page and deleting it are not the same permission, so the grant is keyed on both and
+ * agreeing to one says nothing about the other.
+ */
+export function networkTarget(method: string, host: string): string {
+  return `${method} ${host}`;
+}
+
 export function networkPrompt(plugin: PluginSubject, url: URL, init: RequestInit | undefined): PromptRequest {
   const method = (init?.method ?? 'GET').toUpperCase();
-  const reads = method === 'GET' || method === 'HEAD';
-  const verb = reads ? 'request data from' : 'send data to';
   const body = init?.body;
   return build(plugin, {
     kind: 'network',
-    target: url.host,
-    lead: `wants to ${verb}`,
+    target: networkTarget(method, url.host),
+    lead: `wants to ${networkVerb(method)}`,
     headline: url.host,
     details: [
       // The method belongs in front of the URL, the way it is written everywhere else; on its own

@@ -129,7 +129,7 @@ const OK_REPLY = {
 test('a host declared in plugin.json is still asked about, because the bridge reaches further than the page', async () => {
   const f = http('allow', OK_REPLY);
   const response = await f.api.fetch('https://api.steampowered.com/x');
-  assert.deepEqual(f.asked, ['Plugin Bio Updater (bio-updater) wants to request data from api.steampowered.com']);
+  assert.deepEqual(f.asked, ['Plugin Bio Updater (bio-updater) wants to fetch data from api.steampowered.com']);
   assert.equal(response.status, 200);
   assert.equal(response.url, 'https://api.steampowered.com/x');
   assert.equal(await response.text(), '{"response":{}}');
