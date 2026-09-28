@@ -78,3 +78,39 @@ test('a record whose timestamp does not parse is left out, because it cannot be 
   assert.deepEqual(userEventLines([event({ type: 'friend_online', timestamp: 'whenever' })]), []);
   assert.deepEqual(userEventLines(undefined), []);
 });
+
+/** A profile record as VRCNext files one: the field in `notifType`, the new value in `message`. */
+function profile(notifType: string, message: string, timestamp: string): VrcTimelineEvent {
+  return { id: `${notifType}-${timestamp}`, type: 'profile', timestamp, location: '', worldName: '', notifType, message };
+}
+
+test('profile edits made in one sitting are one line listing what changed', () => {
+  const lines = userEventLines([
+    profile('bio', 'new bio', '2026-09-28T12:00:00Z'),
+    profile('status', 'ask me', '2026-09-28T12:01:00Z'),
+    profile('statusdesc', 'at a club', '2026-09-28T12:02:00Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, ['Updated their status text, status and bio']);
+});
+
+test('a single edit names the field, and shows the new value when it is worth showing', () => {
+  assert.deepEqual(userEventLines([profile('status', 'ask me', '2026-09-28T12:00:00Z')], { time: 'none' }), ['Changed status to "Ask Me"']);
+  assert.deepEqual(userEventLines([profile('bio', 'x', '2026-09-28T12:00:00Z')], { time: 'none' }), ['Updated their bio']);
+  assert.deepEqual(userEventLines([profile('statusdesc', '', '2026-09-28T12:00:00Z')], { time: 'none' }), ['Cleared their status text']);
+});
+
+test('edits hours apart are separate visits to the profile editor', () => {
+  const lines = userEventLines([
+    profile('bio', 'a', '2026-09-28T08:00:00Z'),
+    profile('status', 'busy', '2026-09-28T12:00:00Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, ['Changed status to "Busy"', 'Updated their bio']);
+});
+
+test('starting and closing VRChat never merges into an edit', () => {
+  const lines = userEventLines([
+    profile('bio', 'a', '2026-09-28T12:00:00Z'),
+    profile('launch', 'stop', '2026-09-28T12:01:00Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, ['Closed VRChat', 'Updated their bio']);
+});

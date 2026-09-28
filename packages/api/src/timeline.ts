@@ -39,6 +39,40 @@ export interface TimelineEntry {
   readonly event: VrcTimelineEvent;
   /** 1 for a record that happened once, higher when identical records were collapsed. */
   readonly repeats: number;
+  /**
+   * Every record this entry stands for, newest first.
+   *
+   * Usually the same record repeated. Profile edits are the exception: VRCNext files one record
+   * per field, so changing your bio and your status in one sitting is two records that are not
+   * duplicates of each other and are still one thing that happened.
+   */
+  readonly group?: readonly VrcTimelineEvent[];
+}
+
+/**
+ * The profile fields VRCNext files a record for, named as a user would name them.
+ *
+ * `launch` is in the same family but is not an edit — it is the app starting and stopping — so
+ * it never merges with the others.
+ */
+const PROFILE_FIELDS: Readonly<Record<string, string>> = {
+  bio: 'bio',
+  status: 'status',
+  statusdesc: 'status text',
+};
+
+/** How long apart two profile edits can be and still be one visit to the profile editor. */
+const PROFILE_WINDOW_MS = 10 * 60 * 1000;
+
+/** `a`, `a and b`, `a, b and c` — an English list, because this is read as a sentence. */
+function listOf(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1] ?? ''}`;
+}
+
+/** VRChat's raw status values are lowercase; users see them capitalised. */
+function statusLabel(raw: string): string {
+  return raw.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
 
 /** VRCNext's own wording for the moderation actions, which are always something *you* did. */
@@ -143,7 +177,29 @@ function notificationText(event: VrcTimelineEvent, format: TimelineFormat): stri
 }
 
 /** The sentence itself, without the count and without the time. */
-function sentence(event: VrcTimelineEvent, options: TimelineTextOptions): string {
+/**
+ * What was changed, rather than that something was.
+ *
+ * One record names its field and, where the new value is short and means something on its own,
+ * shows it. Several records from one sitting are listed instead: "Updated their bio, status and
+ * status text" says in one line what three lines of "Updated their profile" did not say at all.
+ */
+function profileText(event: VrcTimelineEvent, group: readonly VrcTimelineEvent[], format: TimelineFormat): string {
+  const fields = [...new Set(group.map((record) => PROFILE_FIELDS[record.notifType ?? '']).filter((name) => name !== undefined))];
+  if (fields.length > 1) return `Updated their ${listOf(fields)}`;
+
+  const value = event.message ?? '';
+  if (event.notifType === 'status') {
+    return value === '' ? 'Changed their status' : `Changed status to ${quote(statusLabel(value), format)}`;
+  }
+  if (event.notifType === 'statusdesc') {
+    return value === '' ? 'Cleared their status text' : `Changed their status text to ${quote(value, format)}`;
+  }
+  if (event.notifType === 'bio') return 'Updated their bio';
+  return 'Updated their profile';
+}
+
+function sentence(event: VrcTimelineEvent, options: TimelineTextOptions, group: readonly VrcTimelineEvent[] = [event]): string {
   const format = options.format ?? 'plain';
   const where = place(event, options);
   const at = where === '' ? '' : ` ${where}`;
@@ -183,7 +239,7 @@ function sentence(event: VrcTimelineEvent, options: TimelineTextOptions): string
     case 'profile':
       // VRCNext files the app's own start and stop under `profile`.
       if (event.notifType === 'launch') return event.message === 'start' ? 'Started VRChat' : 'Closed VRChat';
-      return 'Updated their profile';
+      return profileText(event, group, format);
     default:
       return humanise(event.type);
   }
@@ -202,7 +258,7 @@ export function formatUserEvent(
   const entry: TimelineEntry = 'event' in event ? event : { event, repeats: 1 };
   const repeats = options.repeats ?? entry.repeats;
   const format = options.format ?? 'plain';
-  const parts = [sentence(entry.event, options)];
+  const parts = [sentence(entry.event, options, entry.group ?? [entry.event])];
   if (repeats > 1) parts.push(`×${String(repeats)}`);
   if ((options.time ?? 'none') === 'relative') {
     const when = format === 'discord'
@@ -256,11 +312,48 @@ export function recentUserEvents(
       existing.repeats += 1;
     }
   }
-  return order
-    .slice(0, Math.max(limit, 0))
+  const collapsed = order
     .map((id) => seen.get(id))
     .filter((entry): entry is { event: VrcTimelineEvent; repeats: number } => entry !== undefined)
-    .map((entry) => ({ event: entry.event, repeats: entry.repeats }));
+    .map((entry) => ({ event: entry.event, repeats: entry.repeats, group: [entry.event] }));
+  return mergeProfileEdits(collapsed).slice(0, Math.max(limit, 0));
+}
+
+/** Whether a record is one field of a profile edit, as opposed to the app starting or stopping. */
+function isProfileEdit(event: VrcTimelineEvent): boolean {
+  return event.type === 'profile' && PROFILE_FIELDS[event.notifType ?? ''] !== undefined;
+}
+
+/**
+ * Profile edits made in one sitting become one entry.
+ *
+ * They are not duplicates — a bio change and a status change are different records — so the
+ * dedup above keeps both, and the log then spends two of its five lines saying "Updated their
+ * profile" twice. Anything from the same {@link PROFILE_WINDOW_MS} window merges into the
+ * newest of them, which is the one the timestamp should read from.
+ */
+function mergeProfileEdits(entries: readonly { event: VrcTimelineEvent; repeats: number; group: VrcTimelineEvent[] }[]): TimelineEntry[] {
+  const merged: { event: VrcTimelineEvent; repeats: number; group: VrcTimelineEvent[] }[] = [];
+  for (const entry of entries) {
+    const previous = merged[merged.length - 1];
+    const joinable = previous !== undefined
+      && isProfileEdit(entry.event)
+      && isProfileEdit(previous.event)
+      && Date.parse(previous.event.timestamp) - Date.parse(entry.event.timestamp) <= PROFILE_WINDOW_MS;
+    if (joinable) {
+      previous.group.push(...entry.group);
+      previous.repeats += entry.repeats;
+      continue;
+    }
+    merged.push(entry);
+  }
+  // A merged entry counts fields, not occurrences: "×3" beside a list of three fields would be
+  // saying the same three twice.
+  return merged.map((entry) => ({
+    event: entry.event,
+    repeats: entry.group.length > 1 && isProfileEdit(entry.event) ? 1 : entry.repeats,
+    group: entry.group,
+  }));
 }
 
 /**
