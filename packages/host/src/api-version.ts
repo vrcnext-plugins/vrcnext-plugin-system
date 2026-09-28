@@ -5,4 +5,4 @@
  * plugin whose range this version does not satisfy. Kept in its own module so the build can
  * assert it against `packages/api/package.json` rather than trusting a hand-edited copy.
  */
-export const API_VERSION = '0.3.13';
+export const API_VERSION = '0.3.14';

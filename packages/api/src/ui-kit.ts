@@ -174,6 +174,14 @@ export interface UiGridOptions {
    * so the same code works in a narrow sidebar-heavy window and a maximised one.
    */
   readonly min?: number;
+  /**
+   * Most columns to use, however wide the panel is. Unset means as many as fit.
+   *
+   * For a handful of equally important things — three buttons, four counts — a cap keeps them
+   * one tidy row instead of letting a wide window spread them out or a narrow one wrap them
+   * into groups that look like they mean something.
+   */
+  readonly maxColumns?: number;
 }
 
 export interface UiStatOptions {

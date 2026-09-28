@@ -36,7 +36,7 @@ export class HostUiKit implements UiKit {
   }
 
   grid(children: readonly UiChild[], options?: UiGridOptions): HTMLElement {
-    return widgets.grid(children, options?.min);
+    return widgets.grid(children, options?.min, options?.maxColumns);
   }
 
   pair(first: UiChild, second: UiChild): HTMLElement {
