@@ -2,6 +2,9 @@
 name: ci
 
 on:
+  workflow_dispatch:
+  # Disabled: workflows do not run under this account, so an automatic trigger here would
+  # never fire. Uncomment if you fork this repository onto an account where Actions run.
   # push:
     # branches: ['**']
   # pull_request:
