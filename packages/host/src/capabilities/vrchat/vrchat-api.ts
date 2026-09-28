@@ -37,6 +37,7 @@ import type {
 
 import type { EventRouter } from '../../events/event-router.js';
 import * as n from './normalise.js';
+import { pageGlobal } from './page-global.js';
 import type { QuietChannel } from './quiet-channel.js';
 
 /** How long a detail answer is reused. Long enough for a settings card to draw, short enough to notice a status change. */
@@ -242,7 +243,16 @@ export class HostVrchatApi implements VrchatApi {
     }
   }
 
+  /**
+   * The signed-in account.
+   *
+   * VRCNext pushes `vrcUser` once, when it signs in. A host that finished starting after that
+   * — which is the usual case, since it loads its plugins from the bridge first — never sees
+   * the message and would answer `undefined` for the rest of the session. The page keeps that
+   * same payload in `currentVrcUser`, so it is read once as a fallback.
+   */
   self(): VrcSelf | undefined {
+    if (this.#self === undefined) this.#self = n.self(pageGlobal('currentVrcUser'));
     return this.#self;
   }
 
