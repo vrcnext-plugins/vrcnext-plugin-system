@@ -1,8 +1,8 @@
 /**
- * Small scrolling log view used by the Kitchen Sink tab.
+ * Small scrolling log view used by the Example Plugin tab.
  *
  * Kept in its own module to show the normal pattern: UI helpers separate from the plugin's
- * lifecycle wiring, so `index.ts` stays readable.
+ * lifecycle wiring, so `main.ts` stays readable.
  */
 
 const MAX_LINES = 200;
@@ -14,13 +14,13 @@ export interface LogPanel {
 
 export function createLogPanel(parent: HTMLElement): LogPanel {
   const list = document.createElement('div');
-  list.className = 'ks-log';
+  list.className = 'ex-log';
   parent.appendChild(list);
 
   return {
     append(message: string): void {
       const line = document.createElement('div');
-      line.className = 'ks-log-line';
+      line.className = 'ex-log-line';
       const time = new Date().toLocaleTimeString();
       line.textContent = `${time}  ${message}`;
       list.appendChild(line);

@@ -2,19 +2,13 @@
   "files": [],
   "references": [
     {
+      "path": "./examples/example-plugin"
+    },
+    {
       "path": "./packages/api"
     },
     {
       "path": "./packages/host"
-    },
-    {
-      "path": "./examples/hello-world"
-    },
-    {
-      "path": "./examples/kitchen-sink"
-    },
-    {
-      "path": "./examples/template"
     }
   ]
 }

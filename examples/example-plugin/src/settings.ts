@@ -3,7 +3,7 @@
  *
  * The host derives both the persisted value type and the rendered control from this, so there is
  * no form and no parser anywhere in the plugin. Read the rows this produces in
- * Settings → Plugins → Kitchen Sink next to the code here.
+ * Settings → Plugins → Example Plugin next to the code here.
  */
 
 import { defineCustomSetting, type CustomSettingHost, type SettingsSchema, type SettingsValues } from '@vrcnext/plugin-api';
@@ -136,14 +136,14 @@ export const settings = {
     description: 'A nested object: its fields are stored under this one key.',
     fields: {
       enabled: { kind: 'boolean', label: 'Enabled', default: false },
-      prefix: { kind: 'string', label: 'Prefix', default: '[KS] ', disabled: (v) => v['enabled'] !== true },
+      prefix: { kind: 'string', label: 'Prefix', default: '[ex] ', disabled: (v) => v['enabled'] !== true },
     },
   },
   webhook: {
     kind: 'embed',
     label: 'Discord embed',
     description: 'Every part of an embed, each text a template. Render it with renderEmbed().',
-    default: { title: 'Kitchen Sink', description: 'Hello {name}', color: 'blue', timestamp: true },
+    default: { title: 'Example Plugin', description: 'Hello {name}', color: 'blue', timestamp: true },
     variables: ['name', 'world', 'time'],
   },
   rules: {

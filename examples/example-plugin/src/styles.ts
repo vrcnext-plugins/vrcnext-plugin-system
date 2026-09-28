@@ -6,32 +6,32 @@
  */
 
 export const PLUGIN_CSS = `
-.ks-grid {
+.ex-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
   padding: 10px 0;
 }
 
-.ks-stat {
+.ex-stat {
   background: var(--bg-input);
   border-radius: 10px;
   padding: 12px 14px;
 }
 
-.ks-stat-label {
+.ex-stat-label {
   font-size: calc(11px + var(--fs-off, 0px));
   color: var(--tx3);
 }
 
-.ks-stat-value {
+.ex-stat-value {
   font-size: calc(20px + var(--fs-off, 0px));
   font-weight: 600;
   color: var(--tx0);
   font-variant-numeric: tabular-nums;
 }
 
-.ks-log {
+.ex-log {
   max-height: 220px;
   overflow-y: auto;
   font-family: ui-monospace, monospace;
@@ -42,6 +42,6 @@ export const PLUGIN_CSS = `
   padding: 8px 10px;
 }
 
-.ks-log-line { white-space: pre-wrap; word-break: break-word; }
-.ks-log-line + .ks-log-line { margin-top: 3px; }
+.ex-log-line { white-space: pre-wrap; word-break: break-word; }
+.ex-log-line + .ex-log-line { margin-top: 3px; }
 `;

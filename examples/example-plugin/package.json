@@ -1,8 +1,8 @@
 {
-  "name": "@vrcnext-examples/template",
-  "version": "0.1.0",
+  "name": "@vrcnext-examples/example-plugin",
+  "version": "1.0.0",
   "private": true,
-  "description": "Starting point for a VRCNext plugin repository.",
+  "description": "Template and reference VRCNext plugin: every capability, one section per file.",
   "license": "Unlicense",
   "type": "module",
   "scripts": {

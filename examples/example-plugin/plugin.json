@@ -1,11 +1,11 @@
 {
-  "id": "kitchen-sink",
-  "name": "Kitchen Sink",
+  "id": "example-plugin",
+  "name": "Example Plugin",
   "version": "1.0.0",
   "apiVersion": "^0.3.0",
-  "description": "Reference plugin exercising every host capability, with custom CSS.",
+  "description": "Template and reference plugin: every host capability, one section per file, delete what you do not need.",
   "author": "vrcnext-plugins",
-  "homepage": "https://github.com/vrcnext-plugins/vrcnext-plugin-system/tree/main/examples/kitchen-sink",
+  "homepage": "https://github.com/vrcnext-plugins/vrcnext-example-plugin",
   "tags": ["developer", "osc", "notifications"],
   "permissions": [
     "host:events",

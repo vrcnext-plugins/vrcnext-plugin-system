@@ -2,19 +2,13 @@
   "files": [],
   "references": [
     {
+      "path": "./examples/example-plugin"
+    },
+    {
       "path": "./packages/api/tsconfig.build.json"
     },
     {
       "path": "./packages/host/tsconfig.build.json"
-    },
-    {
-      "path": "./examples/hello-world"
-    },
-    {
-      "path": "./examples/kitchen-sink"
-    },
-    {
-      "path": "./examples/template"
     }
   ]
 }
