@@ -106,6 +106,11 @@ export interface SocketHandlers {
 export interface RequestOptions {
   /** Ceiling for this one call. Defaults to {@link REQUEST_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /**
+   * Stops waiting for the answer. The wire protocol has no cancel frame, so the bridge may still
+   * finish the call; its answer is dropped and the promise rejects with the signal's reason.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export interface SocketOptions {
@@ -119,6 +124,12 @@ export interface SocketOptions {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/** The signal's reason when it is an Error, else the `AbortError` a plain `abort()` would give. */
+function abortReason(signal: AbortSignal | undefined): Error {
+  const reason: unknown = signal?.reason;
+  return reason instanceof Error ? reason : new DOMException('The request was aborted.', 'AbortError');
 }
 
 function errorFrom(value: unknown): NativeRequestError {
@@ -199,7 +210,10 @@ export class BridgeSocket {
     options?: RequestOptions,
   ): Promise<unknown> {
     const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    const signal = options?.signal;
+    signal?.throwIfAborted();
     if (!this.open) await this.#waitForOpen();
+    signal?.throwIfAborted();
 
     const socket = this.#socket;
     if (!this.open || socket === undefined) {
@@ -211,11 +225,18 @@ export class BridgeSocket {
     const frame = JSON.stringify({ type: 'request', id, service, method, params });
 
     return new Promise<unknown>((resolve, reject) => {
+      const onAbort = (): void => {
+        this.#settle(id)?.reject(abortReason(signal));
+      };
       const timer = globalThis.setTimeout(() => {
-        this.#pending.delete(id);
-        reject(new NativeTransportError(`${service}/${method} timed out`));
+        this.#settle(id)?.reject(new NativeTransportError(`${service}/${method} timed out`));
       }, timeoutMs);
-      this.#pending.set(id, { resolve, reject, timer });
+      this.#pending.set(id, {
+        resolve: (value) => { signal?.removeEventListener('abort', onAbort); resolve(value); },
+        reject: (reason: Error) => { signal?.removeEventListener('abort', onAbort); reject(reason); },
+        timer,
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
       try {
         socket.send(frame);
       } catch (error) {

@@ -152,3 +152,57 @@ test('a non-http scheme is refused before the user is troubled with it', async (
   assert.deepEqual(f.asked, []);
   assert.deepEqual(f.calls, []);
 });
+
+test('a 3xx from the bridge is surfaced as-is, Location and all', async () => {
+  const f = http('allow', { status: 302, statusText: 'Found', url: '', headers: { location: 'https://elsewhere.example/' }, body: '' });
+  const response = await f.api.fetch('https://api.steampowered.com/x');
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), 'https://elsewhere.example/');
+  assert.equal(response.url, 'https://api.steampowered.com/x');
+});
+
+function hangingHttp(lifetime: AbortSignal): { api: GatedHttp; seen: (AbortSignal | undefined)[] } {
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: () => Promise.resolve('allow') },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const gate = new PluginGate(httpManifest(), broker, logger);
+  const seen: (AbortSignal | undefined)[] = [];
+  const bridge = {
+    status: 'connected',
+    call: (_service: string, _method: string, _params: unknown, options?: { signal?: AbortSignal }) => {
+      seen.push(options?.signal);
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => { reject(new DOMException('aborted', 'AbortError')); });
+      });
+    },
+  } as unknown as BridgeClient;
+  return { api: new GatedHttp(gate, lifetime, bridge), seen };
+}
+
+test("the caller's signal cancels a bridge request with an AbortError", async () => {
+  const f = hangingHttp(new AbortController().signal);
+  const controller = new AbortController();
+  const pending = f.api.fetch('https://api.steampowered.com/x', { signal: controller.signal });
+  await settle();
+  assert.equal(f.seen.length, 1);
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+});
+
+test("the plugin's lifetime signal cancels a bridge request too", async () => {
+  const lifetime = new AbortController();
+  const f = hangingHttp(lifetime.signal);
+  const pending = f.api.fetch('https://api.steampowered.com/x');
+  await settle();
+  lifetime.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+});
+
+test('an already-aborted signal never reaches the bridge', async () => {
+  const f = hangingHttp(new AbortController().signal);
+  await assert.rejects(f.api.fetch('https://api.steampowered.com/x', { signal: AbortSignal.abort() }), { name: 'AbortError' });
+  assert.deepEqual(f.seen, []);
+});

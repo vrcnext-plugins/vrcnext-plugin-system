@@ -218,6 +218,8 @@ function toOutboundReply(value: unknown): OutboundReply | undefined {
   };
 }
 
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
+
 /** What `init` carries that the bridge can be told about. Anything else has no wire form. */
 function outboundParams(url: URL, init: RequestInit | undefined): Record<string, unknown> {
   const body = init?.body;
@@ -268,28 +270,41 @@ export class GatedHttp implements HttpApi {
       throw new PermissionError('network', `${parsed.protocol} is not http(s)`, parsed.host);
     }
     await this.#gate.check(networkPrompt(this.#gate.subject, parsed, init));
-    const bridge = this.#bridge;
-    if (bridge?.status === 'connected') {
-      return this.#viaBridge(bridge, parsed, init);
-    }
     // The plugin's lifetime signal is always attached; a caller's own signal is honoured too.
     const signal =
       init?.signal instanceof AbortSignal ? AbortSignal.any([this.#signal, init.signal]) : this.#signal;
+    signal.throwIfAborted();
+    const bridge = this.#bridge;
+    if (bridge?.status === 'connected') {
+      return this.#viaBridge(bridge, parsed, init, signal);
+    }
     return globalThis.fetch(parsed, { ...init, signal });
   }
 
-  async #viaBridge(bridge: BridgeClient, url: URL, init: RequestInit | undefined): Promise<Response> {
-    const reply = toOutboundReply(await bridge.call('outbound', 'fetch', outboundParams(url, init)));
+  /**
+   * Aborting stops the wait: the promise rejects with the signal's reason (an `AbortError` unless
+   * the caller chose another) and the bridge's eventual answer is dropped.
+   */
+  async #viaBridge(
+    bridge: BridgeClient,
+    url: URL,
+    init: RequestInit | undefined,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    const answer = await bridge.call('outbound', 'fetch', outboundParams(url, init), { signal });
+    signal.throwIfAborted();
+    const reply = toOutboundReply(answer);
     if (reply === undefined) throw new TypeError('The bridge answered the request with something else.');
-    // 204 and 304 may carry no body at all, and the Response constructor refuses one for them.
-    const body = reply.status === 204 || reply.status === 304 ? null : reply.body;
+    // These statuses carry no body at all, and the Response constructor refuses one for them.
+    const body = NULL_BODY_STATUSES.has(reply.status) ? null : reply.body;
     const response = new Response(body, {
       status: reply.status,
       statusText: reply.statusText,
       headers: reply.headers,
     });
-    // `url` is read-only on Response and the bridge may have followed redirects, so the final
-    // URL is restored here rather than silently reading as ''.
+    // The bridge does not follow redirects: a 3xx comes back as it was sent, `Location` and all,
+    // for the plugin to follow (through this gate, so the new host is asked about) or not.
+    // `url` is read-only on Response and would otherwise read as '', so it is set here.
     Object.defineProperty(response, 'url', { value: reply.url === '' ? url.href : reply.url });
     return response;
   }

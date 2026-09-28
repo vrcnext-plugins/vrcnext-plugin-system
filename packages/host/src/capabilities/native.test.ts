@@ -249,6 +249,16 @@ test('an error response rejects with the daemon’s own code and message', async
   );
 });
 
+test('aborting a call rejects with the signal’s reason and drops the late answer', async () => {
+  const { client: bridge, socket } = connected();
+  const controller = new AbortController();
+  const pending = bridge.call('outbound', 'fetch', {}, { signal: controller.signal });
+  const id = socket.last()['id'];
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+  socket.receive({ type: 'response', id, ok: true, result: 'late' });
+});
+
 test('the daemon going away rejects every in-flight call with a transport error', async () => {
   const { client: bridge, socket } = connected();
   const pending = bridge.call('notify', 'send', { title: 'x' });
