@@ -20,6 +20,8 @@ import { API_VERSION } from '../api-version.js';
 import type { PermissionBroker } from '../permissions/broker.js';
 import { HOST_NS, type StateService } from '../state/state-service.js';
 import type { CompiledPlugin } from './compiled.js';
+import { issueReport } from './report-issue.js';
+import { PluginStartupError } from './startup-error.js';
 import { createContext, type BuiltContext, type ContextDeps } from './context.js';
 import { orderByDependency } from './dependency-order.js';
 import type { InstalledPlugin, PluginUpdate, PluginsService, TrustedKey } from './plugins-service.js';
@@ -111,12 +113,23 @@ export class PluginManager {
     return failures;
   }
 
+  /**
+   * Start a plugin, whatever API version it asked for.
+   *
+   * A declared range is what the author last tested against, not a statement that anything is
+   * broken. Refusing on a mismatch turned every host release into a day where working plugins
+   * stopped working for no reason anyone could see — the plugin was fine, and the user was told
+   * to wait for an update it did not need. So the range is a warning, the plugin runs, and only
+   * an actual failure is treated as one.
+   */
   async #activate(compiled: CompiledPlugin): Promise<void> {
     const { manifest, plugin } = compiled;
     if (this.#active.has(manifest.id)) return;
-    if (!satisfies(API_VERSION, manifest.apiVersion)) {
-      throw new Error(
-        `"${manifest.name}" needs plugin API ${manifest.apiVersion}, but this host provides ${API_VERSION}.`,
+    const untested = !satisfies(API_VERSION, manifest.apiVersion);
+    if (untested) {
+      this.#deps.logger.warn(
+        `"${manifest.name}" was written for plugin API ${manifest.apiVersion} and this host ` +
+          `provides ${API_VERSION}. Starting it anyway; it will be reported if it fails.`,
       );
     }
     const built = await createContext(this.#deps.context, manifest, plugin);
@@ -124,10 +137,29 @@ export class PluginManager {
       await plugin.activate(built.ctx);
     } catch (error) {
       built.bag.dispose();
-      throw error instanceof Error ? error : new Error(String(error));
+      throw this.#startupFailure(manifest, error, untested);
     }
     this.#active.set(manifest.id, { ...built, plugin: compiled });
     this.#deps.logger.info(`Activated ${manifest.name} v${manifest.version}.`);
+  }
+
+  /**
+   * What the user is told when a plugin throws on the way up.
+   *
+   * The version range only enters the message here, where something has actually gone wrong —
+   * and then it is the most likely explanation, so it is worth saying along with who to tell.
+   */
+  #startupFailure(manifest: PluginManifest, error: unknown, untested: boolean): PluginStartupError {
+    const cause = error instanceof Error ? error : new Error(String(error));
+    const why = untested
+      ? `"${manifest.name}" did not start. It was written for plugin API ${manifest.apiVersion} ` +
+        `and this host provides ${API_VERSION}, which is the likely cause. Wait for an update, ` +
+        'or tell its author.'
+      : `"${manifest.name}" did not start.`;
+    const failure = new PluginStartupError(why, manifest, cause);
+    const report = issueReport(manifest, cause);
+    if (report !== undefined) failure.report = report;
+    return failure;
   }
 
   async #deactivate(id: PluginId): Promise<void> {

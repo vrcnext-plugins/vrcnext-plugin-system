@@ -38,6 +38,7 @@ import { EnableModal } from './ui/enable-modal.js';
 import { LogPanel } from './ui/log-panel.js';
 import { ManagerPanel } from './ui/manager-panel.js';
 import { PermissionModal } from './ui/permission-modal.js';
+import { showStartupFailures } from './ui/startup-failures.js';
 import { showReloadToast } from './ui/reload-toast.js';
 import { PLUGINS_SECTION, SYSTEM_SECTION } from './ui/settings-section.js';
 import { UiHost } from './ui/ui-host.js';
@@ -204,7 +205,7 @@ function mountNav(core: Core, bag: DisposableBag): void {
   // Everything below this rule is one plugin's own settings section.
   core.ui.setPluginDivider(ui.addSettingsDivider().element);
 
-  const openUrl = (url: string): void => { core.bridge.send('openUrl', { url }); };
+  const openUrl = (url: string): void => { openUrlVia(core, url); };
   const managerPanel = new ManagerPanel({
     manager: core.manager,
     native: core.native,
@@ -250,6 +251,11 @@ function mountNav(core: Core, bag: DisposableBag): void {
   });
 }
 
+/** VRCNext opens a link in the user's browser; the page itself must not navigate away. */
+function openUrlVia(core: Core, url: string): void {
+  core.bridge.send('openUrl', { url });
+}
+
 /** Once the bridge is connected: read the host state, then activate the enabled plugins. */
 function gateOnBridge(core: Core, bag: DisposableBag): void {
   let started = false;
@@ -260,9 +266,11 @@ function gateOnBridge(core: Core, bag: DisposableBag): void {
       await core.grants.load();
       core.broker.loadSaved();
       const failures = await core.manager.start();
-      for (const failure of failures) core.logger.error(failure.message);
+      for (const failure of failures) core.logger.error(failure.message, failure.cause);
       if (failures.length > 0) {
-        core.toast({ message: `${String(failures.length)} plugin(s) failed to start.`, ok: false });
+        // A dialog rather than a toast: a toast says something is wrong and gives the user
+        // nothing to do about it, and this is the one case where there is something to do.
+        void showStartupFailures(failures, { openUrl: (url) => { openUrlVia(core, url); } });
       }
       core.logger.info('Plugins started.');
     } catch (error) {
