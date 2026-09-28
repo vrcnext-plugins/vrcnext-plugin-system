@@ -23,6 +23,18 @@ export const PLUGINS_SECTION = 'plugins';
 /** Where VRCNext lands when the section on screen goes away. */
 const FALLBACK_SECTION = 'general';
 
+/** What a section id may contain: the plugin id, a dot, and the plugin's own id. */
+const SECTION_ID = /^[a-z0-9._-]+$/;
+
+/**
+ * @throws {Error} naming the id when it is empty or has anything outside `[a-z0-9._-]`.
+ */
+export function requireSectionId(id: string): void {
+  if (!SECTION_ID.test(id)) {
+    throw new Error(`Settings section id "${id}" is invalid: use only lowercase letters, digits, ".", "_" and "-".`);
+  }
+}
+
 type SwitchSection = (id: string, button: HTMLElement | null) => void;
 
 function switchSection(): SwitchSection | undefined {
@@ -59,7 +71,12 @@ export class SettingsNav {
     return divider;
   }
 
+  /**
+   * @throws {Error} when the id is anything but `[a-z0-9._-]`. It is written into an inline
+   *   `onclick`, so nothing that could close the string literal may reach it.
+   */
   addSection(spec: SectionSpec): SectionBinding {
+    requireSectionId(spec.sectionId);
     const item = element('button', CLASSES.settingsNavItem);
     item.setAttribute('onclick', `switchSettingsSection('${spec.sectionId}', this)`);
     item.appendChild(iconSpan(spec.icon));

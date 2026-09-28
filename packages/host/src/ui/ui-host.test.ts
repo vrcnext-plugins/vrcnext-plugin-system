@@ -206,3 +206,12 @@ test('pickEntity looks entities up through the plugin’s own VRChat API, not th
   await new Promise((resolve) => { setTimeout(resolve, 0); });
   assert.ok(called.length > 0, 'the plugin’s API was asked');
 });
+
+test('a section id that could escape the inline onclick is refused at registration', () => {
+  const pluginUi = host().forPlugin({ id: 'demo', name: 'Demo', vrchat: {} as never, bag: new DisposableBag() });
+  for (const id of ["x',alert(1),'", 'Main', 'a b', '']) {
+    assert.throws(() => pluginUi.addSettingsSection({ id, label: 'X', icon: 'tune' }), /is invalid/);
+  }
+  assert.equal(document.querySelectorAll('.settings-nav-item').length, 1, 'nothing was added');
+  pluginUi.addSettingsSection({ id: 'main_2.b-c', label: 'Ok', icon: 'tune' });
+});

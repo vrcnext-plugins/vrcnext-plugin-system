@@ -37,7 +37,7 @@ import { PluginNav } from './plugin-nav.js';
 import { storeBinding } from './settings/binding.js';
 import { openPicker } from './settings/entity-picker.js';
 import { renderForm } from './settings/form.js';
-import { SettingsNav } from './settings-section.js';
+import { SettingsNav, requireSectionId } from './settings-section.js';
 import { HostUiKit } from './ui-kit.js';
 import * as widgets from './widgets.js';
 
@@ -369,6 +369,9 @@ class PluginUiImpl implements PluginUi {
   }
 
   addSettingsSection(options: SettingsSectionOptions): SettingsSectionHandle {
+    // Both halves on their own, so an empty id cannot hide behind the plugin's prefix.
+    requireSectionId(options.id);
+    if (this.#namespace !== undefined) requireSectionId(this.#namespace);
     const binding = this.#shared.settingsNav.addSection({
       sectionId: this.#pageId(options.id),
       label: options.label,
