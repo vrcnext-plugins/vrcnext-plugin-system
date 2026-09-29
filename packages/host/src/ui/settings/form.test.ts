@@ -38,6 +38,15 @@ const schema = {
     toggle: { label: 'Use a custom report', default: false },
     fields: { body: { kind: 'string', label: 'Body', default: 'Hello {name}' } },
   },
+  // A predicate inside an object reads that object's own fields, not the plugin's top-level ones.
+  nested: {
+    kind: 'object',
+    label: 'Nested',
+    fields: {
+      detailed: { kind: 'boolean', label: 'Detailed', default: false },
+      text: { kind: 'string', label: 'Text', default: '', hidden: (v) => v['detailed'] !== true },
+    },
+  },
   presets: {
     kind: 'list',
     label: 'Presets',
@@ -107,7 +116,6 @@ function mount(store: SettingsStore<Schema>): { readonly root: HTMLElement; read
   const disposers: (() => void)[] = [];
   const root = renderForm(schema, storeBinding(store), {
     vrchat,
-    values: () => store.values,
     onError: () => undefined,
     track: (d) => { disposers.push(d); },
   });
@@ -132,6 +140,21 @@ test('every kind renders a labelled row; predicates disable and hide', async () 
   await store.set('enabled', false);
   assert.equal(row(root, 'secret').style.display, 'none');
   assert.equal(row(root, 'name').querySelector('fieldset')?.disabled, true);
+});
+
+test('a predicate inside an object is evaluated against that object, and follows its switch', async () => {
+  const store = memoryStore();
+  const { root } = mount(store);
+  const text = row(root, 'nested').querySelector<HTMLElement>('[data-setting="text"]');
+  assert.ok(text !== null);
+  assert.equal(text.style.display, 'none', 'hidden while the sibling switch is off');
+
+  const toggle = row(root, 'nested').querySelector<HTMLInputElement>('[data-setting="detailed"] input');
+  assert.ok(toggle !== null);
+  toggle.checked = true;
+  toggle.dispatchEvent(new dom.window.Event('change'));
+  await settled();
+  assert.equal(text.style.display, '', 'shown as soon as the sibling goes on');
 });
 
 test('nested edits write through: an object field, a list item field, an embed field', async () => {

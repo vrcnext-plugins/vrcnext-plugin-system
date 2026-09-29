@@ -35,8 +35,6 @@ import { entityControl } from './entity-picker.js';
 
 export interface FormContext {
   readonly vrchat: VrchatApi;
-  /** The top-level values, for `hidden` and `disabled` predicates. */
-  readonly values: () => Values;
   /** Where a failed write is reported besides the row's own error line. */
   readonly onError: (message: string, error?: unknown) => void;
   /** Collects unsubscribes; the form is torn down when the card is. */
@@ -240,6 +238,18 @@ function toggledObject(toggle: ObjectToggle, body: HTMLElement, binding: Binding
   return { element: wrapper, stacked: true };
 }
 
+/**
+ * The values a `hidden` or `disabled` predicate is given: the object this schema describes.
+ *
+ * Its own siblings, not the plugin's top-level settings — otherwise a predicate inside a `list`
+ * item or a nested `object` would be reading names from a different object entirely, and would
+ * silently never fire. At the top level the two are the same object.
+ */
+function scopeOf(binding: Binding): Values {
+  const value = binding.get();
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Values) : {};
+}
+
 /** A schema's rows, in a container that re-evaluates `hidden`/`disabled` after every change. */
 export function renderForm(schema: SettingsSchema, binding: Binding, ctx: FormContext): HTMLElement {
   const root = element('div', 'vrcnx-form');
@@ -250,7 +260,7 @@ export function renderForm(schema: SettingsSchema, binding: Binding, ctx: FormCo
     root.appendChild(built.row);
   }
   const apply = (): void => {
-    const values = ctx.values();
+    const values = scopeOf(binding);
     for (const { spec, row, fieldset } of rows) {
       row.style.display = settingFlag(spec.hidden, values) ? 'none' : '';
       fieldset.disabled = settingFlag(spec.disabled, values);

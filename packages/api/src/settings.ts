@@ -52,7 +52,14 @@ export interface SelectOption<V extends string> {
   readonly description?: string;
 }
 
-/** A yes/no that may depend on the plugin's other settings; re-evaluated after every change. */
+/**
+ * A yes/no that may depend on the setting's siblings; re-evaluated after every change.
+ *
+ * `values` is the object the setting is declared in — the plugin's settings for a top-level one,
+ * the object's fields inside an `object`, the item's fields inside a `list` item. A predicate
+ * cannot see out of its own object, which is what keeps one written inside a list item from
+ * quietly reading a top-level name that happens to match.
+ */
 export type SettingPredicate = boolean | ((values: Readonly<Record<string, unknown>>) => boolean);
 
 /**

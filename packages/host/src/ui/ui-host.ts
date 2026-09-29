@@ -333,7 +333,6 @@ class PluginUiImpl implements PluginUi {
       const disposers: (() => void)[] = [];
       const form = renderForm(this.#schema, storeBinding(store), {
         vrchat: this.#shared.vrchat,
-        values: () => store.values,
         onError: (message, error) => {
           globalThis.console.error(`[vrcnext-plugins:${this.#pluginId}] ${message}`, error);
         },
