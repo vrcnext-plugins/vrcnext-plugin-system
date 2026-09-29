@@ -61,16 +61,12 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
 ## What ships
 
 - The bridge bundles from each plugin's `main.ts` with esbuild; only imported files end up in
-  the bundle, so `*.test.ts` files are never bundled. They *are* tracked in the flat plugin repos
-  (bio-updater and club-security both carry them), which matters because the source policy scans
-  every `.ts` in the tree, bundled or not — a test that fakes `ctx.http` has to write the word
-  `fetch`, and that alone refuses the whole plugin. Unresolved; see the note below.
-  Keep plugins small: no dev-only code behind a runtime flag.
-- **A plugin that tests its HTTP path currently cannot be updated.** `bio-updater` is refused with
-  `policy: src/sources.test.ts:17 fetch` for a test fake implementing `HttpApi`. The fix is either
-  for the policy to skip `*.test.ts` — guarded the way `EXEMPT_PATHS` already is by
-  `imports_exempt_file`, so nothing bundled can import one — or for the flat repos to stop tracking
-  tests. Narrowing the policy's scope is the owner's call, so neither has been done.
+  the bundle, so `*.test.ts` files are never bundled — and the bridge enforces that rather than
+  assuming it: the source policy does not scan `*.test.*`/`*.spec.*` files (a test that fakes
+  `ctx.http` has to write `fetch`), refuses any source that imports one, and the build refuses a
+  bundle that has one among its inputs. The build also refuses any input outside the host, the
+  generated table and the plugin's own directory, so a plugin cannot import `state.json`, the
+  host's internals or another plugin. Keep plugins small: no dev-only code behind a runtime flag.
 - `plugin.json` descriptions are capped at 200 characters and the source policy also scans
   comments (`window.`, `eval(`, `fetch(` and similar are refused, even in prose).
 

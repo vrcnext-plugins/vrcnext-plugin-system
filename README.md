@@ -254,13 +254,16 @@ are not, and neither has been exercised inside a running VRCNext against a real 
 
 Plugins run with the **full authority of the VRCNext page**: the user's VRChat session, webhooks
 and settings. The permission model makes each capability declared and each concrete use
-confirmed; the source policy keeps plugins on the `ctx.*` path. Neither is a sandbox. See
+confirmed; the source policy refuses the obvious ways off the `ctx.*` path, and the bridge's
+build refuses a plugin that imports a file outside its own directory. Neither is a sandbox: the
+page's DOM (VRCNext's own login form included) is not covered by any permission, and an element
+a plugin creates can still load a URL. See
 [Security model](https://vrcnext-plugins.github.io/security).
 
 `ctx.http` goes through the bridge's `outbound` service rather than the page, because the page
 can only read from hosts that allow cross-origin reads and most plain HTTP APIs do not. That is
-more reach than a browser has — this machine's own network included — so **no host is
-pre-granted**, not even one listed in `hosts`: the user is asked about each one the first time a
+more reach than a browser has (the bridge refuses loopback, private and link-local addresses, so
+not this machine's own network), so **no host is pre-granted**, not even one listed in `hosts`: the user is asked about each one the first time a
 plugin goes there, and may save the answer. Declaring a host says where the plugin means to go.
 Only the user says it may.
 
