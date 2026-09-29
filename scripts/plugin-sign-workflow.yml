@@ -1,19 +1,26 @@
 # Template for a plugin repository's .github/workflows/sign.yml.
 #
-# Copy this file and scripts/sign-plugin.mjs into the plugin repository, and put the signing key
-# (the 64 hex characters from `sign-plugin.mjs keygen`) in a repository secret named
-# VRCNEXT_SIGNING_KEY. Settings → Secrets and variables → Actions → New repository secret.
+# Prefer signing locally: `node scripts/sign-plugin.mjs sign --key <your key file>`, then commit
+# plugin.sig with the code. The signature exists to prove that the key holder — not merely
+# someone who can push to the repository — made this tree. A job that signs whatever lands on
+# main hands the key to anyone who can push (or open a workflow of their own that reads the
+# secret), which is exactly the account takeover the signature is meant to survive.
+#
+# If you sign in Actions anyway, do it the way this template does:
+#
+# - Only by hand (`workflow_dispatch`), never on push.
+# - With the key in an *environment* secret, not a repository secret: Settings → Environments →
+#   New environment "signing", add VRCNEXT_SIGNING_KEY (the 64 hex characters from
+#   `sign-plugin.mjs keygen`) there, and turn on "Required reviewers" so every run waits for
+#   you to approve it. Restrict the environment to the main branch.
+# - With one key per plugin, so a compromise of one repository does not sign for the others.
 #
 # The secret never leaves the runner: the signature is made there and only plugin.sig is pushed
-# back. Between a code push and this job finishing, the branch is briefly unsigned and the bridge
-# will refuse to install it — sign locally and commit plugin.sig alongside the code if that
-# matters (`node scripts/sign-plugin.mjs sign --key <your key file>`).
+# back.
 name: Sign
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: [plugin.sig]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,6 +32,8 @@ concurrency:
 jobs:
   sign:
     runs-on: ubuntu-latest
+    # The key lives in this environment, whose required reviewers approve each run.
+    environment: signing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

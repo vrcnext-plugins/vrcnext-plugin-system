@@ -12,14 +12,17 @@
 // not a signing step.
 //
 // What is signed is the *tracked* tree, read through `git ls-files`, because that is exactly
-// what the bridge's shallow clone will contain. A dirty working tree is refused rather than
-// signed, since the bytes on this disk would not be the bytes anyone else receives.
+// what the bridge's shallow clone will contain. The bytes come from git's own objects, not from
+// this disk: with `core.autocrlf` set, a Windows checkout holds CRLF where the clone holds LF, and
+// a digest of the working tree would never match. A dirty working tree is refused rather than
+// signed, since it is not what anyone else receives. A tracked symlink is refused too, because
+// the bridge refuses any tree that contains one.
 //
 // The format is documented in the bridge: crates/vrcnext-bridge-plugins/src/signing.rs.
 
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as signBytes, verify as verifyBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, lstatSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const TREE_DOMAIN = Buffer.from('vrcnext-plugin-tree-v1\n');
@@ -39,18 +42,46 @@ function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** Every tracked file except the signature itself, with symlinks dropped as the bridge drops them. */
+/**
+ * Every tracked file except the signature itself, as `{ path, object }` in path order.
+ *
+ * A submodule is skipped: the bridge's clone does not fetch one, so it holds an empty directory
+ * there, which contributes nothing. A symlink is refused, as the bridge refuses it.
+ */
 function trackedFiles(root) {
   const listed = git('-C', root, 'ls-files', '-s', '-z').split('\0').filter(Boolean);
   const files = [];
   for (const line of listed) {
     const [meta, path] = line.split('\t');
-    const mode = meta.split(' ')[0];
-    if (mode === '120000' || mode === '160000') continue; // symlink, submodule
+    const [mode, object] = meta.split(' ');
+    if (mode === '160000') continue;
+    if (mode === '120000') fail(`${path} is a symlink; the bridge refuses a tree that contains one`);
     if (path === SIGNATURE_FILE) continue;
-    files.push(path);
+    files.push({ path, object });
   }
-  return files.sort();
+  // Byte order, as the bridge sorts: not localeCompare, which would disagree on case.
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.path, 'utf8'), Buffer.from(b.path, 'utf8')));
+}
+
+/** The committed bytes of each object, read in one `git cat-file --batch`. */
+function blobs(root, objects) {
+  if (objects.length === 0) return [];
+  const out = execFileSync('git', ['-C', root, 'cat-file', '--batch'], {
+    input: `${objects.join('\n')}\n`,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const result = [];
+  let at = 0;
+  for (const object of objects) {
+    const newline = out.indexOf(0x0a, at);
+    const [name, type, size] = out.subarray(at, newline).toString('utf8').split(' ');
+    if (name !== object || type !== 'blob') fail(`git could not read ${object}`);
+    const start = newline + 1;
+    const end = start + Number(size);
+    result.push(out.subarray(start, end));
+    at = end + 1;
+  }
+  return result;
 }
 
 /** Refuse to sign bytes nobody else will receive. */
@@ -68,10 +99,9 @@ function requireCleanTree(root) {
 export function treeDigest(root, files) {
   const hash = createHash('sha256');
   hash.update(TREE_DOMAIN);
-  for (const path of files) {
-    const full = join(root, path);
-    if (lstatSync(full).isSymbolicLink()) continue;
-    const bytes = readFileSync(full);
+  const contents = blobs(root, files.map((file) => file.object));
+  for (const [index, { path }] of files.entries()) {
+    const bytes = contents[index];
     const length = Buffer.alloc(8);
     length.writeBigUInt64LE(BigInt(bytes.length));
     hash.update(Buffer.from(path, 'utf8'));
