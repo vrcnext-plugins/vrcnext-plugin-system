@@ -1,94 +1,68 @@
 # Working on the VRCNext plugin system
 
-Read this before changing anything here. It records what the owner has asked for; the code
-style rules live in the repo's lint config and in `scripts/check.sh`.
-
-## Verify without touching the desktop
-
-- **Never drive VRCNext with a synthetic mouse or keyboard.** The bridge has a token-gated
-  `remote` service for that: `vrcnext-eval '<async function body>'` runs a snippet in the page
-  and prints the result. `host`, `text(sel)`, `click(sel)`, `visible(sel)`, `rects(sel)` and
-  `sleep(ms)` are in scope. Measure layouts with `rects`, read text with `text`, open tabs by
-  clicking the host's own buttons.
-- **Restart VRCNext and reload its page sparingly.** Both re-authenticate against the VRChat
-  API. Batch every host change into one deploy, rebuild once, and reload once at the end with
-  `vrcnext-eval 'location.reload()'`. Never restart the app when a reload will do.
-- After a change to `packages/*/src`, run `./scripts/deploy-to-bridge.sh`: it runs the gate,
-  copies the sources (tests stripped) into `~/.vrcnext-plugins/host/packages/*/src`, finds the
-  bridge's port in the unit's journal and `POST`s `/v1/plugins/build`. It deliberately stops
-  there — reloading the page is the owner's step. A plugin is updated by pushing its own repo and
-  `POST /v1/plugins/update`, which needs the desktop confirmation.
-
-## Reading VRChat data
-
-- **`ctx.vrchat` is the only way a plugin reads users, avatars, worlds, groups and instances.**
-  Never make a plugin send `vrcGetFriendDetail`-style actions itself: VRCNext's own dispatcher
-  paints (or opens) a modal for those replies. The host's `QuietChannel` wraps the callbacks
-  Photino registered before ours, so a reply the host asked for is withheld from VRCNext and the
-  screen does not change.
-- Lists VRCNext keeps anyway (friends, favourites, your groups, the current instance) are
-  mirrored from its pushes and asked for with `swallow: false`, because VRCNext handling those
-  replies is what keeps its own lists fresh.
-- Payload field names are read out of the VRCNext C# source, not guessed, and normalised in one
-  place (`capabilities/vrchat/normalise.ts`).
-- **The protocol is generated, and the gate checks against it.** `protocol/vrcnext-protocol.json`
-  and `packages/api/src/vrcnext-protocol.generated.ts` come from
-  `npm run protocol:update -- <VRCNext checkout>` (`scripts/gen-vrcnext-protocol.mjs`): every
-  action with the `msg["…"]` keys its handler reads and whether Linux drops it, every event with
-  its payload fields, and the frontend's element ids and classes. `scripts/check.sh` runs
-  `scripts/check-vrcnext-protocol.mjs`, so a misspelled action or event, an argument VRCNext
-  never reads, an event used as an action, or a selector naming an element VRCNext does not have
-  fails the gate; `events.protocol.test.ts` makes `tsc` check `VrcnextEventMap`'s events and
-  fields. A Windows-only action the code deliberately routes around carries
-  `// vrcnext: windows-only` on its line. Regenerate after VRCNext updates and fix what fails.
-
-## Where code goes
-
-- **Generic helpers belong in `packages/api`**, exported from `@vrcnext/plugin-api`, never
-  copied into a plugin. `timeAgo`, `renderTemplate` and friends are the pattern. Ask "would a
-  second plugin want this?" before writing a utility under `examples/example-plugin/src`.
-- **`examples/example-plugin` is a git submodule** of `vrcnext-example-plugin`. Edit it there and
-  commit inside the submodule, then commit the moved pointer here; there is no copy to sync. The
-  workspace type-checks it through `tsconfig.example.json` rather than the submodule's own
-  `tsconfig.json`, which describes it as the standalone repository it also is.
-- **Every way the host injects or changes VRCNext UI is a `ctx.ui` API**, and the host uses
-  that same API for itself (`UiHost.forHost`). Settings sections, dividers, sidebar groups, tabs,
-  cards: one implementation, and disabling a plugin removes everything it added.
-- The host's own pages are Settings sections (Plugin System, Plugins). Sidebar entries from the
-  host are shortcuts only; real sidebar tabs are for plugins.
-- Prefer reusable, flexible building blocks (kit widgets, options objects) over one-off markup.
-- **A new kind of setting belongs in the schema, not in a plugin's own panel.** `packages/api/src/settings.ts`
-  declares the kind and how a stored value is repaired; `packages/host/src/ui/settings/` renders it.
-  Every control is fed a `Binding`, so the same code draws a top-level setting, a field of an
-  `object` and a field of a `list` item — and a nested edit still ends in one `store.set`.
-- Controls reuse VRCNext's own classes (`.fs-slider`, `.fd-profile-item-small`, `.vrcn-edit-field`).
-  If a control needs a look VRCNext has, find its class rather than writing CSS.
-- **Third-party runtime dependencies are effectively unavailable**: the bridge builds from
-  `packages/*/src` with esbuild and no package manager, so anything not in those sources cannot
-  be resolved. Write the small thing (the template engine is 500 lines) rather than vendoring a
-  megabyte; user-facing templates must never go through `new Function` or `eval`.
-
-## What ships
-
-- The bridge bundles from each plugin's `main.ts` with esbuild; only imported files end up in
-  the bundle, so `*.test.ts` files are never bundled — and the bridge enforces that rather than
-  assuming it: the source policy does not scan `*.test.*`/`*.spec.*` files (a test that fakes
-  `ctx.http` has to write `fetch`), refuses any source that imports one, and the build refuses a
-  bundle that has one among its inputs. The build also refuses any input outside the host, the
-  generated table and the plugin's own directory, so a plugin cannot import `state.json`, the
-  host's internals or another plugin. Keep plugins small: no dev-only code behind a runtime flag.
-- `plugin.json` descriptions are capped at 200 characters and the source policy also scans
-  comments (`window.`, `eval(`, `fetch(` and similar are refused, even in prose).
-
-## The permission vocabulary lives in two places
-
-`packages/api/src/permissions.ts` and `crates/vrcnext-bridge-plugins/src/manifest.rs` in the
-bridge. The bridge validates every `plugin.json` against its own copy, so adding a permission
-means adding it there too, rebuilding the bridge (`./scripts/build.sh`), copying the binary to
-`~/.vrcnext-plugins/bin/` and restarting `vrcnext-bridge.service` — otherwise installing a plugin
-that declares the new name fails with `manifest_invalid`.
+The host injected into VRCNext as a custom theme, the typed `@vrcnext/plugin-api`, and the
+installer. Site pages: `plugin-system.md` (build, boot, layout, development), `install.md`,
+`api-reference.md`, `permissions.md`, `plugin-json.md`, `events-and-bridge.md` and the
+capability pages.
 
 ## Gate
 
-`./scripts/check.sh` (typecheck, lint, tests including examples, build) must pass before a
-commit. Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+`./scripts/check.sh` — typecheck, lint, tests (examples and `scripts/*.test.ts` included), the
+VRCNext protocol check, API-version agreement, build. It must pass before a commit.
+
+## Deploying locally
+
+After a change to `packages/*/src`, `./scripts/deploy-to-bridge.sh` runs the gate, copies the
+sources (tests stripped) into `~/.vrcnext-plugins/host/` and asks the bridge to rebuild. It stops
+there: reloading the page (`vrcnext-eval 'location.reload()'`) is the owner's step, batched once
+at the end. A plugin is updated by pushing its repository and `plugins/update`, which the owner
+confirms on the desktop.
+
+## VRCNext's protocol
+
+- `protocol/vrcnext-protocol.json` and `packages/api/src/vrcnext-protocol.generated.ts` are
+  generated: `npm run protocol:update -- <VRCNext checkout>`. Never edit them by hand; regenerate
+  after VRCNext updates and fix what the gate then reports.
+- The gate fails on an unknown action or event, an argument VRCNext never reads, an event used as
+  an action, or a selector naming an element VRCNext lacks; `tsc` fails on a `VrcnextEventMap`
+  field VRCNext does not send. A Windows-only action the code routes around carries
+  `// vrcnext: windows-only` on its line.
+- Payload fields are normalised in one place, `capabilities/vrchat/normalise.ts`.
+
+## Where code goes
+
+- **`ctx.vrchat` is the only way plugins read users, avatars, worlds, groups and instances.** A
+  plugin sending `vrcGetFriendDetail`-style actions makes VRCNext paint its own dialogs;
+  `QuietChannel` withholds the replies the host asked for. Lists VRCNext keeps anyway are
+  mirrored from its pushes and requested with `swallow: false`.
+- Generic helpers belong in `packages/api`, exported from `@vrcnext/plugin-api`.
+- Every way the host changes VRCNext's UI is a `ctx.ui` API, and the host uses it for itself
+  (`UiHost.forHost`). The host's own pages are Settings sections; its sidebar entries are
+  shortcuts only.
+- A new kind of setting belongs in the schema (`packages/api/src/settings.ts`, rendered by
+  `packages/host/src/ui/settings/`), fed a `Binding`. Controls reuse VRCNext's own classes.
+- No third-party runtime dependencies: the bridge builds `packages/*/src` with esbuild and no
+  package manager. User-facing templates never go through `new Function` or `eval`.
+- `examples/example-plugin` is a submodule of `vrcnext-example-plugin`: change it there, then
+  commit the moved pointer here.
+
+## Security invariants
+
+- `ctx.native` reaches only the services in `PLUGIN_BRIDGE_SERVICES` (`notify`); the host's own
+  services (`state`, `plugins`, `sql`, `logs`, `outbound`, `osc`, `remote`) stay behind its APIs.
+- Events in `CREDENTIAL_EVENTS` are never granted by declaration and never reach `onAny`.
+- The permission vocabulary is mirrored in the bridge's `manifest.rs`; change both, or installs of
+  a plugin declaring the new name fail with `manifest_invalid`.
+- `scripts/sign-plugin.mjs` is copied into every plugin repository and must keep producing the
+  digest the bridge's `signing.rs` computes.
+
+## Every repository
+
+- **Documentation lives only on the site** ([vrcnext-plugins.github.io](https://github.com/vrcnext-plugins/vrcnext-plugins.github.io)).
+  This repository keeps a compact `README.md` (name, one line, docs link, one quick-start block,
+  licence) and this file, nothing else. When behaviour changes, update the site pages named below
+  in the same piece of work.
+- Commit messages end with a `Co-Authored-By:` trailer naming the model that wrote the commit.
+- Never drive VRCNext with a synthetic mouse or keyboard, and restart or reload it sparingly —
+  both re-authenticate against VRChat. Inspect the page through the bridge's `remote` service
+  (`vrcnext-eval '<async body>'`, bridge started with `--dev`).

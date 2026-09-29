@@ -38,7 +38,7 @@ export const CONFIRMED_CALL_TIMEOUT_MS = 130_000;
 /** A `progress` push while the bridge waits for the user to confirm on the desktop. */
 export const STEP_AWAITING_CONFIRMATION = 'awaiting_confirmation';
 
-export const BRIDGE_DOCS_URL = 'https://github.com/vrcnext-plugins/vrcnext-bridge#readme';
+export const BRIDGE_DOCS_URL = 'https://vrcnext-plugins.github.io/native-companion.html';
 
 export interface InstalledPlugin {
   readonly id: PluginId;
