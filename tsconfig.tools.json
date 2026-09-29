@@ -12,6 +12,7 @@
   },
   "include": [
     "vitest.config.ts",
-    "packages/host/static-plugins.dev.ts"
+    "packages/host/static-plugins.dev.ts",
+    "scripts/**/*.test.ts"
   ]
 }

@@ -14,7 +14,10 @@
 export const LOG_COLORS = ['sec', 'warn', 'err'] as const;
 export type LogColor = (typeof LOG_COLORS)[number];
 
-/** Payloads verified against the VRCNext source at version 2026.61.2. */
+/**
+ * Payloads read out of the VRCNext source. Every event and field named here is checked against
+ * the generated protocol at compile time: see events.protocol.test.ts.
+ */
 export interface VrcnextEventMap {
   /** Sent once after the page reports `ready`; drives the hiding of Windows-only tabs. */
   readonly setPlatform: { readonly isLinux: boolean };
@@ -37,14 +40,24 @@ export interface VrcnextEventMap {
 
   /** Friend state transition (online, offline, world change, status change, …). */
   readonly friendTimelineEvent: {
+    /** Short random id of the timeline row. */
+    readonly id: string;
     readonly type: string;
+    /** ISO-8601, UTC. */
+    readonly timestamp: string;
     readonly friendId: string;
     readonly friendName: string;
     readonly friendImage: string;
+    /** A `wrld_…` id, or an `avtr_…` id for an avatar change. */
+    readonly worldId: string;
     readonly worldName: string;
+    readonly worldThumb: string;
     readonly location: string;
     readonly oldValue: string;
     readonly newValue: string;
+    /** When the friend left the instance, ISO-8601; `null` while they are still there. */
+    readonly leftAt: string | null;
+    readonly tracked: number;
   };
 
   /** Theme list, emitted in response to the `getCustomThemes` action. */

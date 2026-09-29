@@ -43,6 +43,13 @@ export type {
 } from './events.js';
 
 export type { ActionArgs, ActionName, Bridge, RequestOptions } from './bridge.js';
+export type {
+  VrcnextAction,
+  VrcnextEvent,
+  VrcnextEventFields,
+  VrcnextSourceCommit,
+  VrcnextWindowsOnlyAction,
+} from './vrcnext-protocol.generated.js';
 
 export { LOG_LEVELS } from './logger.js';
 export type { Logger, LogLevel } from './logger.js';

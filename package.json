@@ -18,6 +18,8 @@
     "prelint": "tsc --build",
     "lint": "eslint .",
     "test": "vitest run",
+    "protocol:update": "node scripts/gen-vrcnext-protocol.mjs",
+    "protocol:check": "node scripts/check-vrcnext-protocol.mjs packages examples/example-plugin",
     "install:vrcnext": "./scripts/install-into-vrcnext.sh"
   },
   "devDependencies": {

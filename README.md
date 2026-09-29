@@ -267,6 +267,20 @@ not this machine's own network), so **no host is pre-granted**, not even one lis
 plugin goes there, and may save the answer. Declaring a host says where the plugin means to go.
 Only the user says it may.
 
+## Checking against VRCNext
+
+VRCNext publishes no protocol, so this repository reads one out of its C# source:
+`npm run protocol:update -- <path to a VRCNext checkout>` writes
+[`protocol/vrcnext-protocol.json`](protocol/vrcnext-protocol.json) — every action and the
+arguments its handler reads, every event and its payload fields, the frontend's element ids and
+classes, pinned to the commit it was read from — and the matching TypeScript types
+(`VrcnextAction`, `VrcnextEvent`, `VrcnextEventFields`, exported from `@vrcnext/plugin-api`).
+
+`node scripts/check-vrcnext-protocol.mjs <dir>` checks a plugin against it: unknown actions and
+events, arguments VRCNext never reads, events used as actions, selectors naming elements VRCNext
+does not have, and actions a Linux build drops. The gate runs it over the host and the example
+plugin; point it at your own repository the same way.
+
 ## License
 
 [Unlicense](LICENSE) — public domain.

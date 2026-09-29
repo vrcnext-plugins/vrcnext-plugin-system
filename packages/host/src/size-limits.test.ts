@@ -28,7 +28,7 @@ async function sourceFiles(dir: string): Promise<string[]> {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...(await sourceFiles(path)));
-    } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
+    } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts') && !entry.name.endsWith('.generated.ts')) {
       found.push(path);
     }
   }

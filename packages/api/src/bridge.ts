@@ -11,7 +11,11 @@
 
 import type { EventPayload } from './events.js';
 
-/** A JS → C# action name, e.g. `vrcLaunchAndJoin`. */
+/**
+ * A JS → C# action name, e.g. `vrcLaunchAndJoin`. Every name VRCNext dispatches is
+ * `VrcnextAction`; this stays `string` so a newer VRCNext's actions are usable before the
+ * generated list catches up.
+ */
 export type ActionName = string;
 
 /** Action arguments. VRCNext merges these into the envelope alongside `action`. */

@@ -31,6 +31,16 @@ style rules live in the repo's lint config and in `scripts/check.sh`.
   replies is what keeps its own lists fresh.
 - Payload field names are read out of the VRCNext C# source, not guessed, and normalised in one
   place (`capabilities/vrchat/normalise.ts`).
+- **The protocol is generated, and the gate checks against it.** `protocol/vrcnext-protocol.json`
+  and `packages/api/src/vrcnext-protocol.generated.ts` come from
+  `npm run protocol:update -- <VRCNext checkout>` (`scripts/gen-vrcnext-protocol.mjs`): every
+  action with the `msg["…"]` keys its handler reads and whether Linux drops it, every event with
+  its payload fields, and the frontend's element ids and classes. `scripts/check.sh` runs
+  `scripts/check-vrcnext-protocol.mjs`, so a misspelled action or event, an argument VRCNext
+  never reads, an event used as an action, or a selector naming an element VRCNext does not have
+  fails the gate; `events.protocol.test.ts` makes `tsc` check `VrcnextEventMap`'s events and
+  fields. A Windows-only action the code deliberately routes around carries
+  `// vrcnext: windows-only` on its line. Regenerate after VRCNext updates and fix what fails.
 
 ## Where code goes
 

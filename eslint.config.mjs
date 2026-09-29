@@ -18,7 +18,7 @@ export default defineConfig([
         projectService: {
           // Root tooling configs belong to no package project; type-check them against
           // tsconfig.tools.json rather than dropping type-aware rules for them.
-          allowDefaultProject: ['vitest.config.ts', 'packages/host/static-plugins.dev.ts'],
+          allowDefaultProject: ['vitest.config.ts', 'packages/host/static-plugins.dev.ts', 'scripts/*.test.ts'],
           defaultProject: 'tsconfig.tools.json',
         },
         tsconfigRootDir: import.meta.dirname,
@@ -63,6 +63,12 @@ export default defineConfig([
     languageOptions: {
       globals: { Buffer: 'readonly', process: 'readonly', URL: 'readonly', console: 'readonly' },
     },
+  },
+
+  {
+    // Written by scripts/gen-vrcnext-protocol.mjs from VRCNext's source; its length is VRCNext's.
+    files: ['**/*.generated.ts'],
+    rules: { 'max-lines': 'off' },
   },
 
   {

@@ -162,19 +162,19 @@ export class HostOscApi implements OscApi {
     if (!this.#guard('connect()')) return;
     // Sending needs no socket of ours, but a plugin that connects expects to start receiving.
     if (this.#viaBridge) this.#callBridge('listen', {});
-    else this.#bridge.send('oscConnect');
+    else this.#bridge.send('oscConnect'); // vrcnext: windows-only (only when #viaVrcnext)
   }
 
   disconnect(): void {
     if (!this.#guard('disconnect()')) return;
     if (this.#viaBridge) this.#callBridge('stop', {});
-    else this.#bridge.send('oscDisconnect');
+    else this.#bridge.send('oscDisconnect'); // vrcnext: windows-only (only when #viaVrcnext)
   }
 
   send(name: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
     if (!this.#guard(`send(${name})`)) return;
     if (this.#viaBridge) this.#callBridge('send', { address: `${PARAMETER_PREFIX}${name}`, args: [{ kind, value }] });
-    else this.#bridge.send('oscSend', { name, type: kind, value });
+    else this.#bridge.send('oscSend', { name, type: kind, value }); // vrcnext: windows-only (only when #viaVrcnext)
   }
 
   sendRaw(address: string, kind: 'bool' | 'int' | 'float', value: boolean | number): void {
@@ -182,7 +182,7 @@ export class HostOscApi implements OscApi {
     // The kind is passed on rather than inferred: JSON cannot tell 1 the int from 1.0 the
     // float, and VRChat drops a parameter of the wrong type without saying so.
     if (this.#viaBridge) this.#callBridge('send', { address, args: [{ kind, value }] });
-    else this.#bridge.send('oscSendRaw', { address, type: kind, value });
+    else this.#bridge.send('oscSendRaw', { address, type: kind, value }); // vrcnext: windows-only (only when #viaVrcnext)
   }
 
   onParam(listener: (event: OscParamEvent) => void): () => void {
