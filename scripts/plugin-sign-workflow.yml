@@ -21,6 +21,11 @@ name: Sign
 
 on:
   workflow_dispatch:
+  # Disabled on purpose: signing on push hands the key to anyone who can push. Leave it
+  # commented out.
+  #   push:
+  #     branches: [main]
+  #     paths-ignore: [plugin.sig]
 
 permissions:
   contents: write
