@@ -25,7 +25,8 @@ Requirements: `curl` and `tar` (plus `sha256sum` or `shasum`) on Linux/macOS; Wi
 
 ## What the scripts do
 
-1. Detect the platform: Linux x86_64/aarch64, macOS arm64/x86_64, Windows x86_64.
+1. Detect the platform: Linux x86_64, macOS arm64, Windows x86_64 — the targets the bridge release
+   builds. Anything else stops here and says how to build the bridge from source.
 2. Download and verify:
    - the bridge binary from the latest release of
      [vrcnext-bridge](https://github.com/vrcnext-plugins/vrcnext-bridge), checked against that

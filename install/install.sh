@@ -109,6 +109,15 @@ case "$ARCH" in
 esac
 ESBUILD_PLATFORM="$ESBUILD_OS-$ESBUILD_ARCH"
 BRIDGE_ASSET="vrcnext-bridge-$OS_TAG-$ARCH_TAG"
+# The bridge release builds exactly these (vrcnext-bridge .github/workflows/release.yml; Windows
+# is install.ps1). Anything else would get as far as the checksum list and fail there with a
+# message about SHA256SUMS, so say what is actually wrong, up front.
+case "$OS_TAG-$ARCH_TAG" in
+  linux-x86_64|macos-aarch64) ;;
+  *) die "no prebuilt bridge for $OS_TAG-$ARCH_TAG yet (releases carry linux-x86_64 and macos-aarch64).
+Build it from source with Rust installed: git clone https://github.com/vrcnext-plugins/vrcnext-bridge
+&& cd vrcnext-bridge && cargo build --release, then copy target/release/vrcnext-bridge to $DATA_DIR/bin/" ;;
+esac
 ESBUILD_SHA256="$(esbuild_tarball_sha256 "$ESBUILD_PLATFORM")" \
   || die "no pinned esbuild digest for $ESBUILD_PLATFORM"
 
