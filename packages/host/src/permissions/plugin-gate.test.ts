@@ -166,3 +166,30 @@ test('a prompt still queued when its plugin is disabled is never shown', async (
   await new Promise((resolve) => { setTimeout(resolve, 0); });
   assert.equal(f.asked.length, 1);
 });
+
+test('a declared credential event is still asked about, in its own words, at the highest tone', async () => {
+  const asked: { title: string; tone: string }[] = [];
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: (request) => { asked.push({ title: request.title, tone: request.tone }); return Promise.resolve('allow'); } },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const { manifest: parsed } = parsePluginManifest({
+    id: 'patches', name: 'Patches', version: '1.0.0', apiVersion: '^0.5.0',
+    permissions: ['host:events'], events: ['vrcPrefillLogin', 'friendOnline'],
+  });
+  assert.ok(parsed);
+  const g = new PluginGate(parsed, broker, logger, new AbortController().signal);
+  g.seedDeclared();
+
+  const order: string[] = [];
+  g.whenAllowed(eventPrompt(g.subject, 'friendOnline'), () => { order.push('declared'); });
+  g.whenAllowed(eventPrompt(g.subject, 'vrcPrefillLogin'), () => { order.push('password'); });
+  assert.deepEqual(order, ['declared'], 'declaring the password event does not grant it');
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  assert.deepEqual(order, ['declared', 'password']);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0]?.title ?? '', /password/);
+  assert.equal(asked[0]?.tone, 'high');
+});

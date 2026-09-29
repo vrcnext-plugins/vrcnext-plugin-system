@@ -129,13 +129,16 @@ export interface NativeApi {
   notify(options: NativeNotifyOptions): Promise<NativeNotifyResult>;
 
   /**
-   * Call any service method on the bridge, over the shared socket.
+   * Call a method of a bridge service a plugin may use, over the shared socket.
    *
-   * The forward-compatible path: a bridge that grows a new service is usable from a plugin
-   * immediately, without a matching plugin-system release.
+   * Only `notify` today. The bridge's other services belong to the host, which wraps each in an
+   * API with its own permission (`ctx.settings`, `ctx.http`, `ctx.osc`), or keeps it to itself
+   * (`plugins`, `sql`, `logs`, `remote`); calling one here is refused before anything is sent.
+   * Each `service/method` is asked about once and the answer remembered.
    *
-   * @throws If the socket closes before the answer, the call times out, or the bridge answers
-   *   with an error — the latter as a `NativeRequestError` carrying its `code`.
+   * @throws `PermissionError` for a service plugins may not reach, or when the user refuses; if
+   *   the socket closes before the answer, the call times out, or the bridge answers with an
+   *   error — the latter as a `NativeRequestError` carrying its `code`.
    */
   call(service: string, method: string, params?: unknown): Promise<unknown>;
 }

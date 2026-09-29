@@ -41,6 +41,7 @@ import type { BridgeClient } from '../capabilities/native.js';
 import type { EventRouter } from '../events/event-router.js';
 import type { PluginGate } from '../permissions/plugin-gate.js';
 import {
+  CREDENTIAL_EVENTS,
   actionPrompt,
   bridgePrompt,
   clipboardPrompt,
@@ -122,7 +123,10 @@ export class GatedEventBus implements EventBus {
   onAny(listener: (envelope: HostEnvelope) => void): () => void {
     this.#gate.requireDeclared('host:events', ANY_TARGET);
     return lazySubscribe(this.#gate, eventPrompt(this.#gate.subject, ANY_TARGET), this.#bag, () =>
-      this.#router.onAny(listener),
+      this.#router.onAny((envelope) => {
+        // A password is only ever handed to a listener that asked for it by name.
+        if (!CREDENTIAL_EVENTS.has(envelope.type)) listener(envelope);
+      }),
     );
   }
 
@@ -339,6 +343,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * The bridge services a plugin may reach through `ctx.native.call`.
+ *
+ * Everything else the bridge serves is the host's: `state` holds every plugin's settings and the
+ * permission grants themselves, `plugins` installs code, `outbound` and `osc` have gates of their
+ * own behind `ctx.http` and `ctx.osc`, `sql` and `logs` read the user's data, and `remote` runs
+ * code in the page. A grant is remembered per `service/method` and not per parameters, so one
+ * "allow" of `state/set` would otherwise let a plugin rewrite its own grants. A service the
+ * bridge grows later becomes reachable when it is added here, not before.
+ */
+export const PLUGIN_BRIDGE_SERVICES: ReadonlySet<string> = new Set(['notify']);
+
 export class GatedNative implements NativeApi {
   readonly #client: BridgeClient;
   readonly #gate: PluginGate;
@@ -366,6 +382,13 @@ export class GatedNative implements NativeApi {
   }
 
   async call(service: string, method: string, params: unknown = {}): Promise<unknown> {
+    if (!PLUGIN_BRIDGE_SERVICES.has(service)) {
+      throw new PermissionError(
+        'native',
+        `the bridge service "${service}" is not available to plugins; use its ctx API`,
+        `${service}/${method}`,
+      );
+    }
     await this.#gate.check(bridgePrompt(this.#gate.subject, service, method, params));
     return this.#client.call(service, method, params);
   }

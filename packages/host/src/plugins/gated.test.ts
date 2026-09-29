@@ -26,7 +26,8 @@ import type { Decision } from '../permissions/types.js';
 import { GrantStore } from '../permissions/grant-store.js';
 import { PluginGate } from '../permissions/plugin-gate.js';
 import { MemoryStateService } from '../state/state-service.js';
-import { GatedDeepLinks, GatedHttp, gatedVrchat } from './gated.js';
+import { EventRouter } from '../events/event-router.js';
+import { GatedDeepLinks, GatedEventBus, GatedHttp, GatedNative, gatedVrchat } from './gated.js';
 
 const logger: Logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined, scoped: () => logger };
 
@@ -265,4 +266,72 @@ test('deep links need openDeepLink in plugin.json "events", like the event itsel
   assert.ok(declared);
   const allowed = new GatedDeepLinks(inner, new PluginGate(declared, broker, logger, new AbortController().signal), new DisposableBag());
   allowed.on(() => undefined)();
+});
+
+function nativeFixture(): { api: GatedNative; asked: string[]; calls: { service: string; params: unknown }[] } {
+  const asked: string[] = [];
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: (request) => { asked.push(request.title); return Promise.resolve('allow'); } },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const { manifest: parsed } = parsePluginManifest({
+    id: 'club-security', name: 'Club Security', version: '1.0.0', apiVersion: '^0.5.0', permissions: ['native'],
+  });
+  assert.ok(parsed);
+  const gate = new PluginGate(parsed, broker, logger, new AbortController().signal);
+  gate.seedDeclared();
+  const { bridge, calls } = fakeBridge({ ok: true, delivered: [], failed: [] });
+  return { api: new GatedNative(bridge, gate), asked, calls };
+}
+
+test('ctx.native reaches the notification service and nothing the host wraps itself', async () => {
+  const f = nativeFixture();
+  await f.api.call('notify', 'targets', {});
+  assert.deepEqual(f.calls.map((call) => call.service), ['notify']);
+
+  // One allowed `state/set` would otherwise let a plugin rewrite its own grants or read another
+  // plugin's settings; `plugins`, `sql`, `logs`, `outbound`, `osc` and `remote` are the host's too.
+  for (const [service, method, params] of [
+    ['state', 'set', { ns: 'host', key: 'grants:club-security', value: {} }],
+    ['state', 'get', { ns: 'plugin:patches', key: 'totpSecret' }],
+    ['plugins', 'install', { url: 'https://example.com/x.git' }],
+    ['sql', 'query', { database: 'vrcnext', sql: 'SELECT 1' }],
+    ['logs', 'tail', {}],
+    ['outbound', 'fetch', { url: 'https://example.com' }],
+    ['osc', 'send', {}],
+    ['remote', 'result', {}],
+  ] as const) {
+    await assert.rejects(f.api.call(service, method, params), (error: unknown) => {
+      assert.ok(error instanceof PermissionError);
+      assert.equal(error.target, `${service}/${method}`);
+      return true;
+    });
+  }
+  assert.equal(f.calls.length, 1, 'nothing refused reached the bridge');
+  assert.ok(f.asked.every((title) => title.includes('notify')), `only notify was ever asked about: ${f.asked.join(', ')}`);
+});
+
+test('a listener for every event never receives one that carries a password', async () => {
+  const broker = new PermissionBroker({
+    grants: new GrantStore(new MemoryStateService()),
+    prompt: { ask: () => Promise.resolve('allow') },
+    onUninstall: () => Promise.resolve(),
+    log: () => undefined,
+  });
+  const { manifest: parsed } = parsePluginManifest({
+    id: 'spy', name: 'Spy', version: '1.0.0', apiVersion: '^0.5.0', permissions: ['host:events'], events: ['*'],
+  });
+  assert.ok(parsed);
+  const gate = new PluginGate(parsed, broker, logger, new AbortController().signal);
+  gate.seedDeclared();
+  const router = new EventRouter();
+  const bus = new GatedEventBus(router, new DisposableBag(), gate);
+  const seen: string[] = [];
+  bus.onAny((envelope) => { seen.push(envelope.type); });
+  await settle();
+  router.dispatch({ type: 'friendOnline', payload: {} });
+  router.dispatch({ type: 'vrcPrefillLogin', payload: { username: 'u', password: 'hunter2' } });
+  assert.deepEqual(seen, ['friendOnline']);
 });

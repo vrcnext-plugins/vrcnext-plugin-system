@@ -34,7 +34,8 @@ export const PERMISSIONS = {
     tone: 'high',
   },
   network: {
-    description: 'Make HTTP requests, limited to the hosts listed in plugin.json.',
+    description:
+      'Make HTTP requests. Each host is asked about before its first request, declared in plugin.json or not.',
     tone: 'medium',
   },
   notifications: {
@@ -42,7 +43,8 @@ export const PERMISSIONS = {
     tone: 'low',
   },
   native: {
-    description: 'Call the VRCNext Bridge: VR overlay and desktop notification targets.',
+    description:
+      "Send notifications through the VRCNext Bridge to your VR overlay and desktop. Only the bridge's notification service is reachable.",
     tone: 'medium',
   },
   osc: {

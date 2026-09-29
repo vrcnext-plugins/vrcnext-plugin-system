@@ -12,7 +12,7 @@
  * "(none)": a box saying nothing still costs a line and a glance.
  */
 
-import { permissionInfo, type Permission } from '@vrcnext/plugin-api';
+import { permissionInfo, type Permission, type PermissionTone } from '@vrcnext/plugin-api';
 
 import { ANY_TARGET, type PluginSubject, type PromptDetail, type PromptRequest } from './types.js';
 
@@ -49,6 +49,8 @@ interface Spec {
   readonly lead: string;
   readonly headline?: string;
   readonly details?: readonly PromptDetail[];
+  /** Raise the permission's usual tone for one target that deserves more care than the rest. */
+  readonly tone?: PermissionTone;
 }
 
 function build(plugin: PluginSubject, spec: Spec): PromptRequest {
@@ -58,7 +60,7 @@ function build(plugin: PluginSubject, spec: Spec): PromptRequest {
     ...spec,
     // The sentence still names the asker: it is what a log line or a narrow screen falls back to.
     title: `${who(plugin)} ${spec.lead}${headline === '' ? '' : ` ${headline}`}`,
-    tone: permissionInfo(spec.kind).tone,
+    tone: spec.tone ?? permissionInfo(spec.kind).tone,
     // An empty value means the request carries none of that thing, which is worth no row at all.
     details: (spec.details ?? []).filter((detail) => detail.value !== ''),
   };
@@ -122,13 +124,41 @@ export function actionPrompt(plugin: PluginSubject, action: string, payload: unk
   });
 }
 
+/**
+ * VRCNext events whose payload carries a VRChat credential in plain text.
+ *
+ * `vrcPrefillLogin` is VRCNext filling its own login form from its saved account: the username
+ * and the **password**. Such an event is never granted by being declared in `plugin.json`, is
+ * asked about in its own words at the highest tone, and is never delivered to `onAny`.
+ */
+export const CREDENTIAL_EVENTS: ReadonlySet<string> = new Set(['vrcPrefillLogin']);
+
 export function eventPrompt(plugin: PluginSubject, event: string): PromptRequest {
+  if (CREDENTIAL_EVENTS.has(event)) {
+    return build(plugin, {
+      kind: 'host:events',
+      target: event,
+      lead: 'wants to read your VRChat password, from the VRCNext event',
+      headline: event,
+      tone: 'high',
+      details: [
+        {
+          label: 'What that allows',
+          value:
+            'This event carries your VRChat username and password in plain text. Allow it only ' +
+            'for a plugin you trust with your account, such as one that logs you in.',
+        },
+      ],
+    });
+  }
   const any = event === ANY_TARGET;
   return build(plugin, {
     kind: 'host:events',
     target: event,
     lead: any ? 'wants to listen to every VRCNext event' : 'wants to listen to the VRCNext event',
-    ...(any ? {} : { headline: event }),
+    ...(any
+      ? { details: [{ label: 'Not included', value: `Events that carry a password (${[...CREDENTIAL_EVENTS].join(', ')}) are never delivered to a listener for every event.` }] }
+      : { headline: event }),
   });
 }
 
@@ -137,6 +167,14 @@ export function interceptPrompt(plugin: PluginSubject): PromptRequest {
     kind: 'host:intercept',
     target: ANY_TARGET,
     lead: 'wants to observe and drop actions VRCNext sends to its backend',
+    details: [
+      {
+        label: 'What that allows',
+        value:
+          'Every action VRCNext sends passes through the plugin as it is written, including logging in ' +
+          '(vrcLogin, with your password) and two-factor codes (vrc2FA).',
+      },
+    ],
   });
 }
 

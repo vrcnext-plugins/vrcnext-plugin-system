@@ -16,7 +16,7 @@ import {
 } from '@vrcnext/plugin-api';
 
 import type { PermissionBroker } from './broker.js';
-import { categoryPrompt } from './prompts.js';
+import { CREDENTIAL_EVENTS, categoryPrompt } from './prompts.js';
 import { ANY_TARGET, type PluginSubject, type PromptRequest } from './types.js';
 
 export class PluginGate implements PermissionsApi {
@@ -50,7 +50,9 @@ export class PluginGate implements PermissionsApi {
   seedDeclared(): void {
     const { id, actions, events } = this.#manifest;
     this.#broker.seed(id, 'host:actions', actions);
-    this.#broker.seed(id, 'host:events', events);
+    // A credential event is asked about even when declared: listing it in plugin.json is the
+    // plugin's intent, not the user having agreed to hand over their password.
+    this.#broker.seed(id, 'host:events', events.filter((event) => !CREDENTIAL_EVENTS.has(event)));
   }
 
   has(permission: Permission): boolean {
