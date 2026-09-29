@@ -21,7 +21,7 @@ interface Fake {
   readonly replies: Map<string, unknown[]>;
 }
 
-function fake(): Fake {
+function fake(resolveImage?: (key: string) => Promise<string>): Fake {
   const router = new EventRouter();
   const requests: QuietRequest<unknown>[] = [];
   const replies = new Map<string, unknown[]>();
@@ -35,7 +35,9 @@ function fake(): Fake {
       return Promise.reject(new Error(`no reply for ${request.expect}`));
     },
   } as QuietChannel;
-  const api = new HostVrchatApi({ router, channel });
+  const api = new HostVrchatApi(
+    resolveImage === undefined ? { router, channel } : { router, channel, resolveImage },
+  );
   return { api, router, requests, replies };
 }
 
@@ -193,4 +195,53 @@ test('the detail cache is bounded, dropping the least recently used', async () =
   assert.equal(f.requests.length, 201, 'the most recently used entry survived the eviction');
   await f.api.user(ids[1] ?? '');
   assert.equal(f.requests.length, 202, 'the least recently used entry was evicted');
+});
+
+test('a picture is resolved by entity, checked, and cached — but an absence is not', async () => {
+  const asked: string[] = [];
+  const stored: Record<string, string> = {
+    'Users/usr_1': 'https://api.vrchat.cloud/api/1/image/file_a/1/800',
+    'Avatars/avtr_1': 'https://api.vrchat.cloud/api/1/image/file_b/1/800',
+    'Users/usr_1_pfp': 'https://api.vrchat.cloud/api/1/image/file_c/1/800',
+    // What must never be handed out, whatever the database says.
+    'Users/usr_local': 'http://localhost:51956/imgcache/Users/usr_local.png',
+  };
+  const f = fake((key) => { asked.push(key); return Promise.resolve(stored[key] ?? ''); });
+
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: 'usr_1' }), stored['Users/usr_1']);
+  assert.equal(await f.api.originalImageUrl({ kind: 'avatar', id: 'avtr_1' }), stored['Avatars/avtr_1']);
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: 'usr_1', variant: 'pfp' }), stored['Users/usr_1_pfp']);
+  assert.deepEqual(asked, ['Users/usr_1', 'Avatars/avtr_1', 'Users/usr_1_pfp'], 'keyed by entity, not by URL');
+
+  await f.api.originalImageUrl({ kind: 'user', id: 'usr_1' });
+  assert.equal(asked.length, 3, 'an answer is cached');
+
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: 'usr_local' }), '', 'a local address is refused');
+
+  // An absence must not be cached: the picture VRCNext has not downloaded yet is exactly the one
+  // a later report needs, and caching the miss would poison the whole session.
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: 'usr_nobody' }), '');
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: 'usr_nobody' }), '');
+  assert.equal(asked.filter((key) => key === 'Users/usr_nobody').length, 2, 'asked again, not remembered');
+});
+
+test('a picture answers empty rather than failing the caller', async () => {
+  // No resolver: no bridge on this page.
+  assert.equal(await fake().api.originalImageUrl({ kind: 'user', id: 'usr_1' }), '');
+
+  // A resolver that throws — the bridge went away mid-report.
+  const broken = fake(() => Promise.reject(new Error('not paired')));
+  assert.equal(await broken.api.originalImageUrl({ kind: 'avatar', id: 'avtr_1' }), '');
+
+  // An id that is not one.
+  const f = fake(() => Promise.resolve('https://api.vrchat.cloud/api/1/image/file_a/1/800'));
+  assert.equal(await f.api.originalImageUrl({ kind: 'user', id: '../../etc/passwd' }), '');
+
+  // An aborted caller is let go without a lookup.
+  const controller = new AbortController();
+  controller.abort();
+  const asked: string[] = [];
+  const g = fake((key) => { asked.push(key); return Promise.resolve('https://api.vrchat.cloud/x'); });
+  assert.equal(await g.api.originalImageUrl({ kind: 'user', id: 'usr_1' }, { signal: controller.signal }), '');
+  assert.deepEqual(asked, []);
 });

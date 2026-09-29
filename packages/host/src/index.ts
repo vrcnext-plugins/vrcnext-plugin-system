@@ -20,6 +20,7 @@ import { DeepLinkHub } from './capabilities/deep-links.js';
 import { BridgeClient } from './capabilities/native.js';
 import { attachRemoteControl } from './capabilities/remote-control.js';
 import { RouteTable } from './capabilities/router.js';
+import { resolveImageUrl, type BridgeCall } from './capabilities/vrchat/image-urls.js';
 import { QuietChannel, photinoCallbacks } from './capabilities/vrchat/quiet-channel.js';
 import { HostVrchatApi } from './capabilities/vrchat/vrchat-api.js';
 import { EventRouter } from './events/event-router.js';
@@ -128,7 +129,15 @@ function buildCore(): Core {
     quiet.noteOutbound(action);
     return undefined;
   });
-  const vrchat = new HostVrchatApi({ router, channel: quiet });
+  // The image resolver reads VRCNext's database through the bridge, which is built further down
+  // because it needs this sink's logger — and `ui` just below needs `vrchat`. Bound late, the way
+  // this file already resolves the broker/manager cycle.
+  const late: { call?: BridgeCall } = {};
+  const vrchat = new HostVrchatApi({
+    router,
+    channel: quiet,
+    resolveImage: (key) => resolveImageUrl(late.call, key),
+  });
   const isLinux = detectLinux(router, logger);
   const toast = createToast(sink);
   const debugHub = new DebugHub(sink);
@@ -146,15 +155,16 @@ function buildCore(): Core {
   native.mirrorLogs(sink);
 
   const call = native.call.bind(native);
+  late.call = call;
   const state = new BridgeStateService(call);
   const service = new PluginsService(call);
   const grants = new GrantStore(state);
   // The broker's Uninstall button needs the manager, which needs the broker: bind late.
-  const late: { manager?: PluginManager } = {};
+  const lateManager: { manager?: PluginManager } = {};
   const broker = new PermissionBroker({
     grants,
     prompt: new PermissionModal(),
-    onUninstall: async (id) => { await late.manager?.uninstall(id); },
+    onUninstall: async (id) => { await lateManager.manager?.uninstall(id); },
     log: (message) => { logger.info(message); },
   });
 
@@ -185,7 +195,7 @@ function buildCore(): Core {
     consent: new EnableModal(),
     logger,
   });
-  late.manager = manager;
+  lateManager.manager = manager;
 
   return { sink, logger, bridge, manager, broker, grants, ui, toast, routes, contextMenu, native, vrchat, quiet, debugHub, isLinux };
 }

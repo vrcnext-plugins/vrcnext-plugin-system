@@ -14,6 +14,8 @@
  * `undefined` rather than guessed.
  */
 
+import type { ImageSubject } from './images.js';
+
 /** VRChat's avatar performance ranks, best to worst. `''` when unknown. */
 export const PERFORMANCE_RANKS = ['Excellent', 'Good', 'Medium', 'Poor', 'VeryPoor'] as const;
 export type PerformanceRank = (typeof PERFORMANCE_RANKS)[number] | '';
@@ -387,6 +389,27 @@ export interface VrchatApi {
   avatar(id: string, options?: VrcLookupOptions): Promise<VrcAvatar | undefined>;
   world(id: string, options?: VrcLookupOptions): Promise<VrcWorld | undefined>;
   group(id: string, options?: VrcLookupOptions): Promise<VrcGroup | undefined>;
+
+  /**
+   * The address VRChat serves a picture from, for a picture VRCNext has cached.
+   *
+   * Once VRCNext has a copy of a picture on disk it hands the page its own cache address — a
+   * `http://localhost:…/imgcache/…` URL, right for painting in the app and worthless anywhere it
+   * has to leave this machine. It did record where the file came from, and this reads that back, so
+   * an embed or a webhook can carry a link that loads for whoever is reading it.
+   *
+   * **Check the payload first.** When a lookup already handed over an `api.vrchat.cloud` address —
+   * which it does for a picture VRCNext has not cached yet — that address is the answer, and
+   * {@link publicImageUrl} is how to tell. Only call this when it did not. The order matters
+   * because it is the difference between using what VRCNext already fetched and going looking for
+   * it again.
+   *
+   * Nothing here ever asks VRChat for anything: the answer comes from the bridge reading VRCNext's
+   * own database, one indexed lookup. `''` when the picture has never been cached, when the bridge
+   * is not connected, or when the id is not one. Never throws, and never returns an address that
+   * only works on this machine.
+   */
+  originalImageUrl(subject: ImageSubject, options?: VrcLookupOptions): Promise<string>;
 
   /** VRChat's user search, by display name. Twenty per page. */
   searchUsers(query: string, options?: VrcSearchOptions): Promise<VrcSearchPage<VrcUserSummary>>;

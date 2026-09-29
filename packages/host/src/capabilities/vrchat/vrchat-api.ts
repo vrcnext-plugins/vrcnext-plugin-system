@@ -13,8 +13,10 @@
  *   concurrent lookups share one request.
  */
 
+import { imageCacheKeyFor, publicImageUrl } from '@vrcnext/plugin-api';
 import type {
   ActionArgs,
+  ImageSubject,
   VrcAvatar,
   VrcAvatarSummary,
   VrcFavoriteGroup,
@@ -99,12 +101,35 @@ export interface VrchatApiDeps {
   readonly router: EventRouter;
   readonly channel: QuietChannel;
   readonly now?: () => number;
+  /**
+   * Turns a VRCNext image-cache key into the address VRChat serves that picture from, or `''`.
+   *
+   * Injected rather than reached for, because the answer comes from the bridge reading VRCNext's
+   * database and this class otherwise knows nothing about the bridge. Omitted — in tests, and on a
+   * page whose bridge never connects — {@link HostVrchatApi.originalImageUrl} answers `''`, which
+   * every caller already treats as "no picture to share".
+   */
+  readonly resolveImage?: (key: string) => Promise<string>;
 }
+
+/**
+ * Cached public image addresses. Small: a report looks up two pictures, and the key is one
+ * entity, so a session touches far fewer of these than it does profiles.
+ */
+const IMAGE_MAX_ENTRIES = 200;
 
 export class HostVrchatApi implements VrchatApi {
   readonly #deps: VrchatApiDeps;
   readonly #unsubscribe: (() => void)[] = [];
   #self: VrcSelf | undefined;
+  /**
+   * Resolved public image addresses by cache key, most recently used last.
+   *
+   * Only answers are kept. A picture VRCNext has not cached yet has no row to find, and caching
+   * that absence would mean the first report after startup poisons every later one — which is
+   * exactly the case this whole path exists to fix. A miss is one cheap indexed lookup.
+   */
+  readonly #images = new Map<string, string>();
 
   readonly #friends = new Mirror<readonly VrcUserSummary[]>((p) => {
     const r = n.rec(p);
@@ -557,5 +582,37 @@ export class HostVrchatApi implements VrchatApi {
       },
       ...(options?.signal === undefined ? {} : { signal: options.signal }),
     });
+  }
+
+  async originalImageUrl(subject: ImageSubject, options?: VrcLookupOptions): Promise<string> {
+    const key = imageCacheKeyFor(subject);
+    const resolve = this.#deps.resolveImage;
+    if (key === undefined || resolve === undefined) return '';
+    const cached = this.#images.get(key);
+    if (cached !== undefined) {
+      // Re-inserted so the map's order stays least recently used first.
+      this.#images.delete(key);
+      this.#images.set(key, cached);
+      return cached;
+    }
+    if (options?.signal?.aborted === true) return '';
+    let answer = '';
+    try {
+      answer = await resolve(key);
+    } catch {
+      // A picture is never worth failing a report over: the field drops instead.
+      return '';
+    }
+    // Checked rather than trusted, whatever the database holds: this address is about to be handed
+    // to something off this machine, and a cache URL there fails silently.
+    const url = publicImageUrl(answer);
+    if (url === '') return '';
+    this.#images.set(key, url);
+    while (this.#images.size > IMAGE_MAX_ENTRIES) {
+      const oldest = this.#images.keys().next();
+      if (oldest.done === true) break;
+      this.#images.delete(oldest.value);
+    }
+    return url;
   }
 }
