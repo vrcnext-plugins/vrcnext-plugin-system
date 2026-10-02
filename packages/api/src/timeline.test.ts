@@ -259,3 +259,25 @@ test('a malformed record drops its fields instead of throwing out of the whole l
   assert.equal(grouped.length, 1);
   assert.doesNotMatch(grouped[0] ?? '', /42/);
 });
+
+test('knownGap draws the gap for a hole this call did not create', () => {
+  const rows = [
+    { type: 'meet_again', timestamp: '2026-10-02T22:00:00Z', location: 'wrld_a:1', worldName: 'Lotus' },
+    { type: 'meet_again', timestamp: '2026-10-02T20:00:00Z', location: 'wrld_a:2', worldName: 'Lotus' },
+    { type: 'instance_join', timestamp: '2022-01-04T18:26:02Z', location: 'wrld_z:9', worldName: 'Apartment' },
+  ];
+  // Three entries and a limit of twelve: nothing is dropped, so truncation cannot know there is
+  // a four-year hole above the last row. The caller can.
+  const quiet = userEventRows(rows, { limit: 12, oldest: true });
+  assert.equal(quiet.includes(TIMELINE_GAP), false);
+  assert.equal(quiet.length, 3);
+
+  const told = userEventRows(rows, { limit: 12, oldest: true, knownGap: true });
+  assert.equal(told.at(-2), TIMELINE_GAP);
+  assert.notEqual(told.at(-1), TIMELINE_GAP);
+  assert.equal(told.length, 4, 'every row it had, plus the gap');
+
+  // The pinned row is never also left in the head.
+  const ids = told.filter((row) => row !== TIMELINE_GAP).map((row) => row.event.timestamp);
+  assert.equal(new Set(ids).size, ids.length);
+});

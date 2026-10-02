@@ -411,6 +411,18 @@ export interface TimelineRowOptions {
    * they did in the last hour" into "what they did, and since when".
    */
   readonly oldest?: boolean;
+
+  /**
+   * Draw the gap even when this list dropped nothing.
+   *
+   * The gap says "there is history between these two rows that you are not seeing", and by
+   * default that is inferred from this call having truncated. It is not the only way to know
+   * it: a caller that appended an oldest record from somewhere deeper — VRCNext's database,
+   * where the page only answers with ten records — has a hole between it and the rest by
+   * construction, and no amount of counting *these* rows can show that. Without this, eight
+   * entries and a five-year-old last row render as one unbroken list.
+   */
+  readonly knownGap?: boolean;
 }
 
 /**
@@ -426,11 +438,15 @@ export function userEventRows(
 ): readonly TimelineRow[] {
   const limit = Math.max(options.limit ?? DEFAULT_LIMIT, 0);
   const all = collapse(events);
-  // Nothing was left out, so there is nothing for a gap to stand for and no row to spend on it.
-  if (options.oldest !== true || all.length <= limit || limit < 3) return all.slice(0, limit);
+  if (options.oldest !== true || limit < 3) return all.slice(0, limit);
+  // Something is missing when this call truncated, or when the caller knows it is.
+  const hole = all.length > limit || options.knownGap === true;
+  if (!hole) return all.slice(0, limit);
   const oldest = all[all.length - 1];
   if (oldest === undefined) return all.slice(0, limit);
-  return [...all.slice(0, limit - 2), TIMELINE_GAP, oldest];
+  // Everything that fits above the gap and the pinned row, and never the pinned row twice.
+  const head = all.slice(0, Math.min(limit - 2, all.length - 1));
+  return [...head, TIMELINE_GAP, oldest];
 }
 
 /**
