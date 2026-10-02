@@ -104,6 +104,7 @@ export async function postWebhook(options: PostWebhookOptions): Promise<PostWebh
   logger.debug(`${at}posting ${String(body.length)} bytes to Discord: ${body}`);
   let response: Response;
   try {
+    // reuse: Discord is not VRCNext — there is no local copy of a message not yet sent.
     response = await http.fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

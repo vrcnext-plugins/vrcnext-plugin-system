@@ -44,6 +44,8 @@ declare const favWorldsData: unknown;
 declare const favAvatarsData: unknown;
 declare const avatarsData: unknown;
 declare const notifications: unknown;
+declare const _recentSeenData: unknown;
+declare const favFriendsData: unknown;
 declare const worldInfoCache: unknown;
 declare const avatarInfoCache: unknown;
 declare const dashGroupCache: unknown;
@@ -104,6 +106,15 @@ export const pageLists = {
   },
   /** `vrcNotifications`: the unread ones VRCNext is showing. */
   notifications: (): unknown => pageArray(() => notifications),
+  /** `recentSeenPlayers` wraps its list in `{ players }`. */
+  recentPlayers: (): unknown => wrap('players', pageArray(() => _recentSeenData)),
+  /**
+   * `vrcFavoriteFriends` wraps its list in `{ friends }`, each carrying `favoriteId`.
+   *
+   * The page's own array is the favourite *records* — `{ fvrtId, favoriteId, groupName }` — which
+   * is the same shape the push carries, so the normaliser reads it unchanged.
+   */
+  favoriteFriends: (): unknown => wrap('friends', pageArray(() => favFriendsData)),
 } as const;
 
 /** `{ [key]: list }`, or `undefined` so a missing list stays missing rather than becoming empty. */

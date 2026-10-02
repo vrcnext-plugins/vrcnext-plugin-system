@@ -151,6 +151,8 @@ export class HostVrchatApi implements VrchatApi {
    * that absence would mean the first report after startup poisons every later one — which is
    * exactly the case this whole path exists to fix. A miss is one cheap indexed lookup.
    */
+  // reuse: the answers are the host's own work — VRCNext caches the picture on disk but
+  // keeps no map of which public URL each cache key resolved to, which is what costs a lookup.
   readonly #images = new Map<string, string>();
 
   readonly #friends = new Mirror<readonly VrcUserSummary[]>((p) => {
@@ -158,18 +160,18 @@ export class HostVrchatApi implements VrchatApi {
     const raw = r !== undefined && Array.isArray(r['friends']) ? r['friends'] : Array.isArray(p) ? p : undefined;
     return raw === undefined ? undefined : n.each(raw, n.friendSummary);
   }, pageLists.friends);
-  readonly #favoriteFriendIds = new Mirror<readonly string[]>(n.favoriteFriendIds);
+  readonly #favoriteFriendIds = new Mirror<readonly string[]>(n.favoriteFriendIds, pageLists.favoriteFriends);
   readonly #favoriteGroups = new Mirror<readonly VrcFavoriteGroup[]>(n.favoriteGroups, pageLists.favoriteGroups);
-  /** One mirror per moderation list; VRCNext pushes them as five separate events. */
-  readonly #moderations = new Map<keyof VrcModerationCounts, number>();
   readonly #recentPlayers = new Mirror<readonly VrcUserSummary[]>((p) => {
     const players = n.rec(p)?.['players'];
     return Array.isArray(players) ? n.each(players, n.userSummary) : undefined;
-  });
+  }, pageLists.recentPlayers);
   readonly #favoriteWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
   }, pageLists.favoriteWorlds);
+  // reuse: no page state — VRCNext renders visited worlds straight from the push and keeps no
+  // array of them, so this mirror is the only copy there is.
   readonly #recentWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
@@ -182,6 +184,7 @@ export class HostVrchatApi implements VrchatApi {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
   }, pageLists.favoriteAvatars);
+  // reuse: no page state — same as recent worlds; the avatar picker renders the push directly.
   readonly #recentAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
@@ -197,6 +200,8 @@ export class HostVrchatApi implements VrchatApi {
     n.rec(p) === undefined ? undefined : { instance: n.instance(p) },
   );
 
+  // reuse: this is what avoids requests rather than causing them — the answers to quiet
+  // lookups, held for DETAIL_TTL_MS so two reports on one arrival cost one lookup.
   readonly #details = new Map<string, Cached<unknown>>();
   readonly #inFlight = new Map<string, Promise<unknown>>();
 
@@ -215,18 +220,6 @@ export class HostVrchatApi implements VrchatApi {
       this.#favoriteFriendIds.feed(p);
       this.#favoriteGroups.feed(p);
     });
-    const moderation: readonly (readonly [string, keyof VrcModerationCounts])[] = [
-      ['vrcBlockedList', 'blocked'],
-      ['vrcMutedList', 'muted'],
-      ['vrcHideAvatarList', 'hiddenAvatar'],
-      ['vrcInteractOffList', 'interactOff'],
-      ['vrcMuteChatList', 'muteChat'],
-    ];
-    for (const [event, key] of moderation) {
-      on(event, (p) => {
-        if (Array.isArray(p)) this.#moderations.set(key, p.length);
-      });
-    }
     on('recentSeenPlayers', (p) => { this.#recentPlayers.feed(p); });
     on('vrcFavoriteWorlds', (p) => { this.#favoriteWorlds.feed(p); });
     on('visitedWorlds', (p) => { this.#recentWorlds.feed(p); });
@@ -255,6 +248,13 @@ export class HostVrchatApi implements VrchatApi {
   }
 
   /** A mirror's value, or the reply to asking VRCNext for it (which VRCNext also handles). */
+  /**
+   * A mirrored list: the push if it arrived, the page's own copy if not, and only then a request.
+   *
+   * reuse: cold start only. Every caller of this goes through a `Mirror` that reads VRCNext's
+   * page state first, so the request is reached only when VRCNext has neither pushed the list
+   * nor kept one — see `page-state.ts` and the two mirrors marked `no page state`.
+   */
   async #list<T>(
     mirror: Mirror<T>,
     request: { readonly action: string; readonly args?: ActionArgs; readonly expect: string },
@@ -289,7 +289,14 @@ export class HostVrchatApi implements VrchatApi {
     return signal === undefined ? pending : raceSignal(pending, signal);
   }
 
-  /** A quiet lookup, remembered for {@link DETAIL_TTL_MS}. */
+  /**
+   * A quiet lookup of one record, remembered for {@link DETAIL_TTL_MS}.
+   *
+   * reuse: a whole record, which no page cache holds. VRCNext caches *names* for the things its
+   * screens have shown — `ctx.vrchat.name` reads those for free — but a world's author, an
+   * avatar's ranks or a user's meet count are only in the reply. Prefer `name` when the name is
+   * all that is wanted; this is for when it is not.
+   */
   async #detail<T>(
     key: string,
     request: { readonly action: string; readonly args: ActionArgs; readonly expect: string; readonly swallow?: boolean; accept(payload: unknown): T | undefined },
@@ -381,14 +388,12 @@ export class HostVrchatApi implements VrchatApi {
    */
   moderationCounts(): VrcModerationCounts {
     const lists = pageModerationLists();
-    const count = (mirrored: number | undefined, page: readonly string[] | undefined): number =>
-      mirrored ?? page?.length ?? 0;
     return {
-      blocked: count(this.#moderations.get('blocked'), lists.block),
-      muted: count(this.#moderations.get('muted'), lists.mute),
-      hiddenAvatar: count(this.#moderations.get('hiddenAvatar'), lists.hideAvatar),
-      interactOff: count(this.#moderations.get('interactOff'), lists.interactOff),
-      muteChat: count(this.#moderations.get('muteChat'), lists.muteChat),
+      blocked: lists.block?.length ?? 0,
+      muted: lists.mute?.length ?? 0,
+      hiddenAvatar: lists.hideAvatar?.length ?? 0,
+      interactOff: lists.interactOff?.length ?? 0,
+      muteChat: lists.muteChat?.length ?? 0,
     };
   }
 

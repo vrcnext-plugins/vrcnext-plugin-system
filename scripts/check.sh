@@ -21,6 +21,9 @@ npx vitest run
 echo "==> Every VRCNext action and event named exists (protocol/vrcnext-protocol.json)"
 node scripts/check-vrcnext-protocol.mjs packages examples/example-plugin
 
+echo "==> Every request and every held list says why nothing existing would do"
+node scripts/check-reuse.mjs packages examples/example-plugin
+
 echo "==> API version agrees with packages/api/package.json"
 API_PKG_VERSION="$(node -p "require('./packages/api/package.json').version")"
 HOST_API_VERSION="$(sed -n "s/.*API_VERSION = '\([^']*\)'.*/\1/p" packages/host/src/api-version.ts)"
