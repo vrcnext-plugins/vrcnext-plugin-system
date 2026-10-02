@@ -80,15 +80,16 @@ export function isGroupInstance(type: string): boolean {
 /**
  * What VRCNext calls each instance type on screen.
  *
- * A port of the label map inside its `getInstanceBadge`, with the two collisions resolved: the
- * app shows `hidden` as "Friends+" and `group-members` as "Group" because a badge only ever
- * names one instance, while a list of every type has to tell them apart.
+ * A port of the label map inside its `getInstanceBadge`. `hidden` is the original Friends+ and
+ * the app badges it as such, so this does too: a reader of one report is being told the access
+ * level, not VRChat's release history. Two types therefore share a label, which only matters
+ * where all nine are listed at once — see {@link instanceTypeOptionLabel}.
  */
 export const INSTANCE_TYPE_LABELS: Readonly<Record<InstanceType, string>> = {
   'public': 'Public',
   'friends+': 'Friends+',
   'friends': 'Friends',
-  'hidden': 'Friends+ (legacy)',
+  'hidden': 'Friends+',
   'private': 'Invite',
   'invite_plus': 'Invite+',
   'group-public': 'Group Public',
@@ -100,4 +101,18 @@ export const INSTANCE_TYPE_LABELS: Readonly<Record<InstanceType, string>> = {
 export function instanceTypeLabel(type: string): string {
   const labels: Readonly<Record<string, string | undefined>> = INSTANCE_TYPE_LABELS;
   return labels[type] ?? type;
+}
+
+/**
+ * The same label, made unambiguous for a list that offers every type at once.
+ *
+ * {@link INSTANCE_TYPE_LABELS} badges one instance, where sharing a label loses nothing. A
+ * picker is the opposite: two options reading "Friends+" cannot be told apart, and the one the
+ * user did not mean filters differently. The collisions are found in the map rather than listed
+ * again here, so adding a type cannot leave this behind.
+ */
+export function instanceTypeOptionLabel(type: InstanceType): string {
+  const label = INSTANCE_TYPE_LABELS[type];
+  const shared = INSTANCE_TYPES.filter((other) => INSTANCE_TYPE_LABELS[other] === label);
+  return shared.length > 1 ? `${label} (${type})` : label;
 }

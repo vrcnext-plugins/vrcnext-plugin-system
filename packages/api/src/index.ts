@@ -211,9 +211,9 @@ export type {
 
 export { formatDuration, newestFirst, timeAgo } from './time.js';
 export type { Timestamped, TimeInput } from './time.js';
-export { INSTANCE_TYPES, INSTANCE_TYPE_LABELS, instanceTypeLabel, isGroupInstance, parseLocation } from './location.js';
-export { formatUserEvent, recentUserEvents, userEventLines } from './timeline.js';
-export type { TimelineEntry, TimelineFormat, TimelineTextOptions } from './timeline.js';
+export { INSTANCE_TYPES, INSTANCE_TYPE_LABELS, instanceTypeLabel, instanceTypeOptionLabel, isGroupInstance, parseLocation } from './location.js';
+export { TIMELINE_GAP, formatUserEvent, instancesSeen, ordinal, recentUserEvents, userEventLines, userEventRows } from './timeline.js';
+export type { TimelineEntry, TimelineFormat, TimelineRow, TimelineRowOptions, TimelineTextOptions } from './timeline.js';
 export type { InstanceType, ParsedLocation } from './location.js';
 export { TemplateError, renderTemplate, stringify, templatePlaceholders, truthy, validateTemplate } from './template.js';
 export { textProblem } from './setting-text.js';

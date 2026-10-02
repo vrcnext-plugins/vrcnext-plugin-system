@@ -17,7 +17,7 @@
  */
 
 import { discordCode, discordTimestamp } from './discord-text.js';
-import { instanceTypeLabel, parseLocation } from './location.js';
+import { instanceTypeLabel, parseLocation, type ParsedLocation } from './location.js';
 import { newestFirst, timeAgo } from './time.js';
 import type { VrcTimelineEvent } from './vrchat.js';
 
@@ -64,11 +64,11 @@ const PROFILE_FIELDS: Readonly<Record<string, string>> = {
 /** How long apart two profile edits can be and still be one visit to the profile editor. */
 const PROFILE_WINDOW_MS = 10 * 60 * 1000;
 
-/** How far apart a meeting and a visit can be and still be the same arrival. */
-const ARRIVAL_WINDOW_MS = 5 * 60 * 1000;
-
 /** The types that say a player arrived somewhere without saying anything else about it. */
 const VISIT_TYPES: ReadonlySet<string> = new Set(['instance_join', 'friend_gps']);
+
+/** How far apart two arrival records can be and still describe one arrival. */
+const ARRIVAL_WINDOW_MS = 5 * 60 * 1000;
 
 /** The types that say a player arrived somewhere *and* that you were there too. */
 const MEETING_TYPES: ReadonlySet<string> = new Set(['meet_again', 'first_meet']);
@@ -142,19 +142,22 @@ function quote(text: string, format: TimelineFormat): string {
 }
 
 /**
- * Where it happened: `` `Jellybean` #52792 by `Club Security` (Group+) ``.
+ * Where it happened: `` `Jellybean #52792` by `Club Security` (Group+) ``.
  *
- * Each part is dropped when the record does not carry it, so a location VRCNext only knows the
- * world of still reads as a world rather than as punctuation.
+ * The world and the instance number are one quoted span, because together they are the name of
+ * the place: `` `Jellybean` #52792 `` reads as a world with a number stuck to it, while
+ * `` `Jellybean #52792` `` reads as the instance a moderator would recognise. Each part is
+ * dropped when the record does not carry it, so a location VRCNext only knows the world of
+ * still reads as a world rather than as punctuation.
  */
 function place(event: VrcTimelineEvent, options: TimelineTextOptions): string {
   const format = options.format ?? 'plain';
   const parsed = parseLocation(event.location);
-  const world = event.worldName;
+  const named = event.worldName !== '' ? event.worldName : parsed.worldId;
   const parts: string[] = [];
-  if (world !== '') parts.push(quote(world, format));
-  else if (parsed.worldId !== '') parts.push(quote(parsed.worldId, format));
-  if (parsed.instanceId !== '') parts.push(`#${parsed.instanceId}`);
+  if (named !== '') {
+    parts.push(quote(parsed.instanceId === '' ? named : `${named} #${parsed.instanceId}`, format));
+  } else if (parsed.instanceId !== '') parts.push(`#${parsed.instanceId}`);
   const group = parsed.groupId === '' ? undefined : options.groupName?.(parsed.groupId);
   if (group !== undefined && group !== '') parts.push(`by ${quote(group, format)}`);
   if (parsed.instanceType !== '') parts.push(`(${instanceTypeLabel(parsed.instanceType)})`);
@@ -255,7 +258,7 @@ function sentence(event: VrcTimelineEvent, options: TimelineTextOptions, group: 
 }
 
 /**
- * One record as a line: `` Visited `Jellybean` #52792 (Friends+ (legacy)) ×2 <t:…:R> ``.
+ * One record as a line: `` Visited `Jellybean #52792` (Friends+) ×2 <t:…:R> ``.
  *
  * Takes either a raw record or a {@link TimelineEntry} from {@link recentUserEvents}, whose
  * `repeats` then fills in {@link TimelineTextOptions.repeats}.
@@ -289,72 +292,157 @@ function relative(timestamp: string): string {
  * What identifies "the same thing happening again": the type, plus whichever detail makes two
  * records of that type distinguishable. Two visits to one instance collapse; two visits to
  * different instances do not.
+ *
+ * Arrivals are keyed by the instance alone. VRCNext files a separate record every time someone
+ * walks into a place — and files `instance_join` *and* `meet_again` for the same arrival — so
+ * keying them by type as well spent a five-line log saying "this instance" five ways. One line
+ * per instance with a count is the whole of that news. `first_meet` is deliberately not in
+ * {@link ARRIVALS}: it happens once per person and is worth its own line even in a place they
+ * have since returned to a hundred times.
  */
 function key(event: VrcTimelineEvent): string {
   const location = parseLocation(event.location).key || event.location;
+  if (ARRIVALS.has(event.type) && location !== '') return `arrival|${location}`;
   return [event.type, event.notifType ?? '', location, event.worldName, event.message ?? ''].join('|');
+}
+
+/** The types that collapse to one line per instance: going somewhere, and meeting there again. */
+const ARRIVALS: ReadonlySet<string> = new Set([...VISIT_TYPES, 'meet_again']);
+
+/**
+ * Which of two records of the same arrival to word the line as.
+ *
+ * "Met again in X" is everything "Visited X" says and more, so a meeting outranks a visit even
+ * when the visit is the newer record. The timestamp still comes from the newest, which is when
+ * the place last saw them.
+ */
+function outranks(candidate: VrcTimelineEvent, current: VrcTimelineEvent): boolean {
+  return MEETING_TYPES.has(candidate.type) && !MEETING_TYPES.has(current.type);
+}
+
+/**
+ * Every record, deduplicated, newest first — the whole history as lines would show it.
+ *
+ * VRCNext files one record per occurrence, so a player who walked in and out of an instance
+ * three times fills the whole window with the same line. Records that {@link key} calls the
+ * same collapse into one entry with a `repeats` count, which is what makes a short log say
+ * something: five lines of five different things rather than five lines of one.
+ *
+ * Records whose timestamp does not parse are left out, because they cannot be placed in order.
+ */
+function collapse(events: readonly VrcTimelineEvent[] | undefined): readonly TimelineEntry[] {
+  interface Collapsing { event: VrcTimelineEvent; repeats: number; countedAt: number }
+  const seen = new Map<string, Collapsing>();
+  const order: string[] = [];
+  for (const event of newestFirst(events)) {
+    const id = key(event);
+    const at = Date.parse(event.timestamp);
+    const existing = seen.get(id);
+    if (existing === undefined) {
+      seen.set(id, { event, repeats: 1, countedAt: at });
+      order.push(id);
+      continue;
+    }
+    // One arrival, two records: VRCNext files `instance_join` because they went somewhere and
+    // `meet_again` because you were there when they did. Counting both would say they came
+    // twice. Anything beyond the window is a separate arrival and does count.
+    const sameArrival = ARRIVALS.has(event.type) && existing.countedAt - at <= ARRIVAL_WINDOW_MS;
+    if (!sameArrival) {
+      existing.repeats += 1;
+      existing.countedAt = at;
+    }
+    if (outranks(event, existing.event)) {
+      // The better sentence, kept at the newest record's timestamp: the entry says when the
+      // place last saw them, and says it as the meeting rather than as the bare arrival.
+      existing.event = { ...event, timestamp: existing.event.timestamp };
+    }
+  }
+  const collapsed = order
+    .map((id) => seen.get(id))
+    .filter((entry): entry is Collapsing => entry !== undefined)
+    .map((entry) => ({ event: entry.event, repeats: entry.repeats, group: [entry.event] }));
+  return mergeProfileEdits(collapsed);
 }
 
 /**
  * The newest records, deduplicated, newest first.
  *
- * VRCNext files one record per occurrence, so a player who walked in and out of an instance
- * three times fills the whole window with the same line. Identical records collapse into the
- * newest one with a `repeats` count, which is what makes a short log say something: five lines
- * of five different things rather than five lines of one.
- *
- * Records whose timestamp does not parse are left out, because they cannot be placed in order.
+ * {@link collapse} capped at `limit`. Use {@link userEventRows} where the oldest record should
+ * be kept too.
  */
 export function recentUserEvents(
   events: readonly VrcTimelineEvent[] | undefined,
   limit = 5,
 ): readonly TimelineEntry[] {
-  const seen = new Map<string, { event: VrcTimelineEvent; repeats: number }>();
-  const order: string[] = [];
-  for (const event of newestFirst(events)) {
-    const id = key(event);
-    const existing = seen.get(id);
-    if (existing === undefined) {
-      seen.set(id, { event, repeats: 1 });
-      order.push(id);
-    } else {
-      existing.repeats += 1;
-    }
-  }
-  const collapsed = order
-    .map((id) => seen.get(id))
-    .filter((entry): entry is { event: VrcTimelineEvent; repeats: number } => entry !== undefined)
-    .map((entry) => ({ event: entry.event, repeats: entry.repeats, group: [entry.event] }));
-  return dropVisitsExplainedByMeetings(mergeProfileEdits(collapsed)).slice(0, Math.max(limit, 0));
+  return collapse(events).slice(0, Math.max(limit, 0));
+}
+
+/** Stands for the entries a capped log left out, between the newest and the oldest. */
+export const TIMELINE_GAP = 'gap';
+
+/** A line's worth of log: an entry, or the gap that stands for what was left out. */
+export type TimelineRow = TimelineEntry | typeof TIMELINE_GAP;
+
+/** How many rows a log shows when the caller does not say. */
+const DEFAULT_LIMIT = 5;
+
+export interface TimelineRowOptions {
+  /** How many rows, the gap and the oldest included. */
+  readonly limit?: number;
+  /**
+   * Keep the oldest record as the last row, with a gap above it.
+   *
+   * The oldest thing VRCNext knows about someone is usually the day you met them, and it is the
+   * one record a window of the five newest can never show. Pinning it turns the log from "what
+   * they did in the last hour" into "what they did, and since when".
+   */
+  readonly oldest?: boolean;
 }
 
 /**
- * A visit is dropped when a meeting already accounts for it.
+ * The rows a log field shows: newest first, optionally ending at the oldest record.
  *
- * VRCNext files both for one arrival: `instance_join` because they went somewhere, and
- * `meet_again` because you were there when they did. They are not duplicates to the dedup above
- * — different types, so different keys — but they are one thing that happened, and the log said
- * it twice. The meeting survives, because "Met again in `Jellybean`" is everything "Visited
- * `Jellybean`" says and more.
+ * Returned rather than formatted so a caller can look at the entries first — resolving the
+ * group names the lines will mention, for one — and be certain it looked at exactly the rows
+ * that get printed.
  */
-function dropVisitsExplainedByMeetings(entries: readonly TimelineEntry[]): TimelineEntry[] {
-  const meetings = entries
-    .filter((entry) => MEETING_TYPES.has(entry.event.type))
-    .map((entry) => ({ place: placeKey(entry.event), at: Date.parse(entry.event.timestamp) }));
-  if (meetings.length === 0) return [...entries];
-  return entries.filter((entry) => {
-    if (!VISIT_TYPES.has(entry.event.type)) return true;
-    const place = placeKey(entry.event);
-    const at = Date.parse(entry.event.timestamp);
-    return !meetings.some(
-      (meeting) => meeting.place === place && Math.abs(meeting.at - at) <= ARRIVAL_WINDOW_MS,
-    );
-  });
+export function userEventRows(
+  events: readonly VrcTimelineEvent[] | undefined,
+  options: TimelineRowOptions = {},
+): readonly TimelineRow[] {
+  const limit = Math.max(options.limit ?? DEFAULT_LIMIT, 0);
+  const all = collapse(events);
+  // Nothing was left out, so there is nothing for a gap to stand for and no row to spend on it.
+  if (options.oldest !== true || all.length <= limit || limit < 3) return all.slice(0, limit);
+  const oldest = all[all.length - 1];
+  if (oldest === undefined) return all.slice(0, limit);
+  return [...all.slice(0, limit - 2), TIMELINE_GAP, oldest];
 }
 
-/** Where a record happened, as one comparable string. */
-function placeKey(event: VrcTimelineEvent): string {
-  return parseLocation(event.location).key || event.location || event.worldName;
+/**
+ * Every distinct instance these records mention, newest first.
+ *
+ * One entry per instance however many times it appears, which is what counting "times they have
+ * been somewhere like this" means: a player who spent a weekend in one room was there once as
+ * far as a club's history is concerned.
+ */
+export function instancesSeen(events: readonly VrcTimelineEvent[] | undefined): readonly ParsedLocation[] {
+  const seen = new Map<string, ParsedLocation>();
+  for (const event of newestFirst(events)) {
+    const parsed = parseLocation(event.location);
+    if (parsed.key !== '' && !seen.has(parsed.key)) seen.set(parsed.key, parsed);
+  }
+  return [...seen.values()];
+}
+
+/** `1` → `1st`, `12` → `12th`, `23` → `23rd`. English, because the sentences here are. */
+export function ordinal(count: number): string {
+  const n = Math.trunc(count);
+  const tens = Math.abs(n) % 100;
+  const suffix = tens >= 11 && tens <= 13
+    ? 'th'
+    : (['th', 'st', 'nd', 'rd'][Math.abs(n) % 10] ?? 'th');
+  return `${String(n)}${suffix}`;
 }
 
 /** Whether a record is one field of a profile edit, as opposed to the app starting or stopping. */
@@ -395,15 +483,16 @@ function mergeProfileEdits(entries: readonly { event: VrcTimelineEvent; repeats:
 }
 
 /**
- * {@link recentUserEvents} and {@link formatUserEvent} together: the lines a log field shows.
+ * {@link userEventRows} and {@link formatUserEvent} together: the lines a log field shows.
  *
- * Returns an empty array when there is nothing to say, so a caller can drop the field rather
- * than print an empty box.
+ * The gap prints as `...`, which says "and more before this" in the one character a Discord
+ * field can spare. Returns an empty array when there is nothing to say, so a caller can drop
+ * the field rather than print an empty box.
  */
 export function userEventLines(
   events: readonly VrcTimelineEvent[] | undefined,
-  options: TimelineTextOptions & { readonly limit?: number } = {},
+  options: TimelineTextOptions & TimelineRowOptions = {},
 ): readonly string[] {
-  return recentUserEvents(events, options.limit ?? 5)
-    .map((entry) => formatUserEvent(entry, { time: 'relative', ...options }));
+  return userEventRows(events, options)
+    .map((row) => (row === TIMELINE_GAP ? '...' : formatUserEvent(row, { time: 'relative', ...options })));
 }

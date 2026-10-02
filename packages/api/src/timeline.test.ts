@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { formatUserEvent, recentUserEvents, userEventLines } from './timeline.js';
+import { TIMELINE_GAP, formatUserEvent, instancesSeen, ordinal, recentUserEvents, userEventLines, userEventRows } from './timeline.js';
 import type { VrcTimelineEvent } from './vrchat.js';
 
 const JELLYBEAN = 'wrld_aaaa1111-2222-3333-4444-555566667777:52792~hidden(usr_1)';
@@ -30,7 +30,7 @@ test('a notification says which kind it was and who sent it', () => {
 test('a visit names the world, the instance and its type', () => {
   assert.equal(
     formatUserEvent(event({ type: 'instance_join', location: JELLYBEAN, worldName: 'Jellybean' }), { format: 'discord' }),
-    'Visited `Jellybean` #52792 (Friends+ (legacy))',
+    'Visited `Jellybean #52792` (Friends+)',
   );
 });
 
@@ -38,12 +38,12 @@ test('a group instance names the group when the caller can resolve it', () => {
   const options = { format: 'discord' as const, groupName: (id: string) => (id === 'grp_x' ? 'Club Security' : undefined) };
   assert.equal(
     formatUserEvent(event({ type: 'friend_gps', location: CLUB, worldName: 'Jellybean' }), options),
-    'Visited `Jellybean` #11 by `Club Security` (Group+)',
+    'Visited `Jellybean #11` by `Club Security` (Group+)',
   );
   // Without a resolver the line is the same minus the name, never `grp_x`.
   assert.equal(
     formatUserEvent(event({ type: 'friend_gps', location: CLUB, worldName: 'Jellybean' }), { format: 'discord' }),
-    'Visited `Jellybean` #11 (Group+)',
+    'Visited `Jellybean #11` (Group+)',
   );
 });
 
@@ -54,7 +54,7 @@ test('the same thing happening twice becomes one line with a count', () => {
   assert.ok(entry);
   assert.equal(entry.repeats, 2);
   assert.equal(entry.event.timestamp, '2026-09-28T10:00:00Z', 'the newest of the two is kept');
-  assert.equal(formatUserEvent(entry, { format: 'discord' }), 'Visited `Jellybean` #52792 (Friends+ (legacy)) ×2');
+  assert.equal(formatUserEvent(entry, { format: 'discord' }), 'Visited `Jellybean #52792` (Friends+) ×2');
 });
 
 test('visits to different instances stay separate lines', () => {
@@ -127,7 +127,7 @@ test('a meeting and the visit it explains are one arrival, and the meeting is th
     at('instance_join', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
     at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:01Z'),
   ], { time: 'none' });
-  assert.deepEqual(lines, ['Met again in "Jellybean" #52792 (Friends+ (legacy))']);
+  assert.deepEqual(lines, ['Met again in "Jellybean #52792" (Friends+)']);
 });
 
 test('a visit somewhere you did not meet them stays', () => {
@@ -137,15 +137,75 @@ test('a visit somewhere you did not meet them stays', () => {
     at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
   ], { time: 'none' });
   assert.deepEqual(lines, [
-    'Met again in "Jellybean" #52792 (Friends+ (legacy))',
-    'Visited "Worlds Apart" #11111 (Public)',
+    'Met again in "Jellybean #52792" (Friends+)',
+    'Visited "Worlds Apart #11111" (Public)',
   ]);
 });
 
-test('a visit to the same world hours before a meeting is its own arrival', () => {
+test('every arrival at one instance is one counted line, however far apart', () => {
   const lines = userEventLines([
     at('instance_join', JELLY, 'Jellybean', '2026-09-28T06:00:00Z'),
+    at('instance_join', JELLY, 'Jellybean', '2026-09-28T11:00:00Z'),
     at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
   ], { time: 'none' });
-  assert.equal(lines.length, 2, 'six hours apart is two visits, not one described twice');
+  assert.deepEqual(lines, ['Met again in "Jellybean #52792" (Friends+) ×3'],
+    'one place, one line, counting the three arrivals and worded as the meeting');
+});
+
+test('meeting someone for the first time keeps its own line in a place they return to', () => {
+  const lines = userEventLines([
+    at('first_meet', JELLY, 'Jellybean', '2026-01-01T12:00:00Z'),
+    at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
+  ], { time: 'none' });
+  assert.deepEqual(lines, [
+    'Met again in "Jellybean #52792" (Friends+)',
+    'Met for the first time in "Jellybean #52792" (Friends+)',
+  ]);
+});
+
+test('the oldest record is pinned last, with a gap for what is between', () => {
+  const rows = userEventRows([
+    event({ type: 'friend_online', timestamp: '2026-09-21T10:00:00Z' }),
+    event({ type: 'friend_offline', timestamp: '2026-09-22T10:00:00Z' }),
+  ], { oldest: true });
+  assert.equal(rows.length, 2, 'nothing was left out, so no row is spent on a gap');
+
+  const lines = userEventLines([
+    at('first_meet', JELLY, 'Jellybean', '2026-01-01T12:00:00Z'),
+    at('instance_join', 'wrld_2222:1~public', 'A', '2026-02-01T12:00:00Z'),
+    at('instance_join', 'wrld_3333:2~public', 'B', '2026-03-01T12:00:00Z'),
+    at('instance_join', 'wrld_4444:3~public', 'C', '2026-04-01T12:00:00Z'),
+    at('instance_join', 'wrld_5555:4~public', 'D', '2026-05-01T12:00:00Z'),
+    at('instance_join', 'wrld_6666:5~public', 'E', '2026-06-01T12:00:00Z'),
+  ], { time: 'none', limit: 4, oldest: true });
+  assert.deepEqual(lines, [
+    'Visited "E #5" (Public)',
+    'Visited "D #4" (Public)',
+    '...',
+    'Met for the first time in "Jellybean #52792" (Friends+)',
+  ]);
+});
+
+test('instancesSeen names each instance once, and ordinal counts in English', () => {
+  const places = instancesSeen([
+    at('instance_join', JELLY, 'Jellybean', '2026-09-28T06:00:00Z'),
+    at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
+    at('instance_join', CLUB, 'Jellybean', '2026-09-28T13:00:00Z'),
+    at('friend_online', '', '', '2026-09-28T14:00:00Z'),
+  ]);
+  assert.deepEqual(places.map((p) => p.instanceId), ['11', '52792'], 'newest first, no duplicates, nowhere skipped');
+  assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 23, 112].map(ordinal), [
+    '1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '23rd', '112th',
+  ]);
+});
+
+test('the gap row is a row, not a formatted entry', () => {
+  const rows = userEventRows([
+    at('instance_join', 'wrld_2222:1~public', 'A', '2026-02-01T12:00:00Z'),
+    at('instance_join', 'wrld_3333:2~public', 'B', '2026-03-01T12:00:00Z'),
+    at('instance_join', 'wrld_4444:3~public', 'C', '2026-04-01T12:00:00Z'),
+    at('instance_join', 'wrld_5555:4~public', 'D', '2026-05-01T12:00:00Z'),
+  ], { limit: 3, oldest: true });
+  assert.equal(rows[1], TIMELINE_GAP);
+  assert.equal(rows.length, 3);
 });
