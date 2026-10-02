@@ -87,12 +87,18 @@ class Mirror<T> {
   readonly #page: (() => unknown) | undefined;
 
   /**
-   * `page` is where VRCNext already keeps this list in its own page state.
+   * `page` is where VRCNext already keeps this list in its own page state, and it wins.
    *
-   * Without it a mirror that has not seen its push yet has nothing, and the only way to answer
-   * is to ask VRCNext to fetch the list again — which it has already fetched. A plugin enabled
-   * after login is exactly that case, and for friends it meant a full `vrcRefreshFriends` to
-   * rebuild a list of over a thousand people sitting in a variable one scope away.
+   * Not just a cold-start fallback: **VRCNext patches those arrays in place and this mirror
+   * never sees it.** `vrcFriendUpdate` does `vrcFriendsData[idx] = payload` for one friend
+   * changing status, location or avatar, and `vrcModDone` splices one entry into `blockedData`.
+   * Neither is a wholesale list push, so a mirror fed only by pushes is frozen at the last full
+   * refresh while the page's own array stays current. Reading the page is therefore the more
+   * correct answer, not merely the cheaper one.
+   *
+   * The push is kept as the fallback, for the two things the page cannot answer: a VRCNext build
+   * that renames or stops declaring a global, and a list whose tab was never opened, which
+   * VRCNext's own `…Loaded` flag reports as not loaded.
    */
   constructor(read: (payload: unknown) => T | undefined, page?: () => unknown) {
     this.#read = read;
@@ -107,11 +113,11 @@ class Mirror<T> {
     return true;
   }
 
-  /** The push if one arrived, else what the page is holding, else nothing. */
+  /** What the page is holding, else the last push, else nothing. */
   get value(): T | undefined {
-    if (this.#value !== undefined) return this.#value;
     const page = this.#page;
-    return page === undefined ? undefined : this.#read(page());
+    const live = page === undefined ? undefined : this.#read(page());
+    return live ?? this.#value;
   }
 
   read(payload: unknown): T | undefined {
@@ -170,12 +176,10 @@ export class HostVrchatApi implements VrchatApi {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
   }, pageLists.favoriteWorlds);
-  // reuse: no page state — VRCNext renders visited worlds straight from the push and keeps no
-  // array of them, so this mirror is the only copy there is.
   readonly #recentWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
-  });
+  }, pageLists.recentWorlds);
   readonly #ownAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const r = n.rec(p);
     return r?.['filter'] === 'own' && Array.isArray(r['avatars']) ? n.each(r['avatars'], n.avatarSummary) : undefined;
@@ -184,11 +188,10 @@ export class HostVrchatApi implements VrchatApi {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
   }, pageLists.favoriteAvatars);
-  // reuse: no page state — same as recent worlds; the avatar picker renders the push directly.
   readonly #recentAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
-  });
+  }, pageLists.recentAvatars);
   readonly #myGroups = new Mirror<readonly VrcGroupSummary[]>((p) =>
     Array.isArray(p) ? n.each(p, (g) => {
       const group = n.groupSummary(g);
@@ -198,7 +201,7 @@ export class HostVrchatApi implements VrchatApi {
   /** `{ instance }` so "not in an instance" is a known answer rather than an empty mirror. */
   readonly #instance = new Mirror<{ readonly instance: VrcInstance | undefined }>((p) =>
     n.rec(p) === undefined ? undefined : { instance: n.instance(p) },
-  );
+  pageLists.instance);
 
   // reuse: this is what avoids requests rather than causing them — the answers to quiet
   // lookups, held for DETAIL_TTL_MS so two reports on one arrival cost one lookup.

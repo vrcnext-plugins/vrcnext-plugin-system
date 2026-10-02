@@ -14,8 +14,11 @@ import { pageLists, pageModerationLists, pageName } from './page-state.js';
 
 const NAMES = [
   'blockedData', 'mutedData', 'muteChatData', 'hiddenAvatarData', 'interactOffData',
-  'vrcFriendsData', 'myGroups', 'favFriendGroups', 'favWorldsData', 'favAvatarsData',
-  'avatarsData', 'notifications', 'worldInfoCache', 'avatarInfoCache', 'dashGroupCache',
+  'vrcFriendsData', 'vrcFriendsLoaded', 'myGroups', 'myGroupsLoaded', 'favFriendGroups',
+  'favFriendsData', '_pplFavLoaded', 'favWorldsData', '_favWorldsLoaded', '_visitedWorldsData',
+  '_visitedWorldsLoaded', 'favAvatarsData', '_recentAvatarsData', '_avCountsLoaded',
+  'avatarsData', 'avatarsLoaded', 'avatarFilter', '_recentSeenData', '_pplRecentLoaded',
+  'notifications', 'currentInstanceData', 'worldInfoCache', 'avatarInfoCache', 'dashGroupCache',
   'dashWorldCache',
 ] as const;
 
@@ -59,17 +62,54 @@ test('junk in a list is skipped rather than read as an id', () => {
   assert.deepEqual(pageModerationLists().block, ['usr_1']);
 });
 
-test('a list VRCNext already holds is read in place, in the shape its push carries', () => {
-  setGlobal('vrcFriendsData', [{ id: 'usr_1', displayName: 'A' }]);
+test('an empty list is only an answer once VRCNext says it loaded it', () => {
+  // Every one of these arrays starts as `[]`, not `null`, so "empty" and "never fetched" look
+  // identical without the flag. Answering `[]` for a tab the user never opened would tell a
+  // plugin there are no favourite worlds instead of fetching them.
+  setGlobal('favWorldsData', []);
+  assert.equal(pageLists.favoriteWorlds(), undefined, 'empty and unloaded: go and ask');
+
+  setGlobal('_favWorldsLoaded', true);
+  assert.deepEqual(pageLists.favoriteWorlds(), { worlds: [] }, 'empty and loaded: there really are none');
+
   setGlobal('favWorldsData', [{ id: 'wrld_1', name: 'W' }]);
-  setGlobal('avatarsData', [{ id: 'avtr_1', name: 'A' }]);
-  assert.deepEqual(pageLists.friends(), [{ id: 'usr_1', displayName: 'A' }], 'the push is the bare array');
-  assert.deepEqual(pageLists.favoriteWorlds(), { worlds: [{ id: 'wrld_1', name: 'W' }] }, 'this push wraps it');
-  assert.deepEqual(pageLists.ownAvatars(), { filter: 'own', avatars: [{ id: 'avtr_1', name: 'A' }] });
-  // A list that is not there stays missing rather than becoming an empty one, so a caller still
-  // knows to ask.
-  assert.equal(pageLists.favoriteAvatars(), undefined);
-  assert.equal(pageLists.myGroups(), undefined);
+  assert.deepEqual(pageLists.favoriteWorlds(), { worlds: [{ id: 'wrld_1', name: 'W' }] });
+});
+
+test('a list is read in the shape its own push carries', () => {
+  setGlobal('vrcFriendsData', [{ id: 'usr_1', displayName: 'A' }]);
+  setGlobal('vrcFriendsLoaded', true);
+  setGlobal('_recentSeenData', [{ id: 'usr_2' }]);
+  setGlobal('_pplRecentLoaded', true);
+  assert.deepEqual(pageLists.friends(), [{ id: 'usr_1', displayName: 'A' }], 'this push is the bare array');
+  assert.deepEqual(pageLists.recentPlayers(), { players: [{ id: 'usr_2' }] }, 'this one wraps it');
+  assert.equal(pageLists.myGroups(), undefined, 'a list nothing has loaded stays missing');
+});
+
+test('the avatar lists are per tab, and the own list is only own while that filter is showing', () => {
+  setGlobal('avatarsData', [{ id: 'avtr_1', name: 'Mine' }]);
+  setGlobal('avatarsLoaded', true);
+  setGlobal('avatarFilter', 'favorites');
+  assert.equal(pageLists.ownAvatars(), undefined,
+    'under another filter this array is somebody else’s avatars, not the user’s uploads');
+
+  setGlobal('avatarFilter', 'own');
+  assert.deepEqual(pageLists.ownAvatars(), { filter: 'own', avatars: [{ id: 'avtr_1', name: 'Mine' }] });
+
+  setGlobal('_recentAvatarsData', [{ id: 'avtr_2' }]);
+  assert.equal(pageLists.recentAvatars(), undefined, 'its own tab flag has not been set');
+  setGlobal('_avCountsLoaded', { own: true, favorites: false, recent: true });
+  assert.deepEqual(pageLists.recentAvatars(), { avatars: [{ id: 'avtr_2' }] });
+  assert.equal(pageLists.favoriteAvatars(), undefined, 'and the favourites tab is still unloaded');
+});
+
+test('the current instance is read untouched, including VRCNext’s "not in one"', () => {
+  assert.equal(pageLists.instance(), undefined, 'null until the first push');
+  setGlobal('currentInstanceData', { empty: true });
+  assert.deepEqual(pageLists.instance(), { empty: true },
+    'passed through, so the mirror’s own parser decides what it means');
+  setGlobal('currentInstanceData', { location: 'wrld_1:5', worldName: 'W' });
+  assert.deepEqual(pageLists.instance(), { location: 'wrld_1:5', worldName: 'W' });
 });
 
 test('a name VRCNext already resolved comes from whichever cache has it', () => {

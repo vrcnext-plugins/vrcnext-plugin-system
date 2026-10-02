@@ -38,14 +38,26 @@ declare const muteChatData: unknown;
 declare const hiddenAvatarData: unknown;
 declare const interactOffData: unknown;
 declare const vrcFriendsData: unknown;
+declare const vrcFriendsLoaded: unknown;
 declare const myGroups: unknown;
+declare const myGroupsLoaded: unknown;
 declare const favFriendGroups: unknown;
-declare const favWorldsData: unknown;
-declare const favAvatarsData: unknown;
-declare const avatarsData: unknown;
-declare const notifications: unknown;
-declare const _recentSeenData: unknown;
 declare const favFriendsData: unknown;
+declare const _pplFavLoaded: unknown;
+declare const favWorldsData: unknown;
+declare const _favWorldsLoaded: unknown;
+declare const _visitedWorldsData: unknown;
+declare const _visitedWorldsLoaded: unknown;
+declare const favAvatarsData: unknown;
+declare const _recentAvatarsData: unknown;
+declare const _avCountsLoaded: unknown;
+declare const avatarsData: unknown;
+declare const avatarsLoaded: unknown;
+declare const avatarFilter: unknown;
+declare const _recentSeenData: unknown;
+declare const _pplRecentLoaded: unknown;
+declare const notifications: unknown;
+declare const currentInstanceData: unknown;
 declare const worldInfoCache: unknown;
 declare const avatarInfoCache: unknown;
 declare const dashGroupCache: unknown;
@@ -73,6 +85,28 @@ export function pageArray(read: () => unknown): readonly unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
 }
 
+/**
+ * A page list, but only once VRCNext says it has loaded it.
+ *
+ * **This is the whole safety of reading the page.** Every one of these arrays is initialised to
+ * `[]`, not to `null`, so an empty one means either "nobody is in it" or "the tab that fills it
+ * was never opened" — and VRCNext keeps a separate flag for exactly that reason. Without the
+ * flag, a plugin asking for favourite worlds before the user ever opened the Worlds tab would
+ * be told there are none, instead of the list being fetched.
+ *
+ * So an unloaded list is `undefined`, which sends the caller back to asking, and only a loaded
+ * one is an answer — including a loaded empty one, which really does mean none.
+ */
+function pageListIf(loaded: () => unknown, read: () => unknown): readonly unknown[] | undefined {
+  return pageValue(loaded) === true ? pageArray(read) : undefined;
+}
+
+/** `_avCountsLoaded.{own,favorites,recent}`, VRCNext's per-tab flags for the avatar lists. */
+function avatarsLoadedFor(tab: 'own' | 'favorites' | 'recent'): boolean {
+  const flags = pageValue(() => _avCountsLoaded);
+  return typeof flags === 'object' && flags !== null && (flags as Record<string, unknown>)[tab] === true;
+}
+
 /** A page global that holds an id-keyed cache, or `undefined` when it is not loaded. */
 function pageRecord(read: () => unknown): Readonly<Record<string, unknown>> | undefined {
   const value = pageValue(read);
@@ -90,31 +124,51 @@ function pageRecord(read: () => unknown): Readonly<Record<string, unknown>> | un
  */
 export const pageLists = {
   /** `vrcFriends`: every friend VRCNext has loaded. */
-  friends: (): unknown => pageArray(() => vrcFriendsData),
+  friends: (): unknown => pageListIf(() => vrcFriendsLoaded, () => vrcFriendsData),
   /** `vrcMyGroups`: the groups the account is in. */
-  myGroups: (): unknown => pageArray(() => myGroups),
+  myGroups: (): unknown => pageListIf(() => myGroupsLoaded, () => myGroups),
   /** `vrcFavoriteFriends`: the favourite-friend groups, with their names. */
-  favoriteGroups: (): unknown => pageArray(() => favFriendGroups),
-  /** `vrcFavoriteWorlds` wraps its list in `{ worlds }`. */
-  favoriteWorlds: (): unknown => wrap('worlds', pageArray(() => favWorldsData)),
-  /** `vrcFavoriteAvatars` wraps its list in `{ avatars }`. */
-  favoriteAvatars: (): unknown => wrap('avatars', pageArray(() => favAvatarsData)),
-  /** `vrcAvatars` carries the filter it answered for alongside the list. */
-  ownAvatars: (): unknown => {
-    const list = pageArray(() => avatarsData);
-    return list === undefined ? undefined : { filter: 'own', avatars: list };
-  },
-  /** `vrcNotifications`: the unread ones VRCNext is showing. */
-  notifications: (): unknown => pageArray(() => notifications),
-  /** `recentSeenPlayers` wraps its list in `{ players }`. */
-  recentPlayers: (): unknown => wrap('players', pageArray(() => _recentSeenData)),
+  favoriteGroups: (): unknown => pageListIf(() => _pplFavLoaded, () => favFriendGroups),
   /**
    * `vrcFavoriteFriends` wraps its list in `{ friends }`, each carrying `favoriteId`.
    *
-   * The page's own array is the favourite *records* — `{ fvrtId, favoriteId, groupName }` — which
-   * is the same shape the push carries, so the normaliser reads it unchanged.
+   * The page's array is the favourite *records* — `{ fvrtId, favoriteId, groupName }` — which is
+   * the shape the push carries, so the normaliser reads it unchanged.
    */
-  favoriteFriends: (): unknown => wrap('friends', pageArray(() => favFriendsData)),
+  favoriteFriends: (): unknown => wrap('friends', pageListIf(() => _pplFavLoaded, () => favFriendsData)),
+  /** `vrcFavoriteWorlds` wraps its list in `{ worlds }`. */
+  favoriteWorlds: (): unknown => wrap('worlds', pageListIf(() => _favWorldsLoaded, () => favWorldsData)),
+  /** `visitedWorlds` wraps its list in `{ worlds }`. */
+  recentWorlds: (): unknown => wrap('worlds', pageListIf(() => _visitedWorldsLoaded, () => _visitedWorldsData)),
+  /** `vrcFavoriteAvatars` wraps its list in `{ avatars }`. */
+  favoriteAvatars: (): unknown =>
+    wrap('avatars', avatarsLoadedFor('favorites') ? pageArray(() => favAvatarsData) : undefined),
+  /** `recentAvatars` wraps its list in `{ avatars }`. */
+  recentAvatars: (): unknown =>
+    wrap('avatars', avatarsLoadedFor('recent') ? pageArray(() => _recentAvatarsData) : undefined),
+  /**
+   * `vrcAvatars` carries the filter it answered for alongside the list.
+   *
+   * `avatarsData` holds whichever filter the Avatars tab is currently showing, so it is only the
+   * own-avatar list while `avatarFilter` says so — reading it under any other filter would hand
+   * back somebody's favourites as their uploads.
+   */
+  ownAvatars: (): unknown => {
+    const mine = pageValue(() => avatarFilter) === 'own' && pageValue(() => avatarsLoaded) === true;
+    const list = mine ? pageArray(() => avatarsData) : undefined;
+    return list === undefined ? undefined : { filter: 'own', avatars: list };
+  },
+  /** `recentSeenPlayers` wraps its list in `{ players }`. */
+  recentPlayers: (): unknown => wrap('players', pageListIf(() => _pplRecentLoaded, () => _recentSeenData)),
+  /**
+   * `vrcCurrentInstance`: the payload goes into this variable untouched
+   * (`renderCurrentInstance(payload)`), so the mirror's own parser reads it as-is. `null` until
+   * the first one arrives; `{ empty: true }` is VRCNext's "not in an instance", which parses to
+   * a known answer rather than to nothing.
+   */
+  instance: (): unknown => pageValue(() => currentInstanceData),
+  /** `vrcNotifications`: the unread ones VRCNext is showing. */
+  notifications: (): unknown => pageArray(() => notifications),
 } as const;
 
 /** `{ [key]: list }`, or `undefined` so a missing list stays missing rather than becoming empty. */

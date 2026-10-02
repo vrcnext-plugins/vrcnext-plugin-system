@@ -254,3 +254,22 @@ test('a picture answers empty rather than failing the caller', async () => {
   assert.equal(await g.api.originalImageUrl({ kind: 'user', id: 'usr_1' }, { signal: controller.signal }), '');
   assert.deepEqual(asked, []);
 });
+
+test('the page wins over a stale push, because VRCNext patches its own arrays', async () => {
+  const f = fake();
+  // A wholesale list push: what the mirror used to be the only record of.
+  f.router.dispatch({ type: 'vrcFriends', payload: [{ id: 'usr_1', displayName: 'A', location: 'offline' }] });
+
+  const g = globalThis as Record<string, unknown>;
+  g['vrcFriendsData'] = [{ id: 'usr_1', displayName: 'A', location: 'wrld_1:5' }];
+  g['vrcFriendsLoaded'] = true;
+  try {
+    // `vrcFriendUpdate` writes one friend straight into VRCNext's array and never sends a list,
+    // so a mirror fed by pushes alone would still say "offline" here.
+    assert.deepEqual((await f.api.friends()).map((u) => u.location), ['wrld_1:5']);
+    assert.deepEqual(f.requests, [], 'and nothing was asked for');
+  } finally {
+    g['vrcFriendsData'] = undefined;
+    g['vrcFriendsLoaded'] = undefined;
+  }
+});
