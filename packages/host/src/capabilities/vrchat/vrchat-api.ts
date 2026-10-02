@@ -41,7 +41,7 @@ import type {
 
 import type { EventRouter } from '../../events/event-router.js';
 import * as n from './normalise.js';
-import { pageModerationLists } from './page-state.js';
+import { pageLists, pageModerationLists, pageName } from './page-state.js';
 import { pageGlobal } from './page-global.js';
 import type { QuietChannel } from './quiet-channel.js';
 
@@ -76,12 +76,27 @@ interface Cached<T> {
 }
 
 /** A list VRCNext pushes: the last payload seen, and how to ask for it again. */
+/** The first of these that is a non-empty string, or `''`. */
+function firstNonEmpty(...values: readonly (string | undefined)[]): string {
+  return values.find((value) => value !== undefined && value !== '') ?? '';
+}
+
 class Mirror<T> {
   #value: T | undefined;
   readonly #read: (payload: unknown) => T | undefined;
+  readonly #page: (() => unknown) | undefined;
 
-  constructor(read: (payload: unknown) => T | undefined) {
+  /**
+   * `page` is where VRCNext already keeps this list in its own page state.
+   *
+   * Without it a mirror that has not seen its push yet has nothing, and the only way to answer
+   * is to ask VRCNext to fetch the list again — which it has already fetched. A plugin enabled
+   * after login is exactly that case, and for friends it meant a full `vrcRefreshFriends` to
+   * rebuild a list of over a thousand people sitting in a variable one scope away.
+   */
+  constructor(read: (payload: unknown) => T | undefined, page?: () => unknown) {
     this.#read = read;
+    this.#page = page;
   }
 
   /** Feeds a push; returns whether it was this list. */
@@ -92,8 +107,11 @@ class Mirror<T> {
     return true;
   }
 
+  /** The push if one arrived, else what the page is holding, else nothing. */
   get value(): T | undefined {
-    return this.#value;
+    if (this.#value !== undefined) return this.#value;
+    const page = this.#page;
+    return page === undefined ? undefined : this.#read(page());
   }
 
   read(payload: unknown): T | undefined {
@@ -139,9 +157,9 @@ export class HostVrchatApi implements VrchatApi {
     const r = n.rec(p);
     const raw = r !== undefined && Array.isArray(r['friends']) ? r['friends'] : Array.isArray(p) ? p : undefined;
     return raw === undefined ? undefined : n.each(raw, n.friendSummary);
-  });
+  }, pageLists.friends);
   readonly #favoriteFriendIds = new Mirror<readonly string[]>(n.favoriteFriendIds);
-  readonly #favoriteGroups = new Mirror<readonly VrcFavoriteGroup[]>(n.favoriteGroups);
+  readonly #favoriteGroups = new Mirror<readonly VrcFavoriteGroup[]>(n.favoriteGroups, pageLists.favoriteGroups);
   /** One mirror per moderation list; VRCNext pushes them as five separate events. */
   readonly #moderations = new Map<keyof VrcModerationCounts, number>();
   readonly #recentPlayers = new Mirror<readonly VrcUserSummary[]>((p) => {
@@ -151,7 +169,7 @@ export class HostVrchatApi implements VrchatApi {
   readonly #favoriteWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
-  });
+  }, pageLists.favoriteWorlds);
   readonly #recentWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
@@ -159,11 +177,11 @@ export class HostVrchatApi implements VrchatApi {
   readonly #ownAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const r = n.rec(p);
     return r?.['filter'] === 'own' && Array.isArray(r['avatars']) ? n.each(r['avatars'], n.avatarSummary) : undefined;
-  });
+  }, pageLists.ownAvatars);
   readonly #favoriteAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
-  });
+  }, pageLists.favoriteAvatars);
   readonly #recentAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
@@ -173,7 +191,7 @@ export class HostVrchatApi implements VrchatApi {
       const group = n.groupSummary(g);
       return group === undefined ? undefined : { ...group, isJoined: true };
     }) : undefined,
-  );
+  pageLists.myGroups);
   /** `{ instance }` so "not in an instance" is a known answer rather than an empty mirror. */
   readonly #instance = new Mirror<{ readonly instance: VrcInstance | undefined }>((p) =>
     n.rec(p) === undefined ? undefined : { instance: n.instance(p) },
@@ -353,28 +371,25 @@ export class HostVrchatApi implements VrchatApi {
   }
 
   /**
-   * One request fans out into five list pushes, so this waits for the blocked list and reads
-   * whatever the others left behind — they arrive together.
+   * How many people are on each of your moderation lists.
+   *
+   * Counted from the page's own arrays, which VRCNext loads once every two hours and patches on
+   * every block and unblock. The pushes are mirrored too, so a count stays right either way;
+   * the page is what makes the first call free. Asking instead would mean
+   * `vrcGetAllModerations` — five uncached `GET /auth/user/playermoderations` calls — to count
+   * rows already in memory.
    */
-  async moderationCounts(options?: VrcLookupOptions): Promise<VrcModerationCounts> {
-    const known = (): VrcModerationCounts => ({
-      blocked: this.#moderations.get('blocked') ?? 0,
-      muted: this.#moderations.get('muted') ?? 0,
-      hiddenAvatar: this.#moderations.get('hiddenAvatar') ?? 0,
-      interactOff: this.#moderations.get('interactOff') ?? 0,
-      muteChat: this.#moderations.get('muteChat') ?? 0,
-    });
-    if (this.#moderations.size > 0 && options?.cached !== false) return known();
-    await this.#shared('vrcGetAllModerations', () =>
-      this.#deps.channel.request<number>({
-        action: 'vrcGetAllModerations',
-        expect: 'vrcBlockedList',
-        swallow: false,
-        accept: (payload) => (Array.isArray(payload) ? payload.length : undefined),
-      }),
-      options?.signal,
-    );
-    return known();
+  moderationCounts(): VrcModerationCounts {
+    const lists = pageModerationLists();
+    const count = (mirrored: number | undefined, page: readonly string[] | undefined): number =>
+      mirrored ?? page?.length ?? 0;
+    return {
+      blocked: count(this.#moderations.get('blocked'), lists.block),
+      muted: count(this.#moderations.get('muted'), lists.mute),
+      hiddenAvatar: count(this.#moderations.get('hiddenAvatar'), lists.hideAvatar),
+      interactOff: count(this.#moderations.get('interactOff'), lists.interactOff),
+      muteChat: count(this.#moderations.get('muteChat'), lists.muteChat),
+    };
   }
 
   recentPlayers(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]> {
@@ -471,9 +486,16 @@ export class HostVrchatApi implements VrchatApi {
         return r !== undefined && n.str(r['userId']) === id ? n.each(r['groups'], n.groupSummary) : undefined;
       },
     }, options));
-    // VRCNext answers with ids and member counts only; names come from what else it told us.
+    // VRCNext answers with ids and member counts only; names come from what else it told us —
+    // the groups the account is in, and the name cache its dashboard fills.
     const named = new Map((this.#myGroups.value ?? []).map((g) => [g.id, g]));
-    return (groups ?? []).map((g) => ({ ...g, name: g.name || (named.get(g.id)?.name ?? ''), iconUrl: g.iconUrl || (named.get(g.id)?.iconUrl ?? '') }));
+    return (groups ?? []).map((g) => ({
+      ...g,
+      // Empty strings are what VRCNext sends for "not resolved", so each fallback is tried on
+      // emptiness rather than on nullishness.
+      name: firstNonEmpty(g.name, named.get(g.id)?.name, pageName('group', g.id)),
+      iconUrl: g.iconUrl || (named.get(g.id)?.iconUrl ?? ''),
+    }));
   }
 
   async userTimeline(id: string, options?: VrcLookupOptions): Promise<readonly VrcTimelineEvent[]> {
@@ -546,6 +568,19 @@ export class HostVrchatApi implements VrchatApi {
         return { avatarId: n.str(r['avatarId']), avatarName: n.str(r['avatarName']) };
       },
     }, options));
+  }
+
+  /** A name VRCNext has already resolved. See `page-state.ts`; this is a read, not a lookup. */
+  name(kind: 'world' | 'avatar' | 'group', id: string): string | undefined {
+    const cached = pageName(kind, id);
+    if (cached !== undefined) return cached;
+    // The groups the account is in are a name source of their own, and the mirror may hold them
+    // when the dashboard has not drawn them yet.
+    if (kind === 'group') {
+      const mine = this.#myGroups.value?.find((group) => group.id === id)?.name;
+      return mine === undefined || mine === '' ? undefined : mine;
+    }
+    return undefined;
   }
 
   avatar(id: string, options?: VrcLookupOptions): Promise<VrcAvatar | undefined> {

@@ -97,14 +97,16 @@ test('favourite groups keep their names and resolve members this page knows', as
   ]);
 });
 
-test('moderation counts come from the five lists one request fans out into', async () => {
+test('moderation counts are read, never requested', () => {
   const f = fake();
-  f.replies.set('vrcBlockedList', [[{ id: 'a' }, { id: 'b' }]]);
-  const counts = await f.api.moderationCounts();
-  assert.equal(counts.blocked, 0, 'the fake channel answers without dispatching the pushes');
+  assert.deepEqual(f.api.moderationCounts(), { blocked: 0, muted: 0, hiddenAvatar: 0, interactOff: 0, muteChat: 0 },
+    'nothing loaded and nothing in the page: zero, and no action sent');
+  assert.deepEqual(f.requests, [], "counting rows VRCNext already holds is not worth five VRChat calls");
+
   f.router.dispatch({ type: 'vrcBlockedList', payload: [{ id: 'a' }, { id: 'b' }] });
   f.router.dispatch({ type: 'vrcMutedList', payload: [{ id: 'c' }] });
-  assert.deepEqual(await f.api.moderationCounts(), { blocked: 2, muted: 1, hiddenAvatar: 0, interactOff: 0, muteChat: 0 });
+  assert.deepEqual(f.api.moderationCounts(), { blocked: 2, muted: 1, hiddenAvatar: 0, interactOff: 0, muteChat: 0 });
+  assert.deepEqual(f.requests, []);
 });
 
 test('details are asked quietly, matched by id, and cached', async () => {

@@ -37,6 +37,111 @@ declare const mutedData: unknown;
 declare const muteChatData: unknown;
 declare const hiddenAvatarData: unknown;
 declare const interactOffData: unknown;
+declare const vrcFriendsData: unknown;
+declare const myGroups: unknown;
+declare const favFriendGroups: unknown;
+declare const favWorldsData: unknown;
+declare const favAvatarsData: unknown;
+declare const avatarsData: unknown;
+declare const notifications: unknown;
+declare const worldInfoCache: unknown;
+declare const avatarInfoCache: unknown;
+declare const dashGroupCache: unknown;
+declare const dashWorldCache: unknown;
+
+/**
+ * One guarded read of a page global.
+ *
+ * `undefined` for every way it can fail to be an answer: the name is not declared in this build
+ * (`ReferenceError` on reference), or VRCNext has not loaded it yet (it initialises these to
+ * `null`). Callers must treat that as "not known" and fall back to asking.
+ */
+function pageValue(read: () => unknown): unknown {
+  try {
+    const value = read();
+    return value === null ? undefined : value;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A page global that holds a list, or `undefined` when it is not loaded or not an array. */
+export function pageArray(read: () => unknown): readonly unknown[] | undefined {
+  const value = pageValue(read);
+  return Array.isArray(value) ? value : undefined;
+}
+
+/** A page global that holds an id-keyed cache, or `undefined` when it is not loaded. */
+function pageRecord(read: () => unknown): Readonly<Record<string, unknown>> | undefined {
+  const value = pageValue(read);
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : undefined;
+}
+
+/**
+ * The lists VRCNext loads for its own screens and keeps current.
+ *
+ * Each is what the matching push carries, so a mirror's own parser reads it unchanged — except
+ * where the push wraps the list in an object and the page global is the bare array, which is
+ * why some of these are wrapped back up here. The shape belongs with the global it describes.
+ */
+export const pageLists = {
+  /** `vrcFriends`: every friend VRCNext has loaded. */
+  friends: (): unknown => pageArray(() => vrcFriendsData),
+  /** `vrcMyGroups`: the groups the account is in. */
+  myGroups: (): unknown => pageArray(() => myGroups),
+  /** `vrcFavoriteFriends`: the favourite-friend groups, with their names. */
+  favoriteGroups: (): unknown => pageArray(() => favFriendGroups),
+  /** `vrcFavoriteWorlds` wraps its list in `{ worlds }`. */
+  favoriteWorlds: (): unknown => wrap('worlds', pageArray(() => favWorldsData)),
+  /** `vrcFavoriteAvatars` wraps its list in `{ avatars }`. */
+  favoriteAvatars: (): unknown => wrap('avatars', pageArray(() => favAvatarsData)),
+  /** `vrcAvatars` carries the filter it answered for alongside the list. */
+  ownAvatars: (): unknown => {
+    const list = pageArray(() => avatarsData);
+    return list === undefined ? undefined : { filter: 'own', avatars: list };
+  },
+  /** `vrcNotifications`: the unread ones VRCNext is showing. */
+  notifications: (): unknown => pageArray(() => notifications),
+} as const;
+
+/** `{ [key]: list }`, or `undefined` so a missing list stays missing rather than becoming empty. */
+function wrap(key: string, list: readonly unknown[] | undefined): unknown {
+  return list === undefined ? undefined : { [key]: list };
+}
+
+/**
+ * A name VRCNext has already resolved, from the caches its own screens fill.
+ *
+ * These are name-and-thumbnail caches, not full records: `worldInfoCache` holds `{ id, name,
+ * thumbnailImageUrl }` and `dashGroupCache` holds `{ name, shortCode }`. That is exactly enough
+ * for the one question most lookups are really asking — what is this id called — and nothing
+ * like enough for the rest, so a caller that needs the whole world or group still asks for it.
+ */
+export function pageName(cache: 'world' | 'avatar' | 'group', id: string): string | undefined {
+  if (id === '') return undefined;
+  for (const read of CACHES[cache]) {
+    const entry = pageRecord(read)?.[id];
+    const name = typeof entry === 'object' && entry !== null
+      ? (entry as Record<string, unknown>)['name']
+      : undefined;
+    if (typeof name === 'string' && name !== '') return name;
+  }
+  return undefined;
+}
+
+/**
+ * Where each kind of name may already be.
+ *
+ * Worlds have two caches because two screens fill different ones: the world modal fills
+ * `worldInfoCache`, the dashboard fills `dashWorldCache`. Either is an answer.
+ */
+const CACHES: Readonly<Record<'world' | 'avatar' | 'group', readonly (() => unknown)[]>> = {
+  world: [() => worldInfoCache, () => dashWorldCache],
+  avatar: [() => avatarInfoCache],
+  group: [() => dashGroupCache],
+};
 
 /** The user ids in each of VRCNext's moderation lists; `undefined` for one it has not loaded. */
 export interface PageModerationLists {
@@ -55,14 +160,8 @@ export interface PageModerationLists {
  * array, which is how VRCNext spells "not loaded yet" (it initialises them to `null`).
  */
 function targets(read: () => unknown): readonly string[] | undefined {
-  let value: unknown;
-  try {
-    value = read();
-  } catch {
-    // ReferenceError: this build of VRCNext does not declare that name.
-    return undefined;
-  }
-  if (!Array.isArray(value)) return undefined;
+  const value = pageArray(read);
+  if (value === undefined) return undefined;
   return value
     .map((entry) => (typeof entry === 'object' && entry !== null ? str((entry as Record<string, unknown>)['targetUserId']) : ''))
     .filter((id) => id !== '');

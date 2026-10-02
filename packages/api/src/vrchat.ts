@@ -431,8 +431,12 @@ export interface VrchatApi {
   favoriteFriends(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]>;
   /** The same, kept in their groups, with the names you gave the groups. */
   favoriteFriendGroups(options?: VrcLookupOptions): Promise<readonly VrcFavoriteGroup[]>;
-  /** How many people you have blocked, muted and so on. */
-  moderationCounts(options?: VrcLookupOptions): Promise<VrcModerationCounts>;
+  /**
+   * How many people are on each of your moderation lists.
+   *
+   * Costs nothing and waits for nothing: VRCNext keeps the lists loaded for its own screens.
+   */
+  moderationCounts(): VrcModerationCounts;
   /** Players VRCNext recorded near you, most recent first. */
   recentPlayers(options?: VrcLookupOptions): Promise<readonly VrcUserSummary[]>;
 
@@ -479,6 +483,19 @@ export interface VrchatApi {
    * VRCNext did not answer.
    */
   statusTime(id: string, days?: number, options?: VrcLookupOptions): Promise<VrcStatusTime | undefined>;
+
+  /**
+   * What an id is called, if VRCNext has already resolved it. No request, no waiting.
+   *
+   * VRCNext keeps name caches for the worlds, avatars and groups its own screens have shown.
+   * Most lookups are really only asking this — a log line wants `Club Security`, not the
+   * group's description, member count and icon — and for those a full {@link group},
+   * {@link world} or {@link avatar} call spends a VRChat request to use one field of the answer.
+   *
+   * `undefined` means "not cached", not "no such thing". Ask for the full record when the name
+   * actually matters and this did not have it; leave the line without a name when it does not.
+   */
+  name(kind: 'world' | 'avatar' | 'group', id: string): string | undefined;
 
   /** The avatar a player in your instance wears, resolved through VRCNext's avatar databases. */
   instanceAvatar(userId: string, options?: VrcLookupOptions): Promise<{ readonly avatarId: string; readonly avatarName: string } | undefined>;
