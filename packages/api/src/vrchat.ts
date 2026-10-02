@@ -177,7 +177,12 @@ export interface VrcUser extends VrcUserSummary {
   readonly totalTimeSeconds: number;
   readonly note: string;
   readonly memo: string;
-  /** The languages on their profile, as VRChat's own names (`eng`, `deu`, …). */
+  /**
+   * The languages on their profile, named as VRCNext names them (`English`, `Deutsch`, …).
+   *
+   * Derived from the profile's `language_*` tags: the `languages` array VRCNext sends beside
+   * them is always empty, and its own pills are built from the tags too.
+   */
   readonly languages: readonly string[];
   /** Whether others may clone their avatar. */
   readonly allowAvatarCopying: boolean;

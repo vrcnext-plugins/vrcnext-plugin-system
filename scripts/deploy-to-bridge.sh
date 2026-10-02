@@ -44,6 +44,12 @@ for package in "$ROOT"/packages/*/; do
         mkdir -p "$target/$(dirname "$file")"
         /usr/bin/cp -f "$file" "$target/$file"
       done)
+  # The manifest travels with the sources. It is not built from, but it is what anyone
+  # inspecting the installed host reads to learn which API version is deployed, and leaving the
+  # original behind made it claim 0.3.6 while 0.8.0 was running.
+  if [[ -f "$package/package.json" ]]; then
+    /usr/bin/cp -f "$package/package.json" "$HOST_DIR/host/packages/$name/package.json"
+  fi
   echo "  $name: $(/usr/bin/find "$target" -type f | wc -l) file(s)"
 done
 
