@@ -3,11 +3,12 @@
  *
  * Two sources:
  *
- * - **Mirrors.** VRCNext pushes its lists (`vrcFriends`, favourites, `vrcMyGroups`,
- *   `vrcCurrentInstance`, …) on login and whenever they change. The host keeps the latest of
- *   each; a list method answers from the mirror and only asks VRCNext when it has nothing yet or
- *   the caller wants fresh data. Those replies are left for VRCNext to handle too: they refresh
- *   the lists it shows anyway.
+ * - **VRCNext's own page state.** Its lists (`vrcFriendsData`, favourites, `myGroups`,
+ *   `currentInstanceData`, …) are read where VRCNext keeps them, behind its `…Loaded` flags. The
+ *   host stores no copy of any of them: VRCNext patches those arrays in place, so a copy would be
+ *   stale exactly where it mattered. A list method asks VRCNext only when the page has not loaded
+ *   that list yet, or the caller wants fresh data; those replies are left for VRCNext to handle
+ *   too, since they refresh the lists it shows anyway.
  * - **Quiet lookups.** Details and searches are asked through the {@link QuietChannel}, so the
  *   reply reaches the plugin and not VRCNext's modal. Answers are cached briefly and identical
  *   concurrent lookups share one request.
@@ -81,43 +82,30 @@ function firstNonEmpty(...values: readonly (string | undefined)[]): string {
   return values.find((value) => value !== undefined && value !== '') ?? '';
 }
 
-class Mirror<T> {
-  #value: T | undefined;
+/**
+ * One of VRCNext's own lists, read where VRCNext keeps it.
+ *
+ * This holds no copy. VRCNext patches its arrays in place — `vrcFriendUpdate` does
+ * `vrcFriendsData[idx] = payload`, `vrcModDone` splices one entry into `blockedData` — so any
+ * copy the host kept was staler than the page by construction, and a copy that is always wrong
+ * where it differs is worth nothing. The page is the value.
+ *
+ * `page` reads VRCNext's global behind its own `…Loaded` flag, so a list whose tab was never
+ * opened answers `undefined` rather than an empty array. `read` parses a reply for the one case
+ * the page cannot cover: `#list` asking VRCNext for a list it has not loaded yet.
+ */
+class PageList<T> {
   readonly #read: (payload: unknown) => T | undefined;
-  readonly #page: (() => unknown) | undefined;
+  readonly #page: () => unknown;
 
-  /**
-   * `page` is where VRCNext already keeps this list in its own page state, and it wins.
-   *
-   * Not just a cold-start fallback: **VRCNext patches those arrays in place and this mirror
-   * never sees it.** `vrcFriendUpdate` does `vrcFriendsData[idx] = payload` for one friend
-   * changing status, location or avatar, and `vrcModDone` splices one entry into `blockedData`.
-   * Neither is a wholesale list push, so a mirror fed only by pushes is frozen at the last full
-   * refresh while the page's own array stays current. Reading the page is therefore the more
-   * correct answer, not merely the cheaper one.
-   *
-   * The push is kept as the fallback, for the two things the page cannot answer: a VRCNext build
-   * that renames or stops declaring a global, and a list whose tab was never opened, which
-   * VRCNext's own `…Loaded` flag reports as not loaded.
-   */
-  constructor(read: (payload: unknown) => T | undefined, page?: () => unknown) {
+  constructor(read: (payload: unknown) => T | undefined, page: () => unknown) {
     this.#read = read;
     this.#page = page;
   }
 
-  /** Feeds a push; returns whether it was this list. */
-  feed(payload: unknown): boolean {
-    const value = this.#read(payload);
-    if (value === undefined) return false;
-    this.#value = value;
-    return true;
-  }
-
-  /** What the page is holding, else the last push, else nothing. */
+  /** What VRCNext is holding, or nothing when it has not loaded this list. */
   get value(): T | undefined {
-    const page = this.#page;
-    const live = page === undefined ? undefined : this.#read(page());
-    return live ?? this.#value;
+    return this.#read(this.#page());
   }
 
   read(payload: unknown): T | undefined {
@@ -161,45 +149,45 @@ export class HostVrchatApi implements VrchatApi {
   // keeps no map of which public URL each cache key resolved to, which is what costs a lookup.
   readonly #images = new Map<string, string>();
 
-  readonly #friends = new Mirror<readonly VrcUserSummary[]>((p) => {
+  readonly #friends = new PageList<readonly VrcUserSummary[]>((p) => {
     const r = n.rec(p);
     const raw = r !== undefined && Array.isArray(r['friends']) ? r['friends'] : Array.isArray(p) ? p : undefined;
     return raw === undefined ? undefined : n.each(raw, n.friendSummary);
   }, pageLists.friends);
-  readonly #favoriteFriendIds = new Mirror<readonly string[]>(n.favoriteFriendIds, pageLists.favoriteFriends);
-  readonly #favoriteGroups = new Mirror<readonly VrcFavoriteGroup[]>(n.favoriteGroups, pageLists.favoriteGroups);
-  readonly #recentPlayers = new Mirror<readonly VrcUserSummary[]>((p) => {
+  readonly #favoriteFriendIds = new PageList<readonly string[]>(n.favoriteFriendIds, pageLists.favoriteFriends);
+  readonly #favoriteGroups = new PageList<readonly VrcFavoriteGroup[]>(n.favoriteGroups, pageLists.favoriteGroups);
+  readonly #recentPlayers = new PageList<readonly VrcUserSummary[]>((p) => {
     const players = n.rec(p)?.['players'];
     return Array.isArray(players) ? n.each(players, n.userSummary) : undefined;
   }, pageLists.recentPlayers);
-  readonly #favoriteWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
+  readonly #favoriteWorlds = new PageList<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
   }, pageLists.favoriteWorlds);
-  readonly #recentWorlds = new Mirror<readonly VrcWorldSummary[]>((p) => {
+  readonly #recentWorlds = new PageList<readonly VrcWorldSummary[]>((p) => {
     const worlds = n.rec(p)?.['worlds'];
     return Array.isArray(worlds) ? n.each(worlds, n.worldSummary) : undefined;
   }, pageLists.recentWorlds);
-  readonly #ownAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
+  readonly #ownAvatars = new PageList<readonly VrcAvatarSummary[]>((p) => {
     const r = n.rec(p);
     return r?.['filter'] === 'own' && Array.isArray(r['avatars']) ? n.each(r['avatars'], n.avatarSummary) : undefined;
   }, pageLists.ownAvatars);
-  readonly #favoriteAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
+  readonly #favoriteAvatars = new PageList<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
   }, pageLists.favoriteAvatars);
-  readonly #recentAvatars = new Mirror<readonly VrcAvatarSummary[]>((p) => {
+  readonly #recentAvatars = new PageList<readonly VrcAvatarSummary[]>((p) => {
     const avatars = n.rec(p)?.['avatars'];
     return Array.isArray(avatars) ? n.each(avatars, n.avatarSummary) : undefined;
   }, pageLists.recentAvatars);
-  readonly #myGroups = new Mirror<readonly VrcGroupSummary[]>((p) =>
+  readonly #myGroups = new PageList<readonly VrcGroupSummary[]>((p) =>
     Array.isArray(p) ? n.each(p, (g) => {
       const group = n.groupSummary(g);
       return group === undefined ? undefined : { ...group, isJoined: true };
     }) : undefined,
   pageLists.myGroups);
-  /** `{ instance }` so "not in an instance" is a known answer rather than an empty mirror. */
-  readonly #instance = new Mirror<{ readonly instance: VrcInstance | undefined }>((p) =>
+  /** `{ instance }` so "not in an instance" is a known answer rather than an unloaded list. */
+  readonly #instance = new PageList<{ readonly instance: VrcInstance | undefined }>((p) =>
     n.rec(p) === undefined ? undefined : { instance: n.instance(p) },
   pageLists.instance);
 
@@ -217,20 +205,6 @@ export class HostVrchatApi implements VrchatApi {
       const self = n.self(p);
       if (self !== undefined) this.#self = self;
     });
-    on('vrcFriends', (p) => { this.#friends.feed(p); });
-    on('vrcFriendUpdate', (p) => { this.#patchFriend(p); });
-    on('vrcFavoriteFriends', (p) => {
-      this.#favoriteFriendIds.feed(p);
-      this.#favoriteGroups.feed(p);
-    });
-    on('recentSeenPlayers', (p) => { this.#recentPlayers.feed(p); });
-    on('vrcFavoriteWorlds', (p) => { this.#favoriteWorlds.feed(p); });
-    on('visitedWorlds', (p) => { this.#recentWorlds.feed(p); });
-    on('vrcAvatars', (p) => { this.#ownAvatars.feed(p); });
-    on('vrcFavoriteAvatars', (p) => { this.#favoriteAvatars.feed(p); });
-    on('recentAvatars', (p) => { this.#recentAvatars.feed(p); });
-    on('vrcMyGroups', (p) => { this.#myGroups.feed(p); });
-    on('vrcCurrentInstance', (p) => { this.#instance.feed(p); });
   }
 
   dispose(): void {
@@ -238,38 +212,29 @@ export class HostVrchatApi implements VrchatApi {
     this.#unsubscribe.length = 0;
   }
 
-  #patchFriend(payload: unknown): void {
-    const friend = n.friendSummary(payload);
-    const current = this.#friends.value;
-    if (friend === undefined || current === undefined) return;
-    const index = current.findIndex((f) => f.id === friend.id);
-    this.#friends.feed({ friends: index < 0 ? [...current, friend] : current.with(index, friend) });
-  }
-
   #now(): number {
     return (this.#deps.now ?? Date.now)();
   }
 
-  /** A mirror's value, or the reply to asking VRCNext for it (which VRCNext also handles). */
   /**
-   * A mirrored list: the push if it arrived, the page's own copy if not, and only then a request.
+   * VRCNext's own copy of a list, and only then a request for it.
    *
-   * reuse: cold start only. Every caller of this goes through a `Mirror` that reads VRCNext's
-   * page state first, so the request is reached only when VRCNext has neither pushed the list
-   * nor kept one — see `page-state.ts` and the two mirrors marked `no page state`.
+   * reuse: cold start only. Every caller goes through a `PageList` that reads VRCNext's page
+   * state first, so the request is reached only when VRCNext has not loaded that list — see
+   * `page-state.ts`.
    */
   async #list<T>(
-    mirror: Mirror<T>,
+    list: PageList<T>,
     request: { readonly action: string; readonly args?: ActionArgs; readonly expect: string },
     options: VrcLookupOptions | undefined,
   ): Promise<T> {
-    const value = mirror.value;
+    const value = list.value;
     if (value !== undefined && options?.cached !== false) return value;
     return this.#shared(`${request.action}:${JSON.stringify(request.args ?? {})}`, () =>
       this.#deps.channel.request<T>({
         ...request,
         swallow: false,
-        accept: (payload) => mirror.read(payload),
+        accept: (payload) => list.read(payload),
       }),
       options?.signal,
     );
@@ -384,8 +349,8 @@ export class HostVrchatApi implements VrchatApi {
    * How many people are on each of your moderation lists.
    *
    * Counted from the page's own arrays, which VRCNext loads once every two hours and patches on
-   * every block and unblock. The pushes are mirrored too, so a count stays right either way;
-   * the page is what makes the first call free. Asking instead would mean
+   * every block and unblock — so the count follows a block or unblock with no work here. Asking
+   * instead would mean
    * `vrcGetAllModerations` — five uncached `GET /auth/user/playermoderations` calls — to count
    * rows already in memory.
    */
@@ -585,7 +550,7 @@ export class HostVrchatApi implements VrchatApi {
   name(kind: 'world' | 'avatar' | 'group', id: string): string | undefined {
     const cached = pageName(kind, id);
     if (cached !== undefined) return cached;
-    // The groups the account is in are a name source of their own, and the mirror may hold them
+    // The groups the account is in are a name source of their own, and the page may hold them
     // when the dashboard has not drawn them yet.
     if (kind === 'group') {
       const mine = this.#myGroups.value?.find((group) => group.id === id)?.name;

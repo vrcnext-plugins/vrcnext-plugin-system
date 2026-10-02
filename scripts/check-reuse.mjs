@@ -27,12 +27,8 @@
 //   * `packages/host/src/capabilities/vrchat/page-state.ts` — what VRCNext holds in the page.
 //   * `ctx.vrchat.name(kind, id)` — a world, avatar or group name, already resolved, free.
 //   * `ctx.vrchat.self()`, `moderations()`, `moderationCounts()` — reads, not lookups.
-//   * The `Mirror` fields — a list VRCNext pushes is mirrored, so asking is only ever a cold start.
+//   * The `PageList` fields — they read VRCNext's own arrays, so asking is only ever a cold start.
 //   * In the running app: `vrcnext-eval 'return typeof someGlobal'` answers it in one line.
-//
-// A `Mirror` built without a page fallback is always reported, marker or not, unless the marker
-// is `reuse: no page state` — VRCNext holding a list and the host not reading it is the exact
-// bug this check exists for.
 //
 // Exit status 1 if any site is unmarked.
 
@@ -70,11 +66,6 @@ const PATTERNS = [
     says: 'makes an outbound HTTP request',
   },
   {
-    id: 'mirror',
-    test: /\bnew Mirror</,
-    says: 'mirrors a VRCNext list',
-  },
-  {
     id: 'state',
     /*
      * A keyed collection that outlives a call and is named after VRChat data.
@@ -108,23 +99,6 @@ function markerFor(lines, index) {
   return undefined;
 }
 
-/** A `new Mirror<…>(…)` whose constructor call has a second argument. */
-function mirrorHasPageFallback(lines, index) {
-  // The page fallback is the second argument and may be several lines down.
-  const window = lines.slice(index, index + 12).join('\n');
-  const call = window.slice(window.indexOf('new Mirror<'));
-  let depth = 0;
-  for (let i = call.indexOf('('); i < call.length && i >= 0; i += 1) {
-    const char = call[i];
-    if (char === '(') depth += 1;
-    else if (char === ')') {
-      depth -= 1;
-      if (depth === 0) return false;
-    } else if (char === ',' && depth === 1) return true;
-  }
-  return false;
-}
-
 function files(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (SKIPPED.has(entry.name)) continue;
@@ -144,15 +118,6 @@ function findings(path) {
       if (!pattern.test.test(line)) continue;
       if (pattern.subject !== undefined && !pattern.subject.test(line)) continue;
       if (pattern.exclude?.test(line) === true) continue;
-      if (pattern.id === 'mirror') {
-        // A page fallback *is* the answer, so a mirror that has one needs no marker. One that
-        // does not must say that VRCNext has no page state to read, which is the only honest
-        // reason for a mirror to be the sole copy.
-        if (!mirrorHasPageFallback(lines, index) && reason?.startsWith('no page state') !== true) {
-          found.push({ line: index + 1, id: pattern.id, says: pattern.says, why: 'no page fallback, and no `reuse: no page state`' });
-        }
-        break;
-      }
       if (reason === undefined) {
         found.push({ line: index + 1, id: pattern.id, says: pattern.says, why: 'no reuse marker' });
       }
@@ -188,7 +153,7 @@ if (json) {
   if (all.length > 0) {
     process.stdout.write(
       'Each needs `reuse: <why nothing existing answers this>` on its line or the line above.\n'
-      + 'Check page-state.ts, ctx.vrchat.name(), and the Mirror fields first — VRCNext usually has it.\n',
+      + 'Check page-state.ts, ctx.vrchat.name(), and the PageList fields first — VRCNext usually has it.\n',
     );
   }
 }

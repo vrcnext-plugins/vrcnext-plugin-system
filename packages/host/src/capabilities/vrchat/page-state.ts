@@ -127,8 +127,18 @@ export const pageLists = {
   friends: (): unknown => pageListIf(() => vrcFriendsLoaded, () => vrcFriendsData),
   /** `vrcMyGroups`: the groups the account is in. */
   myGroups: (): unknown => pageListIf(() => myGroupsLoaded, () => myGroups),
-  /** `vrcFavoriteFriends`: the favourite-friend groups, with their names. */
-  favoriteGroups: (): unknown => pageListIf(() => _pplFavLoaded, () => favFriendGroups),
+  /**
+   * `vrcFavoriteFriends`: the favourite-friend groups, with their names.
+   *
+   * The normaliser builds the groups from *both* halves of that push — `friends` says who is in
+   * which group, `groups` says what each group is called — so both page arrays go in. Passing
+   * `favFriendGroups` alone reads as "no friends", and the whole payload is rejected.
+   */
+  favoriteGroups: (): unknown => {
+    const groups = pageListIf(() => _pplFavLoaded, () => favFriendGroups);
+    const friends = pageListIf(() => _pplFavLoaded, () => favFriendsData);
+    return groups === undefined || friends === undefined ? undefined : { friends, groups };
+  },
   /**
    * `vrcFavoriteFriends` wraps its list in `{ friends }`, each carrying `favoriteId`.
    *

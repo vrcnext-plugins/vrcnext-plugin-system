@@ -23,6 +23,7 @@ import type { BridgeClient } from '../capabilities/native.js';
 import { HostNotificationsApi } from '../capabilities/notifications.js';
 import { HostOscApi } from '../capabilities/osc-api.js';
 import { PluginRouter, type RouteTable } from '../capabilities/router.js';
+import { HostSqlApi } from '../capabilities/sql-api.js';
 import type { EventRouter } from '../events/event-router.js';
 import { createLogger } from '../log/create-logger.js';
 import type { LogSink } from '../log/log-sink.js';
@@ -120,6 +121,7 @@ export async function createContext(
     osc: new GatedOsc(osc, gate, bag),
     native: new GatedNative(deps.native, gate),
     gameLog: new GatedGameLog(new HostGameLogApi(deps.bridge, deps.router, bag), gate, bag),
+    sql: categoryGuarded(gate, 'sql', new HostSqlApi(deps.native)),
     vrchat,
     deepLinks: new GatedDeepLinks(new PluginDeepLinkApi(deps.deepLinks, bag), gate, bag),
     router: categoryGuarded(gate, 'routes', router),

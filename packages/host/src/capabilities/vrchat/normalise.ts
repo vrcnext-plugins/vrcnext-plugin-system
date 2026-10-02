@@ -9,6 +9,7 @@
  */
 
 import {
+  languageLabels,
   PERFORMANCE_RANKS,
   parseLocation,
   type PerformanceRank,
@@ -119,7 +120,9 @@ export function userDetail(value: unknown): VrcUser | undefined {
     totalTimeSeconds: num(r['totalTimeSeconds']),
     note: str(r['note']) || str(r['userNote']),
     memo: str(r['memo']),
-    languages: strings(r['languages']),
+    // Not `r['languages']`: VRCNext sends that array empty on every profile payload and
+    // renders the pills from the tags, so the tags are where the answer is.
+    languages: languageLabels(summary.tags),
     allowAvatarCopying: r['allowAvatarCopying'] === true,
   };
 }
@@ -408,5 +411,10 @@ export function timelineEvent(value: unknown): VrcTimelineEvent | undefined {
     senderName: str(r['senderName']),
     message: str(r['message']),
     leftAt: str(r['leftAt']),
+    // VRCNext's own lifetime total, sent on `meet_again` only. It counts further back than
+    // the ten records `getTimelineForUser` returns, so it is the honest answer for "how many
+    // times" on an arrival. `VrcUser.meets` is the same number for a profile read: VRCNext
+    // computes both from `user_tracking`, first meet included.
+    meetCount: num(r['meetCount']),
   };
 }

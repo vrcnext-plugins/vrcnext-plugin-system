@@ -58,30 +58,12 @@ test('a forced-fresh read and an outbound request are costs too', () => {
   assert.deepEqual(check('await ctx.http.fetch(url);').map((f) => f.id), ['http']);
 });
 
-test('a mirror is answered by having a page fallback, not by a marker', () => {
-  assert.deepEqual(check('readonly #friends = new Mirror<string[]>(read, pageLists.friends);'), [],
-    'the fallback is the answer');
-  assert.deepEqual(check('readonly #friends = new Mirror<string[]>(read);').map((f) => f.id), ['mirror']);
-  assert.deepEqual(
-    check('// reuse: no page state — VRCNext renders this straight from the push.\nreadonly #x = new Mirror<string[]>(read);'),
-    [],
-    'the one honest reason a mirror is the only copy',
-  );
-  assert.deepEqual(
-    check('// reuse: felt right\nreadonly #x = new Mirror<string[]>(read);').map((f) => f.id),
-    ['mirror'],
-    'any other reason does not excuse a mirror VRCNext could have seeded',
-  );
+test('a PageList is not a copy, so it is never reported', () => {
+  // It reads VRCNext's array on every access and stores nothing; the constructor requires the
+  // page reader, so there is no unmarked variant for this check to catch.
+  assert.deepEqual(check('readonly #friends = new PageList<string[]>(read, pageLists.friends);'), []);
 });
 
-test('a multi-line fallback still counts, because the reader is what matters', () => {
-  const source = [
-    'readonly #friends = new Mirror<readonly string[]>((p) => {',
-    '  return Array.isArray(p) ? p : undefined;',
-    '}, pageLists.friends);',
-  ].join('\n');
-  assert.deepEqual(check(source), []);
-});
 
 test('held VRChat state is a cost; a working value inside a function is not', () => {
   assert.deepEqual(check('  readonly #worlds = new Map<string, string>();').map((f) => f.id), ['state']);

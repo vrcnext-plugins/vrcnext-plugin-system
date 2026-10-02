@@ -172,3 +172,30 @@ export function trustScore(user: TrustInput, now = Date.now()): TrustScore {
   const percent = total === 0 ? 0 : Math.round((earned / total) * 100);
   return { percent, criteria, description: describe(percent) };
 }
+
+/**
+ * VRChat's language tags, as VRCNext labels them.
+ *
+ * A profile's spoken languages are tags, not the `languages` array beside them — VRCNext sends
+ * that array empty on every profile payload and renders the pills from the tags instead.
+ */
+export const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
+  language_eng: 'English', language_kor: '한국어', language_rus: 'Русский',
+  language_spa: 'Español', language_por: 'Português', language_zho: '中文',
+  language_deu: 'Deutsch', language_jpn: '日本語', language_fra: 'Français',
+  language_swe: 'Svenska', language_nld: 'Nederlands', language_tur: 'Türkçe',
+  language_ara: 'العربية', language_pol: 'Polski', language_dan: 'Dansk',
+  language_nor: 'Norsk', language_fin: 'Suomi', language_ces: 'Čeština',
+  language_hun: 'Magyar', language_ron: 'Română', language_tha: 'ไทย',
+  language_vie: 'Tiếng Việt', language_ukr: 'Українська', language_ase: 'ASL',
+  language_bfi: 'BSL', language_dse: 'DGS', language_fsl: 'LSF',
+  language_kvk: 'KSL',
+};
+
+/** The languages a profile lists, read from its tags and named as VRCNext names them. */
+export function languageLabels(tags: readonly string[] | undefined): readonly string[] {
+  if (tags === undefined) return [];
+  return tags
+    .filter((tag) => tag.startsWith('language_'))
+    .map((tag) => LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase());
+}

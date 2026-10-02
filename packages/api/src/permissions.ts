@@ -51,6 +51,12 @@ export const PERMISSIONS = {
     description: 'Send and receive OSC avatar parameters through VRCNext.',
     tone: 'medium',
   },
+  sql: {
+    description:
+      "Run read-only SQL against VRCNext's own databases: your join history, world and avatar "
+      + 'tracking, and user memos. Cannot write, and cannot name a file.',
+    tone: 'high',
+  },
   gamelog: {
     description: 'Read the VRChat game log, live and its backlog.',
     tone: 'medium',

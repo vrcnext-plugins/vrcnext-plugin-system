@@ -1,6 +1,9 @@
 /**
- * The VRChat API over a scripted VRCNext: pushes feed the mirrors, lookups go through a fake
- * quiet channel that answers from a table of replies.
+ * The VRChat API over a scripted VRCNext: its page globals are the lists, and lookups go through
+ * a fake quiet channel that answers from a table of replies.
+ *
+ * `page()` is how a test says "VRCNext has this loaded". There is no push to feed any more — the
+ * host keeps no copy — so a list is either in the page or it is asked for.
  */
 
 import assert from 'node:assert/strict';
@@ -41,7 +44,22 @@ function fake(resolveImage?: (key: string) => Promise<string>): Fake {
   return { api, router, requests, replies };
 }
 
-test('lists answer from the mirror once VRCNext pushed them, and ask otherwise', async () => {
+/** Sets VRCNext's own globals for one test, and clears them afterwards. */
+function page(values: Record<string, unknown>, body: () => Promise<void> | void): Promise<void> | void {
+  const g = globalThis as Record<string, unknown>;
+  const restore = Object.keys(values).map((key) => [key, g[key]] as const);
+  Object.assign(g, values);
+  const done = (): void => { for (const [key, old] of restore) g[key] = old; };
+  try {
+    const result = body();
+    return result instanceof Promise ? result.finally(done) : (done(), undefined);
+  } catch (error) {
+    done();
+    throw error;
+  }
+}
+
+test('a list the page has not loaded is asked for; one it has is read, not asked', async () => {
   const f = fake();
   f.replies.set('vrcMyGroups', [[{ id: 'grp_1', name: 'Club', memberCount: 3 }]]);
   const asked = await f.api.myGroups();
@@ -50,20 +68,21 @@ test('lists answer from the mirror once VRCNext pushed them, and ask otherwise',
   assert.ok(first !== undefined);
   assert.equal(first.action, 'vrcGetMyGroups');
   assert.equal(first.swallow, false, 'list replies are VRCNext’s to handle too');
+
   const location = `${WORLD}:1~region(eu)`;
+  await page({
+    vrcFriendsData: [{ id: USER, displayName: 'Tupper', image: 'i', status: 'active', location }],
+    vrcFriendsLoaded: true,
+  }, async () => {
+    const friend = (await f.api.friends())[0];
+    assert.ok(friend !== undefined);
+    assert.equal(friend.displayName, 'Tupper');
+    assert.equal(friend.isFriend, true);
+    assert.equal(f.requests.length, 1, 'no request for a list the page holds');
 
-  f.router.dispatch({ type: 'vrcFriends', payload: { friends: [{ id: USER, displayName: 'Tupper', image: 'i', status: 'active', location }], counts: {} } });
-  const friend = (await f.api.friends())[0];
-  assert.ok(friend !== undefined);
-  assert.equal(friend.displayName, 'Tupper');
-  assert.equal(friend.isFriend, true);
-  assert.equal(f.requests.length, 1, 'no request for a mirrored list');
-
-  f.router.dispatch({ type: 'vrcFriendUpdate', payload: { id: USER, displayName: 'Tupper', status: 'busy', location } });
-  assert.equal((await f.api.friends())[0]?.status, 'busy');
-
-  const instances = await f.api.friendInstances();
-  assert.deepEqual(instances.map((i) => [i.worldId, i.instanceType, i.friends.length]), [[WORLD, 'public', 1]]);
+    const instances = await f.api.friendInstances();
+    assert.deepEqual(instances.map((i) => [i.worldId, i.instanceType, i.friends.length]), [[WORLD, 'public', 1]]);
+  });
 });
 
 test('self comes from the vrcUser push and is synchronous', () => {
@@ -82,19 +101,19 @@ test('self comes from the vrcUser push and is synchronous', () => {
 
 test('favourite groups keep their names and resolve members this page knows', async () => {
   const f = fake();
-  f.router.dispatch({ type: 'vrcFriends', payload: { friends: [{ id: USER, displayName: 'Tupper', image: '' }] } });
-  f.router.dispatch({
-    type: 'vrcFavoriteFriends',
-    payload: {
-      friends: [{ favoriteId: USER, groupName: 'group_0' }, { favoriteId: 'usr_stranger', groupName: 'group_0' }],
-      groups: [{ name: 'group_0', displayName: 'Besties' }, { name: 'group_1', displayName: 'Others' }],
-    },
+  await page({
+    vrcFriendsData: [{ id: USER, displayName: 'Tupper', image: '' }],
+    vrcFriendsLoaded: true,
+    favFriendsData: [{ favoriteId: USER, groupName: 'group_0' }, { favoriteId: 'usr_stranger', groupName: 'group_0' }],
+    favFriendGroups: [{ name: 'group_0', displayName: 'Besties' }, { name: 'group_1', displayName: 'Others' }],
+    _pplFavLoaded: true,
+  }, async () => {
+    const groups = await f.api.favoriteFriendGroups();
+    assert.deepEqual(groups.map((g) => [g.name, g.displayName, g.userIds.length, g.users.map((u) => u.displayName)]), [
+      ['group_0', 'Besties', 2, ['Tupper']],
+      ['group_1', 'Others', 0, []],
+    ]);
   });
-  const groups = await f.api.favoriteFriendGroups();
-  assert.deepEqual(groups.map((g) => [g.name, g.displayName, g.userIds.length, g.users.map((u) => u.displayName)]), [
-    ['group_0', 'Besties', 2, ['Tupper']],
-    ['group_1', 'Others', 0, []],
-  ]);
 });
 
 test('moderation counts are read from the page, never requested and never mirrored', () => {
@@ -137,18 +156,27 @@ test('avatar ranks come from VRCNext’s pcPerf/questPerf or the unity packages'
   f.replies.set('vrcAvatarDetail', [{ id: 'avtr_1', name: 'A', pcPerf: 'Good', questPerf: 'VeryPoor', hasPC: true }]);
   const avatar = await f.api.avatar('avtr_1');
   assert.deepEqual([avatar?.pcRank, avatar?.questRank, avatar?.iosRank, avatar?.hasPc], ['Good', 'VeryPoor', '', true]);
-  f.router.dispatch({ type: 'vrcAvatars', payload: { filter: 'own', avatars: [{ id: 'avtr_2', name: 'B', unityPackages: [{ platform: 'standalonewindows', performanceRating: 'Medium' }, { platform: 'android', variant: 'impostor', performanceRating: 'Poor' }] }] } });
-  const own = await f.api.ownAvatars();
-  assert.deepEqual([own[0]?.pcRank, own[0]?.questRank], ['Medium', '']);
+  await page({
+    avatarsData: [{ id: 'avtr_2', name: 'B', unityPackages: [{ platform: 'standalonewindows', performanceRating: 'Medium' }, { platform: 'android', variant: 'impostor', performanceRating: 'Poor' }] }],
+    avatarFilter: 'own',
+    avatarsLoaded: true,
+  }, async () => {
+    const own = await f.api.ownAvatars();
+    assert.deepEqual([own[0]?.pcRank, own[0]?.questRank], ['Medium', '']);
+  });
 });
 
 test('the current instance is parsed, including the group and instance id', async () => {
   const f = fake();
-  f.router.dispatch({ type: 'vrcCurrentInstance', payload: { location: `${WORLD}:60529~group(grp_1)~groupAccessType(plus)~region(eu)`, worldName: 'Club', instanceType: 'group-plus', nUsers: 2, users: [{ id: USER, displayName: 'Tupper' }, { id: '', displayName: 'Legacy' }] } });
-  const instance = await f.api.currentInstance();
-  assert.deepEqual([instance?.instanceId, instance?.groupId, instance?.region, instance?.users.length], ['60529', 'grp_1', 'eu', 2]);
-  f.router.dispatch({ type: 'vrcCurrentInstance', payload: { empty: true } });
-  assert.equal(await f.api.currentInstance(), undefined);
+  await page({
+    currentInstanceData: { location: `${WORLD}:60529~group(grp_1)~groupAccessType(plus)~region(eu)`, worldName: 'Club', instanceType: 'group-plus', nUsers: 2, users: [{ id: USER, displayName: 'Tupper' }, { id: '', displayName: 'Legacy' }] },
+  }, async () => {
+    const instance = await f.api.currentInstance();
+    assert.deepEqual([instance?.instanceId, instance?.groupId, instance?.region, instance?.users.length], ['60529', 'grp_1', 'eu', 2]);
+  });
+  await page({ currentInstanceData: { empty: true } }, async () => {
+    assert.equal(await f.api.currentInstance(), undefined);
+  });
 });
 
 test('searches match on type and offset', async () => {
@@ -164,10 +192,11 @@ test('searches match on type and offset', async () => {
 
 test('user groups are named from your own groups when VRCNext only gives ids', async () => {
   const f = fake();
-  f.router.dispatch({ type: 'vrcMyGroups', payload: [{ id: 'grp_1', name: 'Club', iconUrl: 'x' }] });
   f.replies.set('vrcGroupsForNetwork', [{ userId: USER, groups: [{ id: 'grp_1', members: 5 }, { id: 'grp_2', members: 1 }] }]);
-  const groups = await f.api.userGroups(USER);
-  assert.deepEqual(groups.map((g) => [g.id, g.name, g.memberCount]), [['grp_1', 'Club', 5], ['grp_2', '', 1]]);
+  await page({ myGroups: [{ id: 'grp_1', name: 'Club', iconUrl: 'x' }], myGroupsLoaded: true }, async () => {
+    const groups = await f.api.userGroups(USER);
+    assert.deepEqual(groups.map((g) => [g.id, g.name, g.memberCount]), [['grp_1', 'Club', 5], ['grp_2', '', 1]]);
+  });
 });
 
 test('a shared lookup is not cancelled by the caller that started it', async () => {

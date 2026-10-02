@@ -398,6 +398,13 @@ export interface VrcTimelineEvent {
   readonly message?: string;
   /** When an `instance_join` ended; `''` while it is still going. */
   readonly leftAt?: string;
+  /**
+   * VRCNext's lifetime meet total for `userId`, on `meet_again` records only.
+   *
+   * It comes from `user_tracking`, not from the timeline window, so it counts meetings older
+   * than the ten records a timeline read returns. `0` on every other record type.
+   */
+  readonly meetCount?: number;
 }
 
 export interface VrcSearchPage<T> {

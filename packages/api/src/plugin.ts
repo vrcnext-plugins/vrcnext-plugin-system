@@ -26,6 +26,7 @@ import type { NotificationsApi } from './notifications.js';
 import type { OscApi } from './osc.js';
 import type { PermissionsApi } from './permissions.js';
 import type { SettingsSchema, SettingsStore } from './settings.js';
+import type { SqlApi } from './sql.js';
 import type { UiApi } from './ui.js';
 import type { VrchatApi } from './vrchat.js';
 
@@ -49,6 +50,8 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly native: NativeApi;
   /** Needs `gamelog`. */
   readonly gameLog: GameLogApi;
+  /** Needs `sql`. Read-only SQL against VRCNext's databases, for what the page does not hold. */
+  readonly sql: SqlApi;
   /** Needs `vrchat`. Read-only VRChat data through VRCNext, without its dialogs. */
   readonly vrchat: VrchatApi;
   /** Needs `host:events` with `openDeepLink` in the manifest's `events`. */
