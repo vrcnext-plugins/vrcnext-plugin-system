@@ -58,7 +58,11 @@ function fixture(): { api: VrchatApi; asked: string[] } {
     onUninstall: () => Promise.resolve(),
     log: () => undefined,
   });
-  const inner = { self: () => SELF } as unknown as VrchatApi;
+  const inner = {
+    self: () => SELF,
+    name: () => 'Liminal Cove',
+    userTimeline: () => Promise.resolve([]),
+  } as unknown as VrchatApi;
   return { api: gatedVrchat(inner, new PluginGate(manifest(), broker, logger, new AbortController().signal)), asked };
 }
 
@@ -68,6 +72,21 @@ test('self() starts the permission prompt instead of silently answering undefine
   await settle();
   assert.equal(f.asked.length, 1, 'the user was asked');
   assert.equal(f.api.self(), SELF, 'the next read sees the account');
+});
+
+test('name() answers synchronously, because a promise here reads as a world called "{}"', async () => {
+  const f = fixture();
+  // The proxy used to make every method but `self` async. `name` is read inline — a report's
+  // footer, a log line — where the caller has no await to give it, so the promise was stringified
+  // into the message as `{}` and `?? fallback` never fired.
+  assert.equal(f.api.name('world', 'wrld_1'), undefined, 'nothing is known before the grant');
+  await settle();
+  assert.equal(f.api.name('world', 'wrld_1'), 'Liminal Cove');
+});
+
+test('an awaitable method is still a promise', () => {
+  const f = fixture();
+  assert.ok(f.api.userTimeline('usr_1') instanceof Promise);
 });
 
 test('repeated reads before the answer ask only once', async () => {

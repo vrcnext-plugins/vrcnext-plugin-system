@@ -395,29 +395,59 @@ export class GatedNative implements NativeApi {
 }
 
 /**
- * Asked once per plugin. Every method awaits that one answer; `self()` is synchronous, so it
- * starts the prompt and answers `undefined` until the grant is in.
+ * The methods that answer from what the page already holds, and what each says before the grant
+ * is in.
+ *
+ * These are synchronous by design — a caller reads them inside a render, not in an await — so the
+ * proxy must not turn them into promises. It cannot await the prompt either, so each one answers
+ * with its own "nothing known" shape until the grant arrives: `undefined` for a name, all-zero
+ * counts, all-unknown moderations. A promise here is not a harmless delay, it is a wrong value
+ * that survives `??` and prints as `{}`.
+ */
+type VrchatSyncMethod = {
+  [K in keyof VrchatApi]: VrchatApi[K] extends (...args: never[]) => infer R
+    ? (R extends Promise<unknown> ? never : K)
+    : never;
+}[keyof VrchatApi];
+
+/** Typed by the interface, so a new synchronous method fails to compile until it is listed. */
+const VRCHAT_SYNC: { readonly [K in VrchatSyncMethod]: () => ReturnType<VrchatApi[K]> } = {
+  self: () => undefined,
+  name: () => undefined,
+  moderationCounts: () => ({ blocked: 0, muted: 0, hiddenAvatar: 0, interactOff: 0, muteChat: 0 }),
+  moderations: () => ({ blocked: undefined, muted: undefined, chatMuted: undefined, avatarHidden: undefined, interactOff: undefined }),
+};
+
+/**
+ * Asked once per plugin. Every awaitable method awaits that one answer; the synchronous ones in
+ * {@link VRCHAT_SYNC} start the prompt and answer with nothing until the grant is in.
+ *
+ * Without that start a plugin whose first VRChat call is `self()` would never be asked at all:
+ * it would read `undefined`, conclude nobody is signed in, and return before reaching the
+ * awaited call that would have prompted.
  */
 export function gatedVrchat(inner: VrchatApi, gate: PluginGate): VrchatApi {
   const request = vrchatPrompt(gate.subject);
   let asked = false;
+  const start = (): void => {
+    if (asked) return;
+    asked = true;
+    gate.whenAllowed(request, () => undefined);
+  };
   return new Proxy(inner, {
     get(target, property, receiver): unknown {
       const member: unknown = Reflect.get(target, property, receiver);
       if (typeof member !== 'function') return member;
-      if (property === 'self') {
-        return (): unknown => {
+      const sync: Readonly<Record<string, (() => unknown) | undefined>> = VRCHAT_SYNC;
+      // Own properties only: `toString` is not a synchronous VRChat method, whatever the
+      // prototype says.
+      const empty = typeof property === 'string' && Object.hasOwn(VRCHAT_SYNC, property) ? sync[property] : undefined;
+      if (empty !== undefined) {
+        return (...args: unknown[]): unknown => {
           gate.requireCategory('vrchat');
-          if (gate.isAllowed(request)) return Reflect.apply(member, target, []);
-          // Synchronous, so it cannot await the prompt — start it and answer `undefined` until
-          // the answer is in. Without this a plugin whose first VRChat call is `self()` would
-          // never be asked at all: it would read `undefined`, conclude nobody is signed in, and
-          // return before reaching the awaited call that would have prompted.
-          if (!asked) {
-            asked = true;
-            gate.whenAllowed(request, () => undefined);
-          }
-          return undefined;
+          if (gate.isAllowed(request)) return Reflect.apply(member, target, args);
+          start();
+          return empty();
         };
       }
       return async (...args: unknown[]): Promise<unknown> => {
