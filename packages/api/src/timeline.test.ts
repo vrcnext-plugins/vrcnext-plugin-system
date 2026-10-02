@@ -238,3 +238,24 @@ test('fitLines without a gap trims from the end', () => {
   assert.deepEqual(fitLines(['aaaa', 'bbbb', 'cccc'], 9), ['aaaa', 'bbbb']);
   assert.deepEqual(fitLines([], 10), []);
 });
+
+test('a malformed record drops its fields instead of throwing out of the whole log', () => {
+  // Each of these threw before: `discordCode` called `.includes` on a non-string, which took
+  // down every notification channel at once rather than spoiling one line.
+  const bad = [
+    { type: 'meet_again', timestamp: '2026-09-01T10:00:00Z', location: 'wrld_a', worldName: 7 as unknown as string },
+    { type: 'meet_again', timestamp: '2026-09-01T11:00:00Z', location: null as unknown as string, worldName: 'W' },
+    { type: 'friend_statusdesc', notifType: 'statusdesc', timestamp: '2026-09-01T12:00:00Z', location: '', worldName: '', message: 9 as unknown as string },
+  ];
+  const lines = userEventLines(bad, { format: 'discord' });
+  assert.ok(lines.length > 0, 'the readable parts still render');
+  assert.ok(lines.every((line) => typeof line === 'string'));
+
+  // A group name that is not a string is dropped, not printed and not thrown over.
+  const grouped = userEventLines(
+    [{ type: 'meet_again', timestamp: '2026-09-01T10:00:00Z', location: 'wrld_a:1~group(grp_1)~groupAccessType(plus)', worldName: 'W' }],
+    { format: 'discord', groupName: () => 42 as unknown as string },
+  );
+  assert.equal(grouped.length, 1);
+  assert.doesNotMatch(grouped[0] ?? '', /42/);
+});

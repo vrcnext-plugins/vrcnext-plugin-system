@@ -56,6 +56,9 @@ function accessType(instance: string): InstanceType {
 }
 
 export function parseLocation(location: string): ParsedLocation {
+  // Locations arrive from VRCNext's payloads and from its database, where the column is
+  // nullable; anything that is not a string is "no location" rather than a thrown formatter.
+  if (typeof location !== 'string') return parseLocation('');
   const colon = location.indexOf(':');
   const worldId = colon < 0 ? location : location.slice(0, colon);
   const instance = colon < 0 ? '' : location.slice(colon + 1);

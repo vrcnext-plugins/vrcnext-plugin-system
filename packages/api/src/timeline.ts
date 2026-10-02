@@ -137,8 +137,22 @@ function humanise(type: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-function quote(text: string, format: TimelineFormat): string {
-  return format === 'discord' ? discordCode(text) : `"${text}"`;
+/**
+ * A field as text, or `''` for anything that is not a string.
+ *
+ * Records reach this formatter from VRCNext's payloads and from VRCNext's own database, and both
+ * can carry a null or a number where the type says string — a SQLite `NULL` column is the usual
+ * one. Without this, one such record threw out of `userEventLines` and took the whole report with
+ * it: the plugin's Discord *and* VR channels both failed on a single malformed row. A field it
+ * cannot read is dropped, the same way an unreadable timestamp drops its stamp.
+ */
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function quote(value: unknown, format: TimelineFormat): string {
+  const name = text(value);
+  return format === 'discord' ? discordCode(name) : `"${name}"`;
 }
 
 /**
@@ -152,14 +166,14 @@ function quote(text: string, format: TimelineFormat): string {
  */
 function place(event: VrcTimelineEvent, options: TimelineTextOptions): string {
   const format = options.format ?? 'plain';
-  const parsed = parseLocation(event.location);
-  const named = event.worldName !== '' ? event.worldName : parsed.worldId;
+  const parsed = parseLocation(text(event.location));
+  const named = text(event.worldName) !== '' ? text(event.worldName) : parsed.worldId;
   const parts: string[] = [];
   if (named !== '') {
     parts.push(quote(parsed.instanceId === '' ? named : `${named} #${parsed.instanceId}`, format));
   } else if (parsed.instanceId !== '') parts.push(`#${parsed.instanceId}`);
-  const group = parsed.groupId === '' ? undefined : options.groupName?.(parsed.groupId);
-  if (group !== undefined && group !== '') parts.push(`by ${quote(group, format)}`);
+  const group = parsed.groupId === '' ? '' : text(options.groupName?.(parsed.groupId));
+  if (group !== '') parts.push(`by ${quote(group, format)}`);
   if (parsed.instanceType !== '') parts.push(`(${instanceTypeLabel(parsed.instanceType)})`);
   return parts.join(' ');
 }
@@ -200,7 +214,7 @@ function profileText(event: VrcTimelineEvent, group: readonly VrcTimelineEvent[]
   const fields = [...new Set(group.map((record) => PROFILE_FIELDS[record.notifType ?? '']).filter((name) => name !== undefined))];
   if (fields.length > 1) return `Updated their ${listOf(fields)}`;
 
-  const value = event.message ?? '';
+  const value = text(event.message);
   if (event.notifType === 'status') {
     return value === '' ? 'Changed their status' : `Changed status to ${quote(statusLabel(value), format)}`;
   }
