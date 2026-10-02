@@ -144,7 +144,31 @@ async function loadInstances(vrchat: VrchatApi, scope: string): Promise<readonly
   return [];
 }
 
-/** A name for an id, from the cheapest source that knows it. */
+/**
+ * What a chip can say about an id before anything is asked for.
+ *
+ * VRCNext caches the name of every world, avatar and group its own screens have shown, so for
+ * most saved ids this is already the right title and it costs nothing. The raw id is the
+ * fallback, which is what the chip used to show for the whole time {@link describe} was in
+ * flight. An instance is named after its world, with its number appended.
+ */
+export function knownItem(vrchat: VrchatApi, kind: EntityKind, id: string): PickItem {
+  if (kind === 'instance') {
+    const worldId = id.split(':')[0] ?? '';
+    const name = worldId === '' ? undefined : vrchat.name('world', worldId);
+    return { id, title: instanceTitle(id, name ?? '') };
+  }
+  if (kind === 'user') return { id, title: id };
+  return { id, title: vrchat.name(kind, id) ?? id };
+}
+
+/**
+ * A name for an id, with the picture and the subtitle that go with it.
+ *
+ * This does spend a lookup, and it is not waste: the thumbnail and the author are not in any
+ * cache the page keeps, and a chip reading `wrld_3315f74d-…` is not an answer. {@link knownItem}
+ * is what fills the chip in the meantime, free, so the lookup is never what the user waits on.
+ */
 export async function describe(vrchat: VrchatApi, kind: EntityKind, id: string): Promise<PickItem> {
   const fallback: PickItem = { id, title: id };
   try {
@@ -407,7 +431,7 @@ export function entityControl(spec: EntitySetting, binding: Binding, error: Retu
       widgets.setChildren(picked, []);
       return;
     }
-    widgets.setChildren(picked, ids.map((id) => pickedRow({ id, title: id })));
+    widgets.setChildren(picked, ids.map((id) => pickedRow(knownItem(ctx.vrchat, spec.kind, id))));
     void Promise.all(ids.map((id) => describe(ctx.vrchat, spec.kind, id))).then((items) => {
       if (mine !== generation) return;
       widgets.setChildren(picked, items.map(pickedRow));

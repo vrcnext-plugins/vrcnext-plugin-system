@@ -443,7 +443,10 @@ export class HostVrchatApi implements VrchatApi {
       return {
         location,
         worldId: shape?.worldId ?? '',
-        worldName: worlds.get(shape?.worldId ?? '') ?? '',
+        // Favourites and recents first, then the name cache VRCNext's own screens filled: a
+        // friend standing in a world the user has never favourited is the common case, and it
+        // is not worth a world lookup per group of friends to name it.
+        worldName: firstNonEmpty(worlds.get(shape?.worldId ?? ''), pageName('world', shape?.worldId ?? '')),
         instanceType: shape?.instanceType ?? '',
         friends: members,
       };
