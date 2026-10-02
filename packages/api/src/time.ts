@@ -52,6 +52,28 @@ export function formatDuration(ms: number): string {
   return say(Math.floor(days / 365), 'year');
 }
 
+/**
+ * `5h 12m 49s`, `2d 3h 0m 8s`, `49s` — a length of time to the second.
+ *
+ * A port of VRCNext's own `formatDuration`, which is what its profile cards show, so a report
+ * saying how long you spent with someone reads the same number the app does. Takes **seconds**,
+ * because that is what VRCNext's `totalTimeSeconds` is in; {@link formatDuration} takes
+ * milliseconds and rounds to one coarse unit, which is the opposite trade and still the right
+ * one for "3 hours ago".
+ */
+export function exactDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 1) return '0s';
+  const whole = Math.floor(seconds);
+  const d = Math.floor(whole / 86_400);
+  const h = Math.floor((whole % 86_400) / 3600);
+  const m = Math.floor((whole % 3600) / 60);
+  const s = whole % 60;
+  if (d > 0) return `${String(d)}d ${String(h)}h ${String(m)}m ${String(s)}s`;
+  if (h > 0) return `${String(h)}h ${String(m)}m ${String(s)}s`;
+  if (m > 0) return `${String(m)}m ${String(s)}s`;
+  return `${String(s)}s`;
+}
+
 /** Anything with a timestamp: a timeline event, a log line, a report. */
 export interface Timestamped {
   readonly timestamp: TimeInput;

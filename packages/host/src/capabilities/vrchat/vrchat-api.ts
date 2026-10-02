@@ -30,6 +30,8 @@ import type {
   VrcSearchPage,
   VrcSelf,
   VrcTimelineEvent,
+  VrcModerations,
+  VrcStatusTime,
   VrcUser,
   VrcUserSummary,
   VrcWorld,
@@ -39,11 +41,13 @@ import type {
 
 import type { EventRouter } from '../../events/event-router.js';
 import * as n from './normalise.js';
+import { pageModerationLists } from './page-state.js';
 import { pageGlobal } from './page-global.js';
 import type { QuietChannel } from './quiet-channel.js';
 
 /** How long a detail answer is reused. Long enough for a settings card to draw, short enough to notice a status change. */
 const DETAIL_TTL_MS = 60_000;
+
 /** How many detail answers are kept; the least recently used goes first. */
 const DETAIL_MAX_ENTRIES = 200;
 const SEARCH_PAGE = 20;
@@ -270,7 +274,7 @@ export class HostVrchatApi implements VrchatApi {
   /** A quiet lookup, remembered for {@link DETAIL_TTL_MS}. */
   async #detail<T>(
     key: string,
-    request: { readonly action: string; readonly args: ActionArgs; readonly expect: string; accept(payload: unknown): T | undefined },
+    request: { readonly action: string; readonly args: ActionArgs; readonly expect: string; readonly swallow?: boolean; accept(payload: unknown): T | undefined },
     options: VrcLookupOptions | undefined,
   ): Promise<T> {
     const cached = this.#details.get(key);
@@ -483,6 +487,52 @@ export class HostVrchatApi implements VrchatApi {
       },
     }, options));
     return events ?? [];
+  }
+
+  /**
+   * What you have done to this player: blocked, muted, chat-muted, avatar hidden, interactions
+   * off.
+   *
+   * No request, and no copy of the data. These five lists belong to the signed-in account
+   * rather than to the player being looked up, and VRCNext already holds them in the page: it
+   * reads them once every two hours and patches them in place on every block and unblock. This
+   * reads the same arrays its own profile card reads, so the answer is exactly what the app
+   * would show and a block made a second ago is already in it. See `page-state.ts`.
+   *
+   * Synchronous for the same reason: there is nothing to wait for. A list VRCNext has not
+   * loaded leaves its field `undefined` rather than `false` — a report has to be able to say
+   * "could not be checked" instead of quietly clearing someone.
+   */
+  moderations(id: string): VrcModerations {
+    const lists = pageModerationLists();
+    const has = (list: readonly string[] | undefined): boolean | undefined =>
+      list === undefined ? undefined : list.includes(id);
+    return {
+      blocked: has(lists.block),
+      muted: has(lists.mute),
+      chatMuted: has(lists.muteChat),
+      avatarHidden: has(lists.hideAvatar),
+      interactOff: has(lists.interactOff),
+    };
+  }
+
+  /**
+   * How long they spent in each status over the last `days`.
+   *
+   * VRCNext answers this from its own database, so it costs no VRChat request, and the reply is
+   * not swallowed: it is harmless for the app to see its own numbers refresh.
+   */
+  statusTime(id: string, days = 30, options?: VrcLookupOptions): Promise<VrcStatusTime | undefined> {
+    return this.#optional(this.#detail(`statusTime:${id}:${String(days)}`, {
+      action: 'getUserStatusTime',
+      args: { userId: id, days },
+      expect: 'userStatusTime',
+      accept: (payload) => {
+        const r = n.rec(payload);
+        return r !== undefined && n.str(r['userId']) === id ? n.statusTime(payload) : undefined;
+      },
+      swallow: false,
+    }, options));
   }
 
   instanceAvatar(userId: string, options?: VrcLookupOptions): Promise<{ readonly avatarId: string; readonly avatarName: string } | undefined> {

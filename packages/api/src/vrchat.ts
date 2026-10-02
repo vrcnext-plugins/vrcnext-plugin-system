@@ -42,6 +42,20 @@ export function rankLabel(rank: string): string {
   return rank === '' ? 'Unknown' : rank.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
+/**
+ * `standalonewindows` → `PC`, `android` → `Quest`, `ios` → `iOS`, `web` → `Web`.
+ *
+ * A port of VRCNext's `getPlatformLabel`, so a report names a platform the way the app's own
+ * profile card does. An unknown value is passed through rather than guessed at, and `''` stays
+ * `''` so a caller can drop the row.
+ */
+export function platformLabel(platform: string): string {
+  const known: Readonly<Record<string, string | undefined>> = {
+    standalonewindows: 'PC', android: 'Quest', ios: 'iOS', web: 'Web',
+  };
+  return known[platform] ?? platform;
+}
+
 /** {@link RANK_EMOJI} for a rank that may be any string; `⚪` for one VRChat has not named. */
 export function rankEmoji(rank: string): string {
   const known: Readonly<Partial<Record<string, string>>> = RANK_EMOJI;
@@ -163,6 +177,71 @@ export interface VrcUser extends VrcUserSummary {
   readonly totalTimeSeconds: number;
   readonly note: string;
   readonly memo: string;
+  /** The languages on their profile, as VRChat's own names (`eng`, `deu`, …). */
+  readonly languages: readonly string[];
+  /** Whether others may clone their avatar. */
+  readonly allowAvatarCopying: boolean;
+}
+
+/**
+ * What *you* have done to a player, which is not on their profile — it is on your account.
+ *
+ * Each is `undefined` when VRCNext did not answer with that list, which is not the same as
+ * "not blocked": a report must be able to say "could not be checked" rather than quietly
+ * clearing someone.
+ */
+/**
+ * How long a player spent in each VRChat status over a window of days, from VRCNext's records.
+ *
+ * Keys are VRChat's raw statuses — `active`, `join me`, `ask me`, `busy` — plus `unknown` for
+ * the stretches VRCNext was not watching. Seconds, which is what VRCNext counts in.
+ */
+export interface VrcStatusTime {
+  readonly days: number;
+  readonly totalSeconds: number;
+  readonly totals: Readonly<Record<string, number>>;
+}
+
+/** VRCNext's own names for the statuses, which are not VRChat's raw values. */
+export const STATUS_LABELS: Readonly<Record<string, string>> = {
+  'active': 'Online',
+  'join me': 'Join Me',
+  'ask me': 'Ask Me',
+  'busy': 'Do Not Disturb',
+  'unknown': 'Unknown',
+};
+
+/** {@link STATUS_LABELS} for a status that may be any string, falling back to the raw value. */
+export function statusLabel(status: string): string {
+  const known: Readonly<Record<string, string | undefined>> = STATUS_LABELS;
+  return known[status] ?? status;
+}
+
+/**
+ * The status a player was in most of the time, as the app's "Status Mostly" row words it.
+ *
+ * `unknown` is skipped on purpose: it means VRCNext was not running, which is a fact about you
+ * rather than about them, and it would otherwise win on almost every account. `''` when nothing
+ * was recorded, so a caller can print its own dash.
+ */
+export function mostlyStatus(totals: Readonly<Record<string, number>> | undefined): string {
+  if (totals === undefined) return '';
+  let top = '';
+  let best = 0;
+  for (const [status, seconds] of Object.entries(totals)) {
+    if (status === 'unknown' || seconds <= best) continue;
+    best = seconds;
+    top = status;
+  }
+  return top === '' ? '' : statusLabel(top);
+}
+
+export interface VrcModerations {
+  readonly blocked: boolean | undefined;
+  readonly muted: boolean | undefined;
+  readonly chatMuted: boolean | undefined;
+  readonly avatarHidden: boolean | undefined;
+  readonly interactOff: boolean | undefined;
 }
 
 export interface VrcAvatarSummary {
@@ -383,6 +462,24 @@ export interface VrchatApi {
   userGroups(id: string, options?: VrcLookupOptions): Promise<readonly VrcGroupSummary[]>;
   /** VRCNext's ten most recent timeline records involving the user. */
   userTimeline(id: string, options?: VrcLookupOptions): Promise<readonly VrcTimelineEvent[]>;
+  /**
+   * What you have done to this player: blocked, muted, chat-muted, avatar hidden, interactions
+   * off.
+   *
+   * Costs nothing and waits for nothing: these lists are the signed-in account's, not the
+   * player's, and VRCNext already keeps them loaded for its own profile cards. A list it has
+   * not loaded leaves its field `undefined`, which is not the same as "not blocked".
+   */
+  moderations(id: string): VrcModerations;
+
+  /**
+   * How long they spent in each status over the last `days`, from VRCNext's own records.
+   *
+   * Reads VRCNext's database only — no VRChat request — so it is cheap. `undefined` when
+   * VRCNext did not answer.
+   */
+  statusTime(id: string, days?: number, options?: VrcLookupOptions): Promise<VrcStatusTime | undefined>;
+
   /** The avatar a player in your instance wears, resolved through VRCNext's avatar databases. */
   instanceAvatar(userId: string, options?: VrcLookupOptions): Promise<{ readonly avatarId: string; readonly avatarName: string } | undefined>;
 

@@ -102,8 +102,8 @@ export type { PostWebhookOptions, PostWebhookResult } from './discord-webhook.js
 export type { DiscordTimeStyle } from './discord-text.js';
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
-export { PERFORMANCE_RANKS, RANK_EMOJI, TRUST_RANKS, rankEmoji, rankIndex, rankLabel, trustRank } from './vrchat.js';
-export { trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
+export { PERFORMANCE_RANKS, RANK_EMOJI, STATUS_LABELS, TRUST_RANKS, mostlyStatus, platformLabel, rankEmoji, rankIndex, rankLabel, statusLabel, trustRank } from './vrchat.js';
+export { trustRankLabel, trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
 export type { TrustCriterion, TrustInput, TrustScore } from './trust.js';
 export type {
   PerformanceRank,
@@ -122,6 +122,8 @@ export type {
   VrcSearchPage,
   VrcSelf,
   VrcTimelineEvent,
+  VrcModerations,
+  VrcStatusTime,
   VrcUser,
   VrcUserSummary,
   VrcWorld,
@@ -209,7 +211,7 @@ export type {
   UiApi,
 } from './ui.js';
 
-export { formatDuration, newestFirst, timeAgo } from './time.js';
+export { exactDuration, formatDuration, newestFirst, timeAgo } from './time.js';
 export type { Timestamped, TimeInput } from './time.js';
 export { INSTANCE_TYPES, INSTANCE_TYPE_LABELS, instanceTypeLabel, instanceTypeOptionLabel, isGroupInstance, parseLocation } from './location.js';
 export { TIMELINE_GAP, fitLines, formatUserEvent, instancesSeen, ordinal, recentUserEvents, userEventLines, userEventRows } from './timeline.js';

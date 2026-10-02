@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
+import { trustRankLabel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
 
 const NOW = Date.parse('2026-09-27T00:00:00Z');
 
@@ -69,4 +69,15 @@ describe('trustScoreEmoji', () => {
     expect(trustScoreEmoji(50)).toBe('🟠');
     expect(trustScoreEmoji(10)).toBe('🔴');
   });
+});
+
+it("labels the rank with VRChat's off-by-one naming, as the app shows it", () => {
+  // `system_trust_trusted` is displayed as "Known User": the tags are one rung below the
+  // labels, VRCNext shows it that way, and a report that disagreed would read as the wrong one.
+  expect(trustRankLabel(['system_trust_veteran'])).toBe('Trusted User');
+  expect(trustRankLabel(['system_trust_legend'])).toBe('Trusted User');
+  expect(trustRankLabel(['system_trust_trusted'])).toBe('Known User');
+  expect(trustRankLabel(['system_trust_known'])).toBe('User');
+  expect(trustRankLabel(['system_trust_basic'])).toBe('New User');
+  expect(trustRankLabel([])).toBe('Visitor');
 });

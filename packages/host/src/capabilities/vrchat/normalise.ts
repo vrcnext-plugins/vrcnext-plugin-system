@@ -21,6 +21,7 @@ import {
   type VrcInstanceUser,
   type VrcSelf,
   type VrcTimelineEvent,
+  type VrcStatusTime,
   type VrcUser,
   type VrcUserSummary,
   type VrcWorld,
@@ -118,8 +119,23 @@ export function userDetail(value: unknown): VrcUser | undefined {
     totalTimeSeconds: num(r['totalTimeSeconds']),
     note: str(r['note']) || str(r['userNote']),
     memo: str(r['memo']),
+    languages: strings(r['languages']),
+    allowAvatarCopying: r['allowAvatarCopying'] === true,
   };
 }
+
+/** The `userStatusTime` reply: seconds per status over a window of days. */
+export function statusTime(value: unknown): VrcStatusTime | undefined {
+  const r = rec(value);
+  if (r === undefined) return undefined;
+  const totals = rec(r['totals']) ?? {};
+  const seconds: Record<string, number> = {};
+  for (const [status, value_] of Object.entries(totals)) {
+    if (typeof value_ === 'number' && Number.isFinite(value_)) seconds[status] = value_;
+  }
+  return { days: num(r['days']), totalSeconds: num(r['totalSeconds']), totals: seconds };
+}
+
 
 /** The `vrcUser` push: everything VRCNext knows about the signed-in account. */
 export function self(value: unknown): VrcSelf | undefined {

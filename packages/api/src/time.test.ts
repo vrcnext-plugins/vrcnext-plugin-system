@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { newestFirst, timeAgo } from './time.js';
+import { exactDuration, newestFirst, timeAgo } from './time.js';
 
 const DAY = 86_400_000;
 
@@ -42,4 +42,14 @@ test('newestFirst takes a timestamp however it is held', () => {
   const now = Date.now();
   const items = [{ timestamp: now - 1000 }, { timestamp: new Date(now) }];
   assert.deepEqual(newestFirst(items), [items[1], items[0]]);
+});
+
+test('exactDuration counts to the second, the way VRCNext prints it', () => {
+  assert.equal(exactDuration(18_769), '5h 12m 49s');
+  assert.equal(exactDuration(28_933), '8h 2m 13s');
+  assert.equal(exactDuration(49), '49s');
+  assert.equal(exactDuration(130), '2m 10s');
+  assert.equal(exactDuration(90_008), '1d 1h 0m 8s');
+  assert.equal(exactDuration(0), '0s', 'never tracked reads as zero, not as empty');
+  assert.equal(exactDuration(Number.NaN), '0s');
 });

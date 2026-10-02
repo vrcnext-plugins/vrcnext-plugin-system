@@ -66,6 +66,21 @@ export function trustRankLevel(tags: readonly string[]): number {
   return 0;
 }
 
+/**
+ * VRChat's ladder as the name VRCNext shows: Visitor, New User, User, Known User, Trusted User.
+ *
+ * The tag names are offset by one from the labels — `system_trust_trusted` is shown as "Known
+ * User" and it takes `system_trust_veteran` to be called "Trusted User". That is VRChat's own
+ * quirk, and VRCNext displays it that way, so this mirrors it rather than correcting it: a
+ * report that disagreed with the app about someone's rank would be read as the report being
+ * wrong.
+ */
+export function trustRankLabel(tags: readonly string[]): string {
+  return TRUST_RANK_LABELS[trustRankLevel(tags)] ?? 'Visitor';
+}
+
+const TRUST_RANK_LABELS: readonly string[] = ['Visitor', 'New User', 'User', 'Known User', 'Trusted User'];
+
 /** Years on VRChat, or `undefined` when the join date is unreadable. */
 export function yearsOnVrchat(dateJoined: string | undefined, now = Date.now()): number | undefined {
   if (dateJoined === undefined || dateJoined === '') return undefined;
