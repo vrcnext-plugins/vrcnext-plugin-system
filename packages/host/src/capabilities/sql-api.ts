@@ -29,8 +29,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function asResult(body: unknown): SqlResult {
   if (!isRecord(body)) return { columns: [], rows: [] };
   const columns = Array.isArray(body['columns']) ? (body['columns'] as string[]) : [];
-  const rows = Array.isArray(body['rows']) ? (body['rows'] as SqlValue[][]) : [];
-  return { columns, rows };
+  const raw = Array.isArray(body['rows']) ? body['rows'] : [];
+  // The service sends each row as an object keyed by column name, so anything else is dropped
+  // rather than indexed into and silently read as a row of `undefined`.
+  return { columns, rows: raw.filter((row) => isRecord(row) && !Array.isArray(row)) as SqlRow[] };
 }
 
 export class HostSqlApi implements SqlApi {
@@ -54,12 +56,7 @@ export class HostSqlApi implements SqlApi {
     sql: string,
     params: readonly SqlValue[] = [],
   ): Promise<readonly SqlRow[]> {
-    const result = await this.query(database, sql, params);
-    return result.rows.map((row) => {
-      const out: Record<string, SqlValue> = {};
-      result.columns.forEach((name, index) => { out[name] = row[index] ?? null; });
-      return out;
-    });
+    return (await this.query(database, sql, params)).rows;
   }
 
   async value(
@@ -68,7 +65,10 @@ export class HostSqlApi implements SqlApi {
     params: readonly SqlValue[] = [],
   ): Promise<SqlValue | undefined> {
     const result = await this.query(database, sql, params);
-    return result.rows[0]?.[0];
+    // The first column by position, which is what `SELECT count(*)` means by "the answer".
+    // `columns` carries that order; the row itself is an object and has none.
+    const first = result.columns[0];
+    return first === undefined ? undefined : result.rows[0]?.[first];
   }
 
   async databases(): Promise<readonly SqlDatabaseInfo[]> {

@@ -25,10 +25,15 @@ export type SqlRow = Readonly<Record<string, SqlValue>>;
 /** A database the bridge is willing to open, named by alias. */
 export type SqlDatabase = 'vrcnext' | 'avatars';
 
-/** A result as the bridge returns it: column names, then rows in column order. */
+/**
+ * A result as the bridge returns it: the column names, and rows keyed by those names.
+ *
+ * Rows are objects, not positional arrays — `columns` is there for the order, which an object
+ * does not carry, and for telling "no rows" from "no such column".
+ */
 export interface SqlResult {
   readonly columns: readonly string[];
-  readonly rows: readonly (readonly SqlValue[])[];
+  readonly rows: readonly SqlRow[];
 }
 
 /** What a database is, as the bridge describes it. */
@@ -48,7 +53,7 @@ export interface SqlApi {
   /** One statement, its `?1`-style placeholders bound to `params` in order. */
   query(database: SqlDatabase, sql: string, params?: readonly SqlValue[]): Promise<SqlResult>;
 
-  /** The same, as rows keyed by column name. */
+  /** Just the rows, when the column order does not matter. */
   rows(database: SqlDatabase, sql: string, params?: readonly SqlValue[]): Promise<readonly SqlRow[]>;
 
   /**
