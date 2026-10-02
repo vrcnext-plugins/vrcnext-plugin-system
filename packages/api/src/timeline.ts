@@ -483,6 +483,34 @@ function mergeProfileEdits(entries: readonly { event: VrcTimelineEvent; repeats:
 }
 
 /**
+ * As many of these lines as fit in `budget` characters, joined by newlines.
+ *
+ * Discord caps an embed field at {@link EMBED_LIMITS.fieldValue} characters and silently cuts
+ * what is over, which ends a log mid-word. A line count cannot prevent that: one arrival at
+ * `YTS 2.1 - YouTube Search, Subtitles, Quest #27377` is three times the length of "Came
+ * online", so any count safe for the worst case wastes most of the field in the normal one. So
+ * the caller asks for more lines than it expects to fit and this drops what does not.
+ *
+ * What goes first is what a reader loses least by: the lines just above the gap, which are the
+ * middle of the history. The newest line and the pinned oldest one are the two the field exists
+ * for, so they go last — and if even those two do not fit, the oldest goes and the newest stays.
+ */
+export function fitLines(lines: readonly string[], budget: number, options: { readonly gap?: string } = {}): readonly string[] {
+  const length = (list: readonly string[]): number => list.reduce((total, line) => total + line.length + 1, -1);
+  const kept = [...lines];
+  const gapAt = (): number => (options.gap === undefined ? -1 : kept.indexOf(options.gap));
+  while (kept.length > 1 && length(kept) > budget) {
+    const gap = gapAt();
+    // Above the gap while there is a middle to lose; from the end once the gap is the middle.
+    const drop = gap > 1 ? gap - 1 : kept.length - 1;
+    kept.splice(drop, 1);
+    // A gap left with nothing between it and the oldest row stands for nothing.
+    if (gap === 1 && kept.length === 2) kept.splice(1, 1);
+  }
+  return length(kept) > budget ? [] : kept;
+}
+
+/**
  * {@link userEventRows} and {@link formatUserEvent} together: the lines a log field shows.
  *
  * The gap prints as `...`, which says "and more before this" in the one character a Discord

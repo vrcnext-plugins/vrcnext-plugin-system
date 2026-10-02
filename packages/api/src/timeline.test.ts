@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { TIMELINE_GAP, formatUserEvent, instancesSeen, ordinal, recentUserEvents, userEventLines, userEventRows } from './timeline.js';
+import { TIMELINE_GAP, fitLines, formatUserEvent, instancesSeen, ordinal, recentUserEvents, userEventLines, userEventRows } from './timeline.js';
 import type { VrcTimelineEvent } from './vrchat.js';
 
 const JELLYBEAN = 'wrld_aaaa1111-2222-3333-4444-555566667777:52792~hidden(usr_1)';
@@ -208,4 +208,33 @@ test('the gap row is a row, not a formatted entry', () => {
   ], { limit: 3, oldest: true });
   assert.equal(rows[1], TIMELINE_GAP);
   assert.equal(rows.length, 3);
+});
+
+test('fitLines drops the middle first, keeps the newest, and gives up the oldest last', () => {
+  const line = (text: string): string => `- ${text.padEnd(28, '.')}`;
+  const lines = [line('newest'), line('second'), line('third'), '- ...', line('oldest')];
+  assert.equal(lines.join('\n').length, 129);
+
+  assert.deepEqual(fitLines(lines, 129, { gap: '- ...' }), lines, 'exactly the budget is within it');
+  assert.deepEqual(
+    fitLines(lines, 100, { gap: '- ...' }),
+    [line('newest'), line('second'), '- ...', line('oldest')],
+    'the third line is the middle of the history, so it goes first',
+  );
+  assert.deepEqual(
+    fitLines(lines, 70, { gap: '- ...' }),
+    [line('newest'), '- ...', line('oldest')],
+    'the newest and the oldest are what the field exists for',
+  );
+  assert.deepEqual(
+    fitLines(lines, 40, { gap: '- ...' }),
+    [line('newest')],
+    'the gap stands for nothing once the oldest is gone too',
+  );
+  assert.deepEqual(fitLines(lines, 5, { gap: '- ...' }), [], 'one line that does not fit is no field at all');
+});
+
+test('fitLines without a gap trims from the end', () => {
+  assert.deepEqual(fitLines(['aaaa', 'bbbb', 'cccc'], 9), ['aaaa', 'bbbb']);
+  assert.deepEqual(fitLines([], 10), []);
 });
