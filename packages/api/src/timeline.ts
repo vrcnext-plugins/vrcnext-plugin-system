@@ -446,6 +446,9 @@ export function userEventRows(
   if (oldest === undefined) return all.slice(0, limit);
   // Everything that fits above the gap and the pinned row, and never the pinned row twice.
   const head = all.slice(0, Math.min(limit - 2, all.length - 1));
+  // A gap is what sits *between* two rows. With nothing above it, it leads the field with an
+  // ellipsis and says only that a record exists, so the pinned row stands on its own instead.
+  if (head.length === 0) return [oldest];
   return [...head, TIMELINE_GAP, oldest];
 }
 

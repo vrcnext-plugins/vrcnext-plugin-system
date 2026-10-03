@@ -281,3 +281,12 @@ test('knownGap draws the gap for a hole this call did not create', () => {
   const ids = told.filter((row) => row !== TIMELINE_GAP).map((row) => row.event.timestamp);
   assert.equal(new Set(ids).size, ids.length);
 });
+
+test('a lone record is not given a gap above it', () => {
+  // One record and `knownGap`: the field rendered as "..." and then a single line, which leads
+  // with an ellipsis standing for nothing a reader can place it against.
+  const rows = [{ type: 'meet_again', timestamp: '2025-10-02T22:00:00Z', location: 'wrld_a:1', worldName: 'Lotus' }];
+  const told = userEventRows(rows, { limit: 12, oldest: true, knownGap: true });
+  assert.equal(told.includes(TIMELINE_GAP), false);
+  assert.equal(told.length, 1);
+});
