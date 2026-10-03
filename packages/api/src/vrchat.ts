@@ -383,6 +383,24 @@ export interface VrcFriendInstance {
  * when the record does not carry them. `formatUserEvent` reads all of them, so a plugin does
  * not have to know which type carries what.
  */
+/**
+ * One player's presence in an `instance_join`, as VRCNext recorded it.
+ *
+ * The two arrays are sessions, paired by position: someone who left and came back has two
+ * `joinedAts` and one or two `leftAts`. This is the only place a *second* visit to the same
+ * instance is written down — VRCNext files one timeline record per person per instance, so from
+ * the records alone a player who left for ten minutes and returned is indistinguishable from one
+ * who never moved.
+ */
+export interface VrcTimelinePlayer {
+  readonly userId: string;
+  readonly displayName: string;
+  /** Each time they arrived, oldest first. */
+  readonly joinedAts: readonly string[];
+  /** Each time they left; shorter than {@link joinedAts} while they are still here. */
+  readonly leftAts: readonly string[];
+}
+
 export interface VrcTimelineEvent {
   readonly type: string;
   readonly timestamp: string;
@@ -403,6 +421,8 @@ export interface VrcTimelineEvent {
   readonly message?: string;
   /** When an `instance_join` ended; `''` while it is still going. */
   readonly leftAt?: string;
+  /** Who was there, on `instance_join` records. Empty on every other type, and on VRCX imports. */
+  readonly players?: readonly VrcTimelinePlayer[];
   /**
    * VRCNext's lifetime meet total for `userId`, on `meet_again` records only.
    *

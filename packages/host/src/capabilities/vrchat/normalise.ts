@@ -22,6 +22,7 @@ import {
   type VrcInstanceUser,
   type VrcSelf,
   type VrcTimelineEvent,
+  type VrcTimelinePlayer,
   type VrcStatusTime,
   type VrcUser,
   type VrcUserSummary,
@@ -390,6 +391,19 @@ export function instance(value: unknown): VrcInstance | undefined {
   };
 }
 
+function timelinePlayer(value: unknown): VrcTimelinePlayer | undefined {
+  const r = rec(value);
+  if (r === undefined) return undefined;
+  const userId = str(r['userId']);
+  if (userId === '') return undefined;
+  return {
+    userId,
+    displayName: str(r['displayName']),
+    joinedAts: strings(r['joinedAts']),
+    leftAts: strings(r['leftAts']),
+  };
+}
+
 export function timelineEvent(value: unknown): VrcTimelineEvent | undefined {
   const r = rec(value);
   if (r === undefined) return undefined;
@@ -411,6 +425,9 @@ export function timelineEvent(value: unknown): VrcTimelineEvent | undefined {
     senderName: str(r['senderName']),
     message: str(r['message']),
     leftAt: str(r['leftAt']),
+    // Each person's sessions in the instance. The only record of a second visit: VRCNext files
+    // one timeline record per person per instance, however often they came and went.
+    players: each(r['players'], timelinePlayer),
     // VRCNext's own lifetime total, sent on `meet_again` only. It counts further back than
     // the ten records `getTimelineForUser` returns, so it is the honest answer for "how many
     // times" on an arrival. `VrcUser.meets` is the same number for a profile read: VRCNext

@@ -122,6 +122,7 @@ export type {
   VrcSearchPage,
   VrcSelf,
   VrcTimelineEvent,
+  VrcTimelinePlayer,
   VrcModerations,
   VrcStatusTime,
   VrcUser,
