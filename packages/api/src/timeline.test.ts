@@ -152,15 +152,21 @@ test('every arrival at one instance is one counted line, however far apart', () 
     'one place, one line, counting the three arrivals and worded as the meeting');
 });
 
-test('meeting someone for the first time keeps its own line in a place they return to', () => {
-  const lines = userEventLines([
+test('a place is one line even when the first meeting was there too', () => {
+  // VRCNext files `first_meet` and the arrival that was that meeting seconds apart, which used
+  // to render "Met for the first time in X" directly above "Visited X".
+  assert.deepEqual(userEventLines([
+    at('instance_join', JELLY, 'Jellybean', '2026-01-01T11:59:46Z'),
+    at('first_meet', JELLY, 'Jellybean', '2026-01-01T12:00:00Z'),
+  ], { time: 'none' }), ['Met for the first time in "Jellybean #52792" (Friends+)'],
+  'one arrival, so no count, and worded as the first meeting it was');
+
+  // Returning later is the same place: one line, counted, worded as the most recent visit —
+  // "Met for the first time ×2" would be describing the visit the timestamp is not about.
+  assert.deepEqual(userEventLines([
     at('first_meet', JELLY, 'Jellybean', '2026-01-01T12:00:00Z'),
     at('meet_again', JELLY, 'Jellybean', '2026-09-28T12:00:00Z'),
-  ], { time: 'none' });
-  assert.deepEqual(lines, [
-    'Met again in "Jellybean #52792" (Friends+)',
-    'Met for the first time in "Jellybean #52792" (Friends+)',
-  ]);
+  ], { time: 'none' }), ['Met again in "Jellybean #52792" (Friends+) ×2']);
 });
 
 test('the oldest record is pinned last, with a gap for what is between', () => {

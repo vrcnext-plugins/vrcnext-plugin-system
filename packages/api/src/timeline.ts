@@ -307,12 +307,19 @@ function relative(timestamp: string): string {
  * records of that type distinguishable. Two visits to one instance collapse; two visits to
  * different instances do not.
  *
- * Arrivals are keyed by the instance alone. VRCNext files a separate record every time someone
- * walks into a place — and files `instance_join` *and* `meet_again` for the same arrival — so
- * keying them by type as well spent a five-line log saying "this instance" five ways. One line
- * per instance with a count is the whole of that news. `first_meet` is deliberately not in
- * {@link ARRIVALS}: it happens once per person and is worth its own line even in a place they
- * have since returned to a hundred times.
+ * Arrivals are keyed by the instance alone, `first_meet` included. VRCNext files a separate
+ * record every time someone walks into a place — and files two or three of them for a single
+ * arrival, `instance_join` for the move, `meet_again` because you were there, `first_meet` if it
+ * was the first time — so keying them by type as well spent a short log saying "this instance"
+ * several ways. One line per instance with a count is the whole of that news.
+ *
+ * `first_meet` used to be exempt, on the grounds that a first meeting is worth its own line even
+ * in a place since returned to. In practice it bought a duplicate: on this owner's database the
+ * first meeting and the arrival that *was* that meeting are filed seconds apart, so twelve of a
+ * hundred and forty-one players rendered one place on two lines — "Met for the first time in X"
+ * directly above "Visited X", same place, same minute. The firstness is not lost, because
+ * {@link outranks} still words a line as the meeting, and a report that wants the date has it on
+ * its own: Club Security's `firstMet` comes from the profile payload, not from this log.
  */
 function key(event: VrcTimelineEvent): string {
   const location = parseLocation(event.location).key || event.location;
@@ -320,18 +327,30 @@ function key(event: VrcTimelineEvent): string {
   return [event.type, event.notifType ?? '', location, event.worldName, event.message ?? ''].join('|');
 }
 
-/** The types that collapse to one line per instance: going somewhere, and meeting there again. */
-const ARRIVALS: ReadonlySet<string> = new Set([...VISIT_TYPES, 'meet_again']);
+/**
+ * The types that collapse to one line per instance: going somewhere, and meeting there.
+ *
+ * Every type that means "they were in this instance". A place a player has been to more than
+ * once is one line with a `×n` whatever mix of records VRCNext filed for those visits.
+ */
+const ARRIVALS: ReadonlySet<string> = new Set([...VISIT_TYPES, ...MEETING_TYPES]);
 
 /**
- * Which of two records of the same arrival to word the line as.
+ * Which of two records at the same instance to word the line as.
  *
  * "Met again in X" is everything "Visited X" says and more, so a meeting outranks a visit even
  * when the visit is the newer record. The timestamp still comes from the newest, which is when
  * the place last saw them.
+ *
+ * `first_meet` is not promoted this way, only kept when it is already the newest record of the
+ * group. The line carries the newest timestamp, and "Met for the first time in X ×4" stamped
+ * last Tuesday would be describing the wrong visit — the first meeting is the one record in the
+ * group the stamp is certain *not* to be about. When the first meeting is the newest thing
+ * VRCNext has for that place, which is how a one-arrival pair arrives, it is kept and reads
+ * correctly.
  */
 function outranks(candidate: VrcTimelineEvent, current: VrcTimelineEvent): boolean {
-  return MEETING_TYPES.has(candidate.type) && !MEETING_TYPES.has(current.type);
+  return candidate.type === 'meet_again' && !MEETING_TYPES.has(current.type);
 }
 
 /**
