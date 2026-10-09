@@ -7,8 +7,33 @@ capability pages.
 
 ## Gate
 
-`./scripts/check.sh` — typecheck, lint, tests (examples and `scripts/*.test.ts` included), the
-VRCNext protocol check, API-version agreement, build. It must pass before a commit.
+`./scripts/check.sh` is the only gate, and it must pass before a commit. In one run: typecheck
+(packages and the tooling configs), lint at `--max-warnings=0`, tests (examples and
+`scripts/*.test.ts` included), the VRCNext protocol check, the reuse check, API-version
+agreement, and the bundle.
+
+There is no way to build without it. `scripts/build.sh` and `npm run build` hand control back to
+the gate unless the gate invoked them, so a bundle has always been through every check — the
+bridge compiles these same sources on a user's machine, where a skipped check surfaces at install
+time instead.
+
+The gate needs **Node 22 or newer**, as `engines` says: jsdom, vitest and undici all dropped
+Node 20, and on it the JSDOM tests fail inside undici rather than saying what is wrong. Keep
+`engines` honest — a range wider than the dependencies accept lets `npm ci` install a tree that
+cannot run.
+
+**The reuse check** (`scripts/check-reuse.mjs`) fails on a request to VRCNext, a forced-fresh
+read, an outbound call, or an in-memory copy of VRChat data that does not carry a marker saying
+why nothing existing answers it:
+
+```ts
+// reuse: the page holds only the window it has fetched, so a total has to come from the database
+```
+
+Write the reason, not the word — `reuse: needed` is worse than no marker, because the next reader
+believes it. Before adding one, check `capabilities/vrchat/page-state.ts` for what VRCNext already
+holds in the page, and `ctx.vrchat.name()` / `self()` / `moderations()` / `moderationCounts()`,
+which are reads rather than lookups.
 
 ## Deploying locally
 

@@ -12,6 +12,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# The gate is not optional. `check.sh` is the one place that knows every check, and it ends by
+# calling this script, exporting VRCNEXT_GATE_RUNNING so this does not recurse. Reached any other
+# way, hand the whole job back to it: a bundle nobody type-checked, linted, tested and checked
+# against VRCNext's protocol is exactly what gets noticed late, at install time.
+if [[ -z "${VRCNEXT_GATE_RUNNING:-}" ]]; then
+  exec "$ROOT/scripts/check.sh"
+fi
+
 OUT_DIR="$ROOT/dist"
 BUNDLE="$OUT_DIR/vrcnext-plugin-host.js"
 

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Full verification gate. Output is never filtered — a hidden warning is the thing this exists
-# to catch.
+# The one verification gate: every check this repository has, in one run, ending with the bundle.
+#
+# There is deliberately no second entry point. `scripts/build.sh` hands control back here unless
+# this script invoked it, so there is no way to produce a bundle that skipped a check — which is
+# the failure worth engineering against, because the bridge compiles these same sources on a
+# user's machine and a check skipped here surfaces there, at install time.
+#
+# Output is never filtered — a hidden warning is the thing this exists to catch. Anything calling
+# this script shows its output too.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,6 +40,6 @@ if [[ "$API_PKG_VERSION" != "$HOST_API_VERSION" ]]; then
 fi
 
 echo "==> Build"
-"$ROOT/scripts/build.sh"
+VRCNEXT_GATE_RUNNING=1 "$ROOT/scripts/build.sh"
 
 echo "==> All checks passed"

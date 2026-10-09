@@ -28,7 +28,8 @@ fi
 [[ -n "$PORT" ]] || { echo "Could not find the bridge's port; pass VRCNEXT_BRIDGE_PORT." >&2; exit 1; }
 
 echo "==> Gate"
-"$ROOT/scripts/check.sh" >/dev/null
+# Shown, not swallowed: a warning hidden behind >/dev/null is the one this would have caught.
+"$ROOT/scripts/check.sh"
 
 echo "==> Copying packages/*/src to $HOST_DIR/host (without tests)"
 for package in "$ROOT"/packages/*/; do
