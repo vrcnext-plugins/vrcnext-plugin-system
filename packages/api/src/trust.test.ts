@@ -84,14 +84,29 @@ it("labels the rank with VRChat's off-by-one naming, as the app shows it", () =>
 
 it('pairs each language with its flag, and leaves sign languages unflagged', () => {
   const tags = ['system_trust_known', 'language_deu', 'language_eng', 'language_ase'];
-  expect(languageLabels(tags)).toEqual(['Deutsch', 'English', 'ASL']);
+  expect(languageLabels(tags)).toEqual(['ASL', 'Deutsch', 'English']);
   expect(languageFlags(tags)).toEqual(['🇩🇪', '🇺🇸']);
   expect(spokenLanguages(tags)).toEqual([
-    { tag: 'language_deu', label: 'Deutsch', flag: '🇩🇪' },
-    { tag: 'language_eng', label: 'English', flag: '🇺🇸' },
     // No country stands for a sign language, and a wrong flag beside a name is worse than none.
     { tag: 'language_ase', label: 'ASL' },
+    { tag: 'language_deu', label: 'Deutsch', flag: '🇩🇪' },
+    { tag: 'language_eng', label: 'English', flag: '🇺🇸' },
   ]);
+});
+
+it('sorts by label whatever order the profile lists its tags in', () => {
+  // The same two languages in either order, so a row of flags and a list of names line up and
+  // two profiles that speak the same pair read the same way.
+  const one = ['language_eng', 'language_deu'];
+  const other = ['language_deu', 'language_eng'];
+  expect(languageLabels(one)).toEqual(languageLabels(other));
+  expect(languageFlags(one)).toEqual(['🇩🇪', '🇺🇸']);
+  expect(languageFlags(other)).toEqual(['🇩🇪', '🇺🇸']);
+
+  // By the label and not by the tag: `日本語` sorts by its own text, where `jpn` would have put
+  // it between Italiano and Lietuvių.
+  expect(languageLabels(['language_jpn', 'language_ita', 'language_lit']))
+    .toEqual(['Italiano', 'Lietuvių', '日本語']);
 });
 
 it('a language tag VRChat added since is kept, named by its code, and unflagged', () => {
@@ -109,15 +124,20 @@ it('no tags, and no language tags, are both simply nothing', () => {
 it('names the languages VRCNext has no name for, and signs them correctly', () => {
   // VRCNext renders these as `ITA` and `HRV`; a real profile store had twenty such tags in use.
   expect(spokenLanguages(['language_ita', 'language_hrv'])).toEqual([
-    { tag: 'language_ita', label: 'Italiano', flag: '🇮🇹' },
     { tag: 'language_hrv', label: 'Hrvatski', flag: '🇭🇷' },
+    { tag: 'language_ita', label: 'Italiano', flag: '🇮🇹' },
   ]);
 
   // ISO 639-3: `dse` is Dutch Sign Language, `gsg` the German one. VRCNext calls `dse` "DGS",
   // which captions a Dutch signer as German.
-  expect(languageLabels(['language_dse', 'language_gsg'])).toEqual(['NGT', 'DGS']);
+  // Named per tag rather than per position, because the list is sorted by label: `['DGS', 'NGT']`
+  // would read as if `dse` were the German one, which is the mistake being tested for.
+  expect(spokenLanguages(['language_dse', 'language_gsg'])).toEqual([
+    { tag: 'language_gsg', label: 'DGS' },
+    { tag: 'language_dse', label: 'NGT' },
+  ]);
 
   // No flag where no country stands for the language, rather than a plausible-looking guess.
   expect(languageFlags(['language_yue', 'language_sco', 'language_tok', 'language_zxx'])).toEqual([]);
-  expect(languageLabels(['language_yue', 'language_tok'])).toEqual(['粵語', 'Toki Pona']);
+  expect(languageLabels(['language_yue', 'language_tok'])).toEqual(['Toki Pona', '粵語']);
 });

@@ -212,9 +212,31 @@ export const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   language_nzs: 'NZSL', language_tok: 'Toki Pona',
 };
 
-/** The languages a profile lists, read from its tags and named as VRCNext names them. */
+/** What one tag is called, falling back to the bare code for a tag VRChat added since. */
+function labelFor(tag: string): string {
+  return LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase();
+}
+
+/**
+ * The order every list of languages here is in: alphabetical, by the label.
+ *
+ * A profile lists its languages in whatever order they were added, so the same two languages
+ * come out in different orders on two profiles, and a caller showing flags in one place and
+ * labels in another has no way to line them up. Sorted by the label and not by the tag, because
+ * the label is what a reader sees: `日本語` belongs where its own text puts it, not where `jpn`
+ * would.
+ */
+function byLabel(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
+/**
+ * The languages a profile lists, read from its tags and named as VRCNext names them.
+ *
+ * Alphabetical, not in the profile's own order — see {@link byLabel}.
+ */
 export function languageLabels(tags: readonly string[] | undefined): readonly string[] {
-  return languageTags(tags).map((tag) => LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase());
+  return languageTags(tags).map(labelFor).toSorted(byLabel);
 }
 
 /**
@@ -278,14 +300,17 @@ export function languageFlag(tag: string): string | undefined {
  * The languages a profile lists, each with its label and its flag.
  *
  * The pairing a caller usually wants: a list of flags for a compact line, and the labels to go
- * beside them in a longer one, both from the same source and in the same order.
+ * beside them in a longer one, both from the same source and in the same order — alphabetical
+ * by label, as {@link byLabel} explains, so a row of flags and a list of names agree.
  */
 export function spokenLanguages(tags: readonly string[] | undefined): readonly SpokenLanguage[] {
-  return languageTags(tags).map((tag) => {
-    const flag = languageFlag(tag);
-    const label = LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase();
-    return flag === undefined ? { tag, label } : { tag, label, flag };
-  });
+  return languageTags(tags)
+    .map((tag) => {
+      const flag = languageFlag(tag);
+      const label = labelFor(tag);
+      return flag === undefined ? { tag, label } : { tag, label, flag };
+    })
+    .toSorted((a, b) => byLabel(a.label, b.label));
 }
 
 /**
