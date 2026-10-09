@@ -174,10 +174,20 @@ export function trustScore(user: TrustInput, now = Date.now()): TrustScore {
 }
 
 /**
- * VRChat's language tags, as VRCNext labels them.
+ * VRChat's language tags, as VRCNext labels them, plus the ones it has no name for.
  *
  * A profile's spoken languages are tags, not the `languages` array beside them — VRCNext sends
  * that array empty on every profile payload and renders the pills from the tags instead.
+ *
+ * The first block is VRCNext's own `LANG_MAP`, kept identical so a plugin and the app name a
+ * language the same way. The second is everything VRChat has added since, which VRCNext renders
+ * as a bare `ITA` or `HRV`; measured against a real profile store, twenty tags in active use
+ * were unnamed, `zxx` and Italian among the most common. A tag in neither block still falls back
+ * to its upper-cased code, so a language VRChat adds tomorrow degrades rather than disappears.
+ *
+ * One deliberate departure: VRCNext labels `dse` as `DGS`, but ISO 639-3 `dse` is **Dutch** Sign
+ * Language and `DGS` is the German one, which is `gsg`. Copying that would caption a Dutch
+ * signer as German, so the two are named correctly here and `gsg` is added.
  */
 export const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   language_eng: 'English', language_kor: '한국어', language_rus: 'Русский',
@@ -188,14 +198,102 @@ export const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   language_nor: 'Norsk', language_fin: 'Suomi', language_ces: 'Čeština',
   language_hun: 'Magyar', language_ron: 'Română', language_tha: 'ไทย',
   language_vie: 'Tiếng Việt', language_ukr: 'Українська', language_ase: 'ASL',
-  language_bfi: 'BSL', language_dse: 'DGS', language_fsl: 'LSF',
-  language_kvk: 'KSL',
+  language_bfi: 'BSL', language_fsl: 'LSF', language_kvk: 'KSL',
+
+  // Not in VRCNext's table. Spoken languages first, then the sign languages, then Toki Pona,
+  // which is constructed and has no country to name it after.
+  language_ita: 'Italiano', language_hrv: 'Hrvatski', language_ell: 'Ελληνικά',
+  language_bul: 'Български', language_heb: 'עברית', language_hin: 'हिन्दी',
+  language_ben: 'বাংলা', language_tel: 'తెలుగు', language_lav: 'Latviešu',
+  language_lit: 'Lietuvių', language_ind: 'Bahasa Indonesia', language_ltz: 'Lëtzebuergesch',
+  language_afr: 'Afrikaans', language_fil: 'Filipino', language_sco: 'Scots',
+  language_cmn: '普通话', language_yue: '粵語', language_wuu: '吴语',
+  language_dse: 'NGT', language_gsg: 'DGS', language_asf: 'Auslan',
+  language_nzs: 'NZSL', language_tok: 'Toki Pona',
 };
 
 /** The languages a profile lists, read from its tags and named as VRCNext names them. */
 export function languageLabels(tags: readonly string[] | undefined): readonly string[] {
-  if (tags === undefined) return [];
-  return tags
-    .filter((tag) => tag.startsWith('language_'))
-    .map((tag) => LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase());
+  return languageTags(tags).map((tag) => LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase());
+}
+
+/**
+ * A flag emoji per language, mirroring VRCNext's own `LANG_FLAG` table.
+ *
+ * **These are countries, not languages**, and the pairing is VRCNext's: English is 🇺🇸 rather
+ * than 🇬🇧, Portuguese 🇧🇷 rather than 🇵🇹, Chinese 🇨🇳 and Arabic 🇸🇦. Kept identical to the app
+ * on purpose — a plugin that flagged English with 🇬🇧 beside VRCNext's own 🇺🇸 pill would look
+ * like a bug — but it is a presentational convention, not a fact about a speaker.
+ *
+ * The five sign languages have no entry, because no country stands for one. {@link languageFlag}
+ * answers `undefined` for them rather than picking a flag, and callers show the label instead.
+ */
+export const LANGUAGE_FLAGS: Readonly<Record<string, string>> = {
+  language_eng: '🇺🇸', language_kor: '🇰🇷', language_rus: '🇷🇺',
+  language_spa: '🇪🇸', language_por: '🇧🇷', language_zho: '🇨🇳',
+  language_deu: '🇩🇪', language_jpn: '🇯🇵', language_fra: '🇫🇷',
+  language_swe: '🇸🇪', language_nld: '🇳🇱', language_tur: '🇹🇷',
+  language_ara: '🇸🇦', language_pol: '🇵🇱', language_dan: '🇩🇰',
+  language_nor: '🇳🇴', language_fin: '🇫🇮', language_ces: '🇨🇿',
+  language_hun: '🇭🇺', language_ron: '🇷🇴', language_tha: '🇹🇭',
+  language_vie: '🇻🇳', language_ukr: '🇺🇦',
+
+  // Beyond VRCNext's table, and only where one country is the obvious answer — Italian is 🇮🇹 the
+  // way VRCNext's Polish is 🇵🇱. Deliberately absent: Bengali, Telugu, Cantonese, Wu and Scots,
+  // whose speakers are not summed up by a national flag, and Toki Pona and `zxx`, which name no
+  // place at all. They render as their label, which is the honest answer rather than a guess.
+  language_ita: '🇮🇹', language_hrv: '🇭🇷', language_ell: '🇬🇷',
+  language_bul: '🇧🇬', language_heb: '🇮🇱', language_hin: '🇮🇳',
+  language_lav: '🇱🇻', language_lit: '🇱🇹', language_ind: '🇮🇩',
+  language_ltz: '🇱🇺', language_afr: '🇿🇦', language_fil: '🇵🇭',
+  language_cmn: '🇨🇳',
+};
+
+/** One language, as a label and the flag that goes with it where there is one. */
+export interface SpokenLanguage {
+  /** The tag itself, `language_deu`, for a caller that wants to map it some other way. */
+  readonly tag: string;
+  /** `Deutsch`, in its own script, or the upper-cased code for a tag VRChat added since. */
+  readonly label: string;
+  /** `undefined` for the sign languages, and for any tag with no flag of its own. */
+  readonly flag?: string;
+}
+
+/** Every `language_*` tag, in the order the profile lists them. */
+function languageTags(tags: readonly string[] | undefined): readonly string[] {
+  return (tags ?? []).filter((tag) => tag.startsWith('language_'));
+}
+
+/**
+ * The flag for one language tag, or `undefined` when none stands for it.
+ *
+ * Deliberately not falling back to a flag-shaped placeholder: a wrong flag beside someone's name
+ * says something about them that is not true, and an absent one says nothing.
+ */
+export function languageFlag(tag: string): string | undefined {
+  return LANGUAGE_FLAGS[tag];
+}
+
+/**
+ * The languages a profile lists, each with its label and its flag.
+ *
+ * The pairing a caller usually wants: a list of flags for a compact line, and the labels to go
+ * beside them in a longer one, both from the same source and in the same order.
+ */
+export function spokenLanguages(tags: readonly string[] | undefined): readonly SpokenLanguage[] {
+  return languageTags(tags).map((tag) => {
+    const flag = languageFlag(tag);
+    const label = LANGUAGE_LABELS[tag] ?? tag.slice('language_'.length).toUpperCase();
+    return flag === undefined ? { tag, label } : { tag, label, flag };
+  });
+}
+
+/**
+ * Just the flags, in profile order — `🇩🇪 🇺🇸` for a German who also speaks English.
+ *
+ * Languages without a flag are left out rather than spaced over, so the result is either a run
+ * of flags or empty, and a caller can treat empty as "nothing to prefix".
+ */
+export function languageFlags(tags: readonly string[] | undefined): readonly string[] {
+  return spokenLanguages(tags).flatMap((language) => (language.flag === undefined ? [] : [language.flag]));
 }

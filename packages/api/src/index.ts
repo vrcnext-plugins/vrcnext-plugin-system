@@ -103,8 +103,8 @@ export type { DiscordTimeStyle } from './discord-text.js';
 export type { DiscordEmbed, DiscordWebhookPayload, RenderEmbedOptions } from './discord-embed.js';
 
 export { PERFORMANCE_RANKS, RANK_EMOJI, STATUS_LABELS, TRUST_RANKS, mostlyStatus, platformLabel, rankEmoji, rankIndex, rankLabel, statusLabel, trustRank } from './vrchat.js';
-export { LANGUAGE_LABELS, languageLabels, trustRankLabel, trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
-export type { TrustCriterion, TrustInput, TrustScore } from './trust.js';
+export { LANGUAGE_FLAGS, LANGUAGE_LABELS, languageFlag, languageFlags, languageLabels, spokenLanguages, trustRankLabel, trustRankLevel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
+export type { SpokenLanguage, TrustCriterion, TrustInput, TrustScore } from './trust.js';
 export type {
   PerformanceRank,
   TrustRank,

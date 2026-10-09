@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { trustRankLabel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
+import { languageFlag, languageFlags, languageLabels, spokenLanguages, trustRankLabel, trustScore, trustScoreEmoji, yearsOnVrchat } from './trust.js';
 
 const NOW = Date.parse('2026-09-27T00:00:00Z');
 
@@ -80,4 +80,44 @@ it("labels the rank with VRChat's off-by-one naming, as the app shows it", () =>
   expect(trustRankLabel(['system_trust_known'])).toBe('User');
   expect(trustRankLabel(['system_trust_basic'])).toBe('New User');
   expect(trustRankLabel([])).toBe('Visitor');
+});
+
+it('pairs each language with its flag, and leaves sign languages unflagged', () => {
+  const tags = ['system_trust_known', 'language_deu', 'language_eng', 'language_ase'];
+  expect(languageLabels(tags)).toEqual(['Deutsch', 'English', 'ASL']);
+  expect(languageFlags(tags)).toEqual(['🇩🇪', '🇺🇸']);
+  expect(spokenLanguages(tags)).toEqual([
+    { tag: 'language_deu', label: 'Deutsch', flag: '🇩🇪' },
+    { tag: 'language_eng', label: 'English', flag: '🇺🇸' },
+    // No country stands for a sign language, and a wrong flag beside a name is worse than none.
+    { tag: 'language_ase', label: 'ASL' },
+  ]);
+});
+
+it('a language tag VRChat added since is kept, named by its code, and unflagged', () => {
+  expect(spokenLanguages(['language_xyz'])).toEqual([{ tag: 'language_xyz', label: 'XYZ' }]);
+  expect(languageFlags(['language_xyz'])).toEqual([]);
+});
+
+it('no tags, and no language tags, are both simply nothing', () => {
+  expect(spokenLanguages(undefined)).toEqual([]);
+  expect(languageFlags(['system_trust_known'])).toEqual([]);
+  expect(languageFlag('language_deu')).toBe('🇩🇪');
+  expect(languageFlag('language_bfi')).toBeUndefined();
+});
+
+it('names the languages VRCNext has no name for, and signs them correctly', () => {
+  // VRCNext renders these as `ITA` and `HRV`; a real profile store had twenty such tags in use.
+  expect(spokenLanguages(['language_ita', 'language_hrv'])).toEqual([
+    { tag: 'language_ita', label: 'Italiano', flag: '🇮🇹' },
+    { tag: 'language_hrv', label: 'Hrvatski', flag: '🇭🇷' },
+  ]);
+
+  // ISO 639-3: `dse` is Dutch Sign Language, `gsg` the German one. VRCNext calls `dse` "DGS",
+  // which captions a Dutch signer as German.
+  expect(languageLabels(['language_dse', 'language_gsg'])).toEqual(['NGT', 'DGS']);
+
+  // No flag where no country stands for the language, rather than a plausible-looking guess.
+  expect(languageFlags(['language_yue', 'language_sco', 'language_tok', 'language_zxx'])).toEqual([]);
+  expect(languageLabels(['language_yue', 'language_tok'])).toEqual(['粵語', 'Toki Pona']);
 });

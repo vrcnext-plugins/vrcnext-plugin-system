@@ -152,7 +152,9 @@ export function self(value: unknown): VrcSelf | undefined {
     bio: str(r['bio']),
     bioLinks: strings(r['bioLinks']),
     pronouns: str(r['pronouns']),
-    languages: strings(r['languages']),
+    // From the tags, for the same reason as `userDetail` above: the array is always empty, and
+    // reading it left the signed-in account the one profile with no languages on it.
+    languages: languageLabels(summary.tags),
     dateJoined: str(r['dateJoined']),
     lastLogin: str(r['lastLogin']),
     currentAvatarId: str(r['currentAvatar']),
