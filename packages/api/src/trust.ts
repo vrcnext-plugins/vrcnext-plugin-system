@@ -210,6 +210,11 @@ export const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   language_cmn: '普通话', language_yue: '粵語', language_wuu: '吴语',
   language_dse: 'NGT', language_gsg: 'DGS', language_asf: 'Auslan',
   language_nzs: 'NZSL', language_tok: 'Toki Pona',
+  // ISO 639-2 `zxx` is "no linguistic content", and 79 profiles in this owner's store carry it.
+  // Named for what the standard says rather than guessed at — someone who set it may mean they
+  // speak none, or sign only, or would rather not say, and the list is not the place to decide
+  // which. `ZXX`, the code fallback, told a reader nothing at all.
+  language_zxx: 'No language',
 };
 
 /** What one tag is called, falling back to the bare code for a tag VRChat added since. */

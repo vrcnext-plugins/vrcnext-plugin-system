@@ -139,5 +139,7 @@ it('names the languages VRCNext has no name for, and signs them correctly', () =
 
   // No flag where no country stands for the language, rather than a plausible-looking guess.
   expect(languageFlags(['language_yue', 'language_sco', 'language_tok', 'language_zxx'])).toEqual([]);
+  // `zxx` is the standard's "no linguistic content", so it is named rather than left as `ZXX`.
+  expect(languageLabels(['language_zxx'])).toEqual(['No language']);
   expect(languageLabels(['language_yue', 'language_tok'])).toEqual(['Toki Pona', '粵語']);
 });
